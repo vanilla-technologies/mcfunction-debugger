@@ -9,6 +9,6 @@ pub enum Command {
     OtherCommand,
 }
 
-pub fn parseCommand(line: &str) -> Command {
+pub fn parse_command(line: &str) -> Command {
     unimplemented!()
 }

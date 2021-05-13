@@ -1,6 +1,6 @@
 mod parser;
 
-use crate::parser::parseCommand;
+use crate::parser::parse_command;
 use clap::{App, Arg};
 use std::{
     collections::HashMap,
@@ -33,7 +33,7 @@ fn main() -> io::Result<()> {
         let file = File::open(path)?;
         for line in io::BufReader::new(file).lines() {
             let line = line?;
-            let command = parseCommand(&line);
+            let command = parse_command(&line);
         }
     }
 
