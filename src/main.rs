@@ -5,7 +5,7 @@ use crate::parser::parse_line;
 use clap::{App, Arg};
 use std::{
     collections::HashMap,
-    fs::{create_dir, write},
+    fs::{create_dir_all, write},
     path::{Path, PathBuf},
 };
 use std::{
@@ -17,26 +17,10 @@ use walkdir::WalkDir;
 const DATAPACK: &str = "datapack";
 const OUTPUT: &str = "output";
 
-// datapack resources
-static PACK_MCMETA: &'static str = include_str!("datapack_resources/pack.mcmeta");
-static ID_INSTALL: &'static str =
-    include_str!("datapack_resources/id_generation/install.mcfunction");
-static ID_UNINSTALL: &'static str =
-    include_str!("datapack_resources/id_generation/uninstall.mcfunction");
-static ID_INIT: &'static str =
-    include_str!("datapack_resources/id_generation/init_self.mcfunction");
-static ID_ASSIGN: &'static str = include_str!("datapack_resources/id_generation/assign.mcfunction");
-static SUMMON_ENTITY_MARKER: &'static str = include_str!(
-    "datapack_resources/summon_entity_markers/summon_selected_entity_marker.mcfunction"
-);
-static SUMMON_ENTITY_MARKER_ANCHORED: &'static str = include_str!(
-    "datapack_resources/summon_entity_markers/summon_selected_entity_marker_anchored_eyes.mcfunction"
-);
-
 // templates
-static STORE_DEBUG_CALLER_MAIN_CONTEXT: &'static str =
+const STORE_DEBUG_CALLER_MAIN_CONTEXT: &str =
     include_str!("templates/store_debug_caller_main_context.mcfunction");
-static MARK_CURRENT_ENTITY: &'static str = include_str!("templates/mark_current_entity.mcfunction");
+const MARK_CURRENT_ENTITY: &str = include_str!("templates/mark_current_entity.mcfunction");
 
 fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
@@ -59,14 +43,14 @@ fn main() -> io::Result<()> {
     let pack_mcmeta_path = datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
     let output_path = Path::new(matches.value_of(OUTPUT).unwrap());
-    let debug_data_output_path = generate_debug_datapack(output_path)?;
+    generate_debug_datapack(output_path)?;
 
     let functions = find_function_files(datapack_path)?;
     for (name, path) in functions.iter() {
         let file = File::open(path)?;
         for line in io::BufReader::new(file).lines() {
             let line = line?;
-            let command = parse_line(&line);
+            // let command = parse_line(&line);
         }
     }
 
@@ -90,46 +74,43 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn generate_debug_datapack(datapack_path: &Path) -> Result<PathBuf, io::Error> {
-    let datapack_path = datapack_path.join("debug");
-    create_dir(&datapack_path)?;
-    let mcmeta_file = datapack_path.join("pack.mcmeta");
-    write(mcmeta_file, PACK_MCMETA)?;
-    let data_directory = datapack_path.join("data");
-    create_dir(&data_directory)?;
+fn generate_debug_datapack(path: &Path) -> Result<(), io::Error> {
+    create_file(
+        path.join("data/debug/functions/id/assign.mcfunction"),
+        include_str!("datapack_resources/debug/functions/id/assign.mcfunction"),
+    )?;
+    create_file(
+        path.join("data/debug/functions/id/init_self.mcfunction"),
+        include_str!("datapack_resources/debug/functions/id/init_self.mcfunction"),
+    )?;
+    create_file(
+        path.join("data/debug/functions/id/install.mcfunction"),
+        include_str!("datapack_resources/debug/functions/id/install.mcfunction"),
+    )?;
+    create_file(
+        path.join("data/debug/functions/id/uninstall.mcfunction"),
+        include_str!("datapack_resources/debug/functions/id/uninstall.mcfunction"),
+    )?;
+    create_file(
+        path.join("data/debug/functions/summon_entity_markers/summon_selected_entity_marker.mcfunction"),
+        include_str!("datapack_resources/debug/functions/summon_entity_markers/summon_selected_entity_marker.mcfunction"),
+    )?;
+    create_file(
+        path.join("data/debug/functions/summon_entity_markers/summon_selected_entity_marker_anchored_eyes.mcfunction"),
+        include_str!("datapack_resources/debug/functions/summon_entity_markers/summon_selected_entity_marker_anchored_eyes.mcfunction"),
+    )?;
+    create_file(
+        path.join("pack.mcmeta"),
+        include_str!("datapack_resources/pack.mcmeta"),
+    )?;
+    Ok(())
+}
 
-    // add id generation mcfunction files
-    let id_generation_directory = data_directory.join("id");
-    create_dir(&id_generation_directory)?;
-    // TODO functions folder?
-    write(
-        id_generation_directory.join("install.mcfunction"),
-        ID_INSTALL,
-    )?;
-    write(
-        id_generation_directory.join("init_self.mcfunction"),
-        ID_INIT,
-    )?;
-    write(id_generation_directory.join("assign.mcfunction"), ID_ASSIGN)?;
-    write(
-        id_generation_directory.join("uninstall.mcfunction"),
-        ID_UNINSTALL,
-    )?;
-
-    // add enity marker mcfunction files
-    let entity_marker_directory = data_directory.join("summon_entity_markers");
-    create_dir(&entity_marker_directory)?;
-    // TODO functions folder?
-    write(
-        entity_marker_directory.join("summon_selected_entity_marker.mcfunction"),
-        SUMMON_ENTITY_MARKER,
-    )?;
-    write(
-        entity_marker_directory.join("summon_selected_entity_anchored_eyes.mcfunction"),
-        SUMMON_ENTITY_MARKER_ANCHORED,
-    )?;
-
-    return Ok(data_directory);
+fn create_file<P: AsRef<Path>>(path: P, content: &str) -> io::Result<()> {
+    if let Some(parent) = path.as_ref().parent() {
+        create_dir_all(parent)?;
+    }
+    write(path, content)
 }
 
 fn find_function_files(datapack_path: &Path) -> Result<HashMap<String, PathBuf>, io::Error> {
