@@ -1,0 +1,4 @@
+scoreboard players set debug_depth debug_depth 0
+scoreboard players set debug_breakpoint debug_breakpoint 0
+
+function debug:summon_entity_markers/summon_selected_entity_marker

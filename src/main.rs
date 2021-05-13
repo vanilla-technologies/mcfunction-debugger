@@ -25,6 +25,12 @@ static ID_UNINSTALL: &'static str =
 static ID_INIT: &'static str =
     include_str!("datapack_resources/id_generation/init_self.mcfunction");
 static ID_ASSIGN: &'static str = include_str!("datapack_resources/id_generation/assign.mcfunction");
+static SUMMON_ENTITY_MARKER: &'static str = include_str!(
+    "datapack_resources/summon_entity_markers/summon_selected_entity_marker.mcfunction"
+);
+static SUMMON_ENTITY_MARKER_ANCHORED: &'static str = include_str!(
+    "datapack_resources/summon_entity_markers/summon_selected_entity_marker_anchored_eyes.mcfunction"
+);
 
 // templates
 static STORE_DEBUG_CALLER_MAIN_CONTEXT: &'static str =
@@ -52,7 +58,7 @@ fn main() -> io::Result<()> {
     let pack_mcmeta_path = datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
     let output_path = Path::new(matches.value_of(OUTPUT).unwrap());
-    let debug_data_output_path = generate_debug_datapack(output_path);
+    let debug_data_output_path = generate_debug_datapack(output_path)?;
 
     let functions = find_function_files(datapack_path)?;
     for (name, path) in functions.iter() {
@@ -71,11 +77,20 @@ fn main() -> io::Result<()> {
     // main context with execute parameters; call function that prepares original function call
     // restore context and call original function (until breakpoint)
 
+    // init scoreboard, set debugger caller context, call program -> start
+    // add depth, original code, set context, execute ... summon entity marker, call next function (leading to function in the original execute) -> main0
+    // introduce recursive call -> set_stone
+    // set current aec -> recursive_if_available / set_stone_if_available
+    // restore entity (for current aec), call original function as entity -> set_stone0_aec
+    // original function (until breakpoint) -> set_stone0
+
+    // if not breakpoint, tidy up
+
     Ok(())
 }
 
 fn generate_debug_datapack(datapack_path: &Path) -> Result<PathBuf, io::Error> {
-    let mut datapack_path = datapack_path.join("debug");
+    let datapack_path = datapack_path.join("debug");
     create_dir(&datapack_path)?;
     let mcmeta_file = datapack_path.join("pack.mcmeta");
     write(mcmeta_file, PACK_MCMETA)?;
@@ -85,6 +100,7 @@ fn generate_debug_datapack(datapack_path: &Path) -> Result<PathBuf, io::Error> {
     // add id generation mcfunction files
     let id_generation_directory = data_directory.join("id");
     create_dir(&id_generation_directory)?;
+    // TODO functions folder?
     write(
         id_generation_directory.join("install.mcfunction"),
         ID_INSTALL,
@@ -97,6 +113,19 @@ fn generate_debug_datapack(datapack_path: &Path) -> Result<PathBuf, io::Error> {
     write(
         id_generation_directory.join("uninstall.mcfunction"),
         ID_UNINSTALL,
+    )?;
+
+    // add enity marker mcfunction files
+    let entity_marker_directory = data_directory.join("summon_entity_markers");
+    create_dir(&entity_marker_directory)?;
+    // TODO functions folder?
+    write(
+        entity_marker_directory.join("summon_selected_entity_marker.mcfunction"),
+        SUMMON_ENTITY_MARKER,
+    )?;
+    write(
+        entity_marker_directory.join("summon_selected_entity_anchored_eyes.mcfunction"),
+        SUMMON_ENTITY_MARKER_ANCHORED,
     )?;
 
     return Ok(data_directory);

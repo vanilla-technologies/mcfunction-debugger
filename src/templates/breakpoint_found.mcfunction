@@ -1,0 +1,1 @@
+scoreboard players set debug_breakpoint debug_breakpoint 1
