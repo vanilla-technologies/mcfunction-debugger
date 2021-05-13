@@ -1,0 +1,2 @@
+scoreboard objectives remove debug_breakpoint
+scoreboard objectives remove debug_depth
