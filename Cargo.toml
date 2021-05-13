@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33"
+const_format = "0.2"
 walkdir = "2.3"
