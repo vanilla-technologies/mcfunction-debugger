@@ -1,7 +1,7 @@
 mod parser;
 mod utils;
 
-use crate::parser::parse_line;
+use crate::parser::{parse_line, Line};
 use clap::{App, Arg};
 use const_format::concatcp;
 use load_file::load_str;
@@ -22,7 +22,9 @@ const OUTPUT: &str = "output";
 const NAMESPACE: &str = "debug";
 
 // templates
-const CALL_FUNCTION: &str = include_str!("templates/call_function.mcfunction");
+const LINE_NUMBERS: &str = include_str!(
+    "templates/namespace/functions/original_namespace/original_function/line_numbers.mcfunction"
+);
 
 fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
@@ -51,25 +53,18 @@ fn main() -> io::Result<()> {
     let output_function_path = output_path.join("data").join(NAMESPACE).join("functions");
     for (name, path) in functions.iter() {
         let file = File::open(path)?;
-        let mut content = io::BufReader::new(file)
+        let lines = io::BufReader::new(file)
             .lines()
             .collect::<io::Result<Vec<_>>>()?;
-        let bla = content.split_inclusive(|line| match parse_line(line) {
-            parser::Line::Breakpoint => true,
-            parser::Line::FunctionCall { name, anchor } => true,
-            parser::Line::OtherCommand => false,
-        });
-
         let function_directory = output_function_path.join(name.replace(":", "/"));
         create_dir_all(&function_directory)?;
+
         let mut start_line = 1;
-        for part in bla {
+        for part in lines.split_inclusive(|line| parse_line(line) != Line::OtherCommand) {
             let end_line = start_line + part.len();
-            let x = end_line - 1;
-
-            let file_name = format!("{}-{}.mcfunction", start_line, x);
-            create_file(&function_directory.join(file_name), &part.join("\n"))?;
-
+            let file_name = format!("{}-{}.mcfunction", start_line, end_line - 1);
+            let content = LINE_NUMBERS.replace("# content", &part.join("\n"));
+            create_file(&function_directory.join(file_name), &content)?;
             start_line = end_line;
         }
     }
