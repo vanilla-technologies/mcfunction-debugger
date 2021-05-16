@@ -1,0 +1,2 @@
+say encountered breakpoint at original_namespace:original_function:line_number
+scoreboard players set namespace_breakpoint namespace_breakpoint 1

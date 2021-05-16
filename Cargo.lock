@@ -77,11 +77,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18794a8ad5b29321f790b55d93dfba91e125cb1a9edbd4f8e3150acc771c1a5e"
 
 [[package]]
+name = "load_file"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b97fec641b3fbd45503196bcf991bb5720a0e4ef259549e74693d008151640cc"
+
+[[package]]
 name = "mcfunction-debugger"
 version = "0.1.0"
 dependencies = [
  "clap",
  "const_format",
+ "load_file",
  "walkdir",
 ]
 

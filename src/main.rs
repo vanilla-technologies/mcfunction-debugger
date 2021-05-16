@@ -3,6 +3,8 @@ mod utils;
 
 use crate::parser::parse_line;
 use clap::{App, Arg};
+use const_format::concatcp;
+use load_file::load_str;
 use std::{
     collections::HashMap,
     fs::{create_dir_all, write},
@@ -17,10 +19,10 @@ use walkdir::WalkDir;
 const DATAPACK: &str = "datapack";
 const OUTPUT: &str = "output";
 
+const NAMESPACE: &str = "debug";
+
 // templates
-const STORE_DEBUG_CALLER_MAIN_CONTEXT: &str =
-    include_str!("templates/store_debug_caller_main_context.mcfunction");
-const MARK_CURRENT_ENTITY: &str = include_str!("templates/mark_current_entity.mcfunction");
+const CALL_FUNCTION: &str = include_str!("templates/call_function.mcfunction");
 
 fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
@@ -54,55 +56,42 @@ fn main() -> io::Result<()> {
         }
     }
 
-    // function call => summon selected entity marker;
-    //
-    // set (directly before original function call))current;
-    // call original function until beakpoint or file end
-
-    // main context with execute parameters; call function that prepares original function call
-    // restore context and call original function (until breakpoint)
-
-    // init scoreboard, set debugger caller context, call program -> start
-    // add depth, original code, set context, execute ... summon entity marker, call next function (leading to function in the original execute) -> main0
-    // introduce recursive call -> set_stone
-    // set current aec -> recursive_if_available / set_stone_if_available
-    // restore entity (for current aec), call original function as entity -> set_stone0_aec
-    // original function (until breakpoint) -> set_stone0
-
-    // if not breakpoint, tidy up
+    // namespace_caller_namespace_caller_function
+    // namespace
+    // original_namespace
+    // original_function
+    // callee_namespace
+    // callee_function
+    // line_numbers
+    // line_number
+    // # scoreboard players set current namespace_anchor 1
+    // # return_cases
+    // # content
+    // execute run
 
     Ok(())
 }
 
 fn generate_debug_datapack(path: &Path) -> Result<(), io::Error> {
+    const PREFIX: &str = "datapack_resources/";
+    const ASSIGN: &str = "data/debug/functions/id/assign.mcfunction";
+    create_file(path.join(ASSIGN), load_str!(concatcp!(PREFIX, ASSIGN)))?;
+    const INIT: &str = "data/debug/functions/id/init_self.mcfunction";
+    create_file(path.join(INIT), load_str!(concatcp!(PREFIX, INIT)))?;
+    const INSTALL: &str = "data/debug/functions/id/install.mcfunction";
+    create_file(path.join(INSTALL), load_str!(concatcp!(PREFIX, INSTALL)))?;
+    const UNINSTALL: &str = "data/debug/functions/id/uninstall.mcfunction";
     create_file(
-        path.join("data/debug/functions/id/assign.mcfunction"),
-        include_str!("datapack_resources/debug/functions/id/assign.mcfunction"),
+        path.join(UNINSTALL),
+        load_str!(concatcp!(PREFIX, UNINSTALL)),
     )?;
+    const SELECT_ENTITY: &str = "data/debug/functions/select_entity.mcfunction";
     create_file(
-        path.join("data/debug/functions/id/init_self.mcfunction"),
-        include_str!("datapack_resources/debug/functions/id/init_self.mcfunction"),
+        path.join(SELECT_ENTITY),
+        load_str!(concatcp!(PREFIX, SELECT_ENTITY)),
     )?;
-    create_file(
-        path.join("data/debug/functions/id/install.mcfunction"),
-        include_str!("datapack_resources/debug/functions/id/install.mcfunction"),
-    )?;
-    create_file(
-        path.join("data/debug/functions/id/uninstall.mcfunction"),
-        include_str!("datapack_resources/debug/functions/id/uninstall.mcfunction"),
-    )?;
-    create_file(
-        path.join("data/debug/functions/summon_entity_markers/summon_selected_entity_marker.mcfunction"),
-        include_str!("datapack_resources/debug/functions/summon_entity_markers/summon_selected_entity_marker.mcfunction"),
-    )?;
-    create_file(
-        path.join("data/debug/functions/summon_entity_markers/summon_selected_entity_marker_anchored_eyes.mcfunction"),
-        include_str!("datapack_resources/debug/functions/summon_entity_markers/summon_selected_entity_marker_anchored_eyes.mcfunction"),
-    )?;
-    create_file(
-        path.join("pack.mcmeta"),
-        include_str!("datapack_resources/pack.mcmeta"),
-    )?;
+    const PACK: &str = "pack.mcmeta";
+    create_file(path.join(PACK), load_str!(concatcp!(PREFIX, PACK)))?;
     Ok(())
 }
 
