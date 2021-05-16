@@ -48,11 +48,29 @@ fn main() -> io::Result<()> {
     generate_debug_datapack(output_path)?;
 
     let functions = find_function_files(datapack_path)?;
+    let output_function_path = output_path.join("data").join(NAMESPACE).join("functions");
     for (name, path) in functions.iter() {
         let file = File::open(path)?;
-        for line in io::BufReader::new(file).lines() {
-            let line = line?;
-            // let command = parse_line(&line);
+        let mut content = io::BufReader::new(file)
+            .lines()
+            .collect::<io::Result<Vec<_>>>()?;
+        let bla = content.split_inclusive(|line| match parse_line(line) {
+            parser::Line::Breakpoint => true,
+            parser::Line::FunctionCall { name, anchor } => true,
+            parser::Line::OtherCommand => false,
+        });
+
+        let function_directory = output_function_path.join(name.replace(":", "/"));
+        create_dir_all(&function_directory)?;
+        let mut start_line = 1;
+        for part in bla {
+            let end_line = start_line + part.len();
+            let x = end_line - 1;
+
+            let file_name = format!("{}-{}.mcfunction", start_line, x);
+            create_file(&function_directory.join(file_name), &part.join("\n"))?;
+
+            start_line = end_line;
         }
     }
 
