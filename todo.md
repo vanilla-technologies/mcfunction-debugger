@@ -1,5 +1,4 @@
 # TODO
-* Support execute facing
 * Support execute store
 * Prevent AECs from counting down their duration
 * Support scheduled
@@ -19,3 +18,5 @@
 # Done
 * Test effect of order of execute anchored -> Order does not matter
 * Can teleport @s change the context position? -> No
+* Anchored eyes must be kept for functions called by a function which is called with anchored eyes
+* Support execute facing

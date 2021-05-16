@@ -11,7 +11,10 @@ pub enum Anchor {
 #[derive(Debug, PartialEq)]
 pub enum Line {
     Breakpoint,
-    FunctionCall { name: String, anchor: Anchor },
+    FunctionCall {
+        name: String,
+        anchor: Option<Anchor>,
+    },
     OtherCommand,
 }
 
@@ -21,15 +24,13 @@ pub fn parse_line(line: &str) -> Line {
         Line::Breakpoint
     } else {
         if let Some(mut command) = parse_command(line) {
-            let mut anchor = Anchor::FEET;
+            let mut anchor = None;
             loop {
                 match command {
                     Command::Execute {
                         command: execute_command,
                     } => {
-                        if let Some(a) = execute_command.anchor {
-                            anchor = a;
-                        }
+                        anchor = execute_command.anchor.or(anchor);
                         command = *execute_command.run_command;
                     }
                     Command::Function { command } => {
@@ -141,11 +142,15 @@ struct EntityArgumentParser;
 // TODO support for player name and UUID
 // TODO add support for limits on amount and type
 impl ArgumentParser<'_, ()> for EntityArgumentParser {
-    fn parse(string: &str) -> Option<((), &str)> {
-        let string = string.strip_prefix('@')?;
-        let string = string.strip_prefix(&['a', 'e', 'r', 's'][..])?;
-        let string = string.strip_prefix('[')?;
-        let end = 1 + string.find(']')?;
+    fn parse(mut string: &str) -> Option<((), &str)> {
+        string = string.strip_prefix('@')?;
+        string = string.strip_prefix(&['a', 'e', 'r', 's'][..])?;
+        let end = if string.starts_with(' ') {
+            0
+        } else {
+            string = string.strip_prefix('[')?;
+            1 + string.find(']')?
+        };
         Some(((), &string[end..]))
     }
 }
@@ -216,7 +221,7 @@ mod tests {
             actual,
             Line::FunctionCall {
                 name: "test:func".to_string(),
-                anchor: Anchor::FEET,
+                anchor: None,
             }
         );
     }
@@ -234,7 +239,7 @@ mod tests {
             actual,
             Line::FunctionCall {
                 name: "test:func".to_string(),
-                anchor: Anchor::FEET,
+                anchor: None,
             }
         );
     }
@@ -252,7 +257,7 @@ mod tests {
             actual,
             Line::FunctionCall {
                 name: "test:func".to_string(),
-                anchor: Anchor::EYES,
+                anchor: Some(Anchor::EYES),
             }
         );
     }
@@ -270,7 +275,43 @@ mod tests {
             actual,
             Line::FunctionCall {
                 name: "test:func".to_string(),
-                anchor: Anchor::EYES,
+                anchor: Some(Anchor::EYES),
+            }
+        );
+    }
+
+    #[test]
+    fn test_multiple_execute_anchored() {
+        // given:
+        let line = "execute anchored feet run execute anchored eyes run function test:func";
+
+        // when:
+        let actual = parse_line(line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::FunctionCall {
+                name: "test:func".to_string(),
+                anchor: Some(Anchor::EYES),
+            }
+        );
+    }
+
+    #[test]
+    fn test_multiple_execute_some_anchored() {
+        // given:
+        let line = "execute anchored eyes run execute as @s run function test:func";
+
+        // when:
+        let actual = parse_line(line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::FunctionCall {
+                name: "test:func".to_string(),
+                anchor: Some(Anchor::EYES),
             }
         );
     }
@@ -288,7 +329,7 @@ mod tests {
             actual,
             Line::FunctionCall {
                 name: "test:func".to_string(),
-                anchor: Anchor::FEET,
+                anchor: None,
             }
         );
     }
@@ -306,7 +347,7 @@ mod tests {
             actual,
             Line::FunctionCall {
                 name: "test:func".to_string(),
-                anchor: Anchor::FEET,
+                anchor: None,
             }
         );
     }
