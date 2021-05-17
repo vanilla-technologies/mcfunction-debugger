@@ -8,6 +8,7 @@ use load_file::load_str;
 use std::{
     collections::HashMap,
     fs::{create_dir_all, write},
+    io::{Error, ErrorKind},
     path::{Path, PathBuf},
 };
 use std::{
@@ -20,11 +21,6 @@ const DATAPACK: &str = "datapack";
 const OUTPUT: &str = "output";
 
 const NAMESPACE: &str = "debug";
-
-// templates
-const LINE_NUMBERS: &str = include_str!(
-    "templates/namespace/functions/original_namespace/original_function/line_numbers.mcfunction"
-);
 
 fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
@@ -47,45 +43,159 @@ fn main() -> io::Result<()> {
     let pack_mcmeta_path = datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
     let output_path = Path::new(matches.value_of(OUTPUT).unwrap());
-    generate_debug_datapack(output_path)?;
+    generate_output_datapack(output_path)?;
 
     let functions = find_function_files(datapack_path)?;
     let output_function_path = output_path.join("data").join(NAMESPACE).join("functions");
-    for (name, path) in functions.iter() {
-        let file = File::open(path)?;
-        let lines = io::BufReader::new(file)
-            .lines()
-            .collect::<io::Result<Vec<_>>>()?;
-        let function_directory = output_function_path.join(name.replace(":", "/"));
-        create_dir_all(&function_directory)?;
 
-        let mut start_line = 1;
-        for part in lines.split_inclusive(|line| parse_line(line) != Line::OtherCommand) {
-            let end_line = start_line + part.len();
-            let file_name = format!("{}-{}.mcfunction", start_line, end_line - 1);
-            let content = LINE_NUMBERS.replace("# content", &part.join("\n"));
-            create_file(&function_directory.join(file_name), &content)?;
-            start_line = end_line;
-        }
+    for (name, path) in functions.iter() {
+        create_function_files(path, &output_function_path, name)?;
     }
 
-    // namespace_caller_namespace_caller_function
-    // namespace
     // original_namespace
     // original_function
-    // callee_namespace
-    // callee_function
     // line_numbers
+    // namespace
+
     // line_number
-    // # scoreboard players set current namespace_anchor 1
-    // # return_cases
     // # content
     // execute run
+
+    // namespace_caller_namespace_caller_function
+    // callee_namespace
+    // callee_function
+    // # scoreboard players set current namespace_anchor 1
+    // # return_cases
 
     Ok(())
 }
 
-fn generate_debug_datapack(path: &Path) -> Result<(), io::Error> {
+struct TemplateEngine<'l> {
+    line_numbers: &'l str,
+    original_namespace: &'l str,
+    original_function: &'l str,
+    namespace: &'l str,
+}
+
+impl TemplateEngine<'_> {
+    fn expand(&self, template: &str) -> String {
+        template
+            .replace("original_namespace", self.original_namespace)
+            .replace("original_function", self.original_function)
+            .replace("line_numbers", self.line_numbers)
+            .replace("namespace", self.namespace)
+    }
+
+    fn expand_line(&self, (line_number, line, command): &(usize, String, Line)) -> String {
+        match command {
+            Line::Breakpoint => {
+                let template = include_str!("templates/set_breakpoint.mcfunction");
+                let template = template.replace("line_number", &line_number.to_string());
+                self.expand(&template)
+            }
+            Line::FunctionCall { name, anchor } => {
+                // TODO # scoreboard players set current namespace_anchor 1
+                let function_call = format!("function {}", name);
+                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
+                let template = include_str!("templates/call_function.mcfunction");
+                let template = template.replace("execute run ", execute);
+                self.expand(&template)
+            }
+            Line::OtherCommand => line.to_owned(),
+        }
+    }
+}
+
+fn create_function_files(
+    path: &PathBuf,
+    output_function_path: &PathBuf,
+    name: &String,
+) -> Result<(), Error> {
+    let file = File::open(path)?;
+    let lines = io::BufReader::new(file)
+        .lines()
+        .enumerate()
+        .map(|(line_number, line)| {
+            line.map(|line| {
+                let command = parse_line(&line);
+                (line_number + 1, line, command)
+            })
+        })
+        .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
+    let function_directory = output_function_path.join(name.replace(":", "/"));
+    create_dir_all(&function_directory)?;
+    let (original_namespace, original_function) = name.split_once(':').ok_or(Error::new(
+        ErrorKind::Other,
+        "Original namespace and function not found",
+    ))?;
+
+    let mut start_line = 1;
+    for partition in
+        lines.split_inclusive(|(line_number, line, command)| *command != Line::OtherCommand)
+    {
+        let first = start_line == 1;
+        let end_line = start_line + partition.len();
+        let line_numbers = format!("{}-{}", start_line, end_line - 1);
+        start_line = end_line;
+
+        let engine = TemplateEngine {
+            line_numbers: &line_numbers,
+            original_namespace,
+            original_function,
+            namespace: NAMESPACE,
+        };
+
+        if first {
+            let path = function_directory.join("iterate.mcfunction");
+            let template  =include_str!(
+                "templates/namespace/functions/original_namespace/original_function/iterate.mcfunction"
+            );
+            create_file(&path, &engine.expand(template))?;
+
+            let path = function_directory.join("iteration_step.mcfunction");
+            let template  =include_str!(
+                "templates/namespace/functions/original_namespace/original_function/iteration_step.mcfunction"
+            );
+            create_file(&path, &engine.expand(template))?;
+
+            let path = function_directory.join("start.mcfunction");
+            let template  = include_str!(
+                "templates/namespace/functions/original_namespace/original_function/start.mcfunction"
+            );
+            create_file(&path, &engine.expand(template))?;
+
+            // TODO return.mcfunction
+        }
+
+        // TODO continue.mcfunction & continue_return.mcfunction after breakpoint
+        // TODO continue.mcfunction otherwise?
+
+        // line_names.mcfunction
+        let file_name = format!("{}.mcfunction", &line_numbers);
+        let path = function_directory.join(file_name);
+        let content = partition
+            .iter()
+            .map(|line| engine.expand_line(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let template  = include_str!(
+                "templates/namespace/functions/original_namespace/original_function/line_numbers.mcfunction"
+            );
+        let template = template.replace("# content", &content);
+        create_file(&path, &engine.expand(&template))?;
+
+        // line_numbers_with_context.mcfunction
+        let file_name = format!("{}_with_context.mcfunction", &line_numbers);
+        let path = function_directory.join(file_name);
+        let template  = include_str!(
+            "templates/namespace/functions/original_namespace/original_function/line_numbers_with_context.mcfunction"
+        );
+        create_file(&path, &engine.expand(template))?;
+    }
+    Ok(())
+}
+
+fn generate_output_datapack(path: &Path) -> Result<(), io::Error> {
     const PREFIX: &str = "datapack_resources/";
     const ASSIGN: &str = "data/debug/functions/id/assign.mcfunction";
     create_file(path.join(ASSIGN), load_str!(concatcp!(PREFIX, ASSIGN)))?;
