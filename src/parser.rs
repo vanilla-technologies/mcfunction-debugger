@@ -1,6 +1,6 @@
 use crate::utils::split_once;
 use const_format::concatcp;
-use std::usize;
+use std::{fmt::Display, usize};
 
 #[derive(Debug, PartialEq)]
 pub enum Anchor {
@@ -12,10 +12,48 @@ pub enum Anchor {
 pub enum Line {
     Breakpoint,
     FunctionCall {
-        name: String,
+        name: NamespacedName,
         anchor: Option<Anchor>,
     },
     OtherCommand,
+}
+
+pub type NamespacedName = NamespacedNameRef<String>;
+
+#[derive(Debug, Eq, Hash, PartialEq)]
+pub struct NamespacedNameRef<S: AsRef<str>> {
+    string: S,
+    namespace_len: usize,
+}
+
+impl<S: AsRef<str>> NamespacedNameRef<S> {
+    pub fn new(string: S, namespace_len: usize) -> NamespacedNameRef<S> {
+        NamespacedNameRef {
+            string,
+            namespace_len,
+        }
+    }
+
+    pub fn namespace(&self) -> &str {
+        &self.string.as_ref()[..self.namespace_len]
+    }
+
+    pub fn name(&self) -> &str {
+        &self.string.as_ref()[self.namespace_len + 1..]
+    }
+
+    pub fn to_owned(&self) -> NamespacedName {
+        NamespacedName {
+            string: self.string.as_ref().to_owned(),
+            namespace_len: self.namespace_len,
+        }
+    }
+}
+
+impl<S: AsRef<str>> Display for NamespacedNameRef<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.string.as_ref().fmt(f)
+    }
 }
 
 pub fn parse_line(line: &str) -> Line {
@@ -35,7 +73,7 @@ pub fn parse_line(line: &str) -> Line {
                     }
                     Command::Function { command } => {
                         break Line::FunctionCall {
-                            name: command.function.to_string(),
+                            name: command.function.to_owned(),
                             anchor,
                         }
                     }
@@ -58,7 +96,7 @@ struct ExecuteCommand<'l> {
 }
 
 struct FunctionCommand<'l> {
-    function: &'l str,
+    function: NamespacedNameRef<&'l str>,
 }
 
 fn parse_command(string: &str) -> Option<Command> {
@@ -78,9 +116,7 @@ fn parse_command(string: &str) -> Option<Command> {
 
 fn parse_function(rest: &str) -> Option<FunctionCommand> {
     let (function, _) = FunctionArgumentParser::parse(rest)?;
-    Some(FunctionCommand {
-        function: &function,
-    })
+    Some(FunctionCommand { function })
 }
 
 fn parse_execute(string: &str) -> Option<ExecuteCommand> {
@@ -160,14 +196,19 @@ struct FunctionArgumentParser;
 const NAMESPACE_CHARS: &str = "0123456789abcdefghijklmnopqrstuvwxyz_-.";
 const NAME_CHARS: &str = concatcp!(NAMESPACE_CHARS, "/");
 
-impl<'l> ArgumentParser<'l, &'l str> for FunctionArgumentParser {
-    fn parse(string: &'l str) -> Option<(&'l str, &'l str)> {
+impl<'l> ArgumentParser<'l, NamespacedNameRef<&'l str>> for FunctionArgumentParser {
+    fn parse(string: &'l str) -> Option<(NamespacedNameRef<&'l str>, &'l str)> {
         let namespace_end = string.find(|c| !NAMESPACE_CHARS.contains(c))?;
         let (_namespace, rest) = string.split_at(namespace_end);
-        let name = rest.strip_prefix(':')?;
-        let name_end = name.find(|c| !NAME_CHARS.contains(c)).unwrap_or(name.len());
+        let rest = rest.strip_prefix(':')?;
+        let name_end = rest.find(|c| !NAME_CHARS.contains(c)).unwrap_or(rest.len());
         let len = namespace_end + 1 + name_end;
-        Some(string.split_at(len))
+        let (string, rest) = string.split_at(len);
+        let name = NamespacedNameRef {
+            string,
+            namespace_len: namespace_end,
+        };
+        Some((name, rest))
     }
 }
 
@@ -220,7 +261,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: None,
             }
         );
@@ -238,7 +282,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: None,
             }
         );
@@ -256,7 +303,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: Some(Anchor::EYES),
             }
         );
@@ -274,7 +324,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: Some(Anchor::EYES),
             }
         );
@@ -292,7 +345,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: Some(Anchor::EYES),
             }
         );
@@ -310,7 +366,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: Some(Anchor::EYES),
             }
         );
@@ -328,7 +387,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: None,
             }
         );
@@ -346,7 +408,10 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: "test:func".to_string(),
+                name: NamespacedName {
+                    string: "test:func".to_string(),
+                    namespace_len: 4,
+                },
                 anchor: None,
             }
         );

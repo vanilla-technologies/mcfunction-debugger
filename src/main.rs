@@ -5,10 +5,11 @@ use crate::parser::{parse_line, Line};
 use clap::{App, Arg};
 use const_format::concatcp;
 use load_file::load_str;
+use parser::NamespacedName;
 use std::{
     collections::HashMap,
     fs::{create_dir_all, write},
-    io::{Error, ErrorKind},
+    io::Error,
     path::{Path, PathBuf},
 };
 use std::{
@@ -109,7 +110,7 @@ impl TemplateEngine<'_> {
 fn create_function_files(
     path: &PathBuf,
     output_function_path: &PathBuf,
-    name: &String,
+    name: &NamespacedName,
 ) -> Result<(), Error> {
     let file = File::open(path)?;
     let lines = io::BufReader::new(file)
@@ -122,12 +123,12 @@ fn create_function_files(
             })
         })
         .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
-    let function_directory = output_function_path.join(name.replace(":", "/"));
+    let original_namespace = name.namespace();
+    let original_function = name.name();
+    let function_directory = output_function_path
+        .join(original_namespace)
+        .join(original_function);
     create_dir_all(&function_directory)?;
-    let (original_namespace, original_function) = name.split_once(':').ok_or(Error::new(
-        ErrorKind::Other,
-        "Original namespace and function not found",
-    ))?;
 
     let mut start_line = 1;
     for partition in
@@ -225,7 +226,9 @@ fn create_file<P: AsRef<Path>>(path: P, content: &str) -> io::Result<()> {
     write(path, content)
 }
 
-fn find_function_files(datapack_path: &Path) -> Result<HashMap<String, PathBuf>, io::Error> {
+fn find_function_files(
+    datapack_path: &Path,
+) -> Result<HashMap<NamespacedName, PathBuf>, io::Error> {
     let mut functions = HashMap::new();
     let data_path = datapack_path.join("data");
     if data_path.is_dir() {
@@ -244,12 +247,16 @@ fn find_function_files(datapack_path: &Path) -> Result<HashMap<String, PathBuf>,
                             if let Some(extension) = path.extension() {
                                 if extension == "mcfunction" {
                                     let relative_path = path.strip_prefix(&functions_path).unwrap();
-                                    let function_name = format!(
-                                        "{}:{}",
-                                        namespace.to_string_lossy(),
-                                        relative_path.with_extension("").display()
+                                    let namespace = namespace.to_string_lossy();
+                                    let name = NamespacedName::new(
+                                        format!(
+                                            "{}:{}",
+                                            namespace,
+                                            relative_path.with_extension("").display()
+                                        ),
+                                        namespace.len(),
                                     );
-                                    functions.insert(function_name, path);
+                                    functions.insert(name, path);
                                 }
                             }
                         }
