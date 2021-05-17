@@ -1,6 +1,9 @@
+mod commands;
+
+use self::commands::{default_commands, CommandsNode, Node};
 use crate::utils::split_once;
 use const_format::concatcp;
-use std::{fmt::Display, usize};
+use std::{collections::HashMap, fmt::Display, usize};
 
 #[derive(Debug, PartialEq)]
 pub enum Anchor {
@@ -99,7 +102,43 @@ struct FunctionCommand<'l> {
     function: NamespacedNameRef<&'l str>,
 }
 
+struct ParsedNode<'l> {
+    value: ParsedNodeValue<'l>,
+    child: Option<Box<ParsedNode<'l>>>,
+}
+
+enum ParsedNodeValue<'l> {
+    Literal(&'l str),
+    Swizzle(Swizzle),
+}
+
 fn parse_command(string: &str) -> Option<Command> {
+    let commands = default_commands().ok()?;
+
+    let visitor = CommandVisitor::new();
+    visit_command(string, &commands, &visitor);
+
+    let node: ParsedNode;
+
+    match node.value {
+        ParsedNodeValue::Literal("execute") => {
+            if let Some(node) = node.child {
+                match node.value {
+                    ParsedNodeValue::Literal("anchored") => {
+                        if let Some(node) = node.child {
+                            match node.value {
+                                ParsedNodeValue::Swizzle(_) => {}
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+
     let (command, rest) = split_once(string, ' ')?;
     match command {
         "execute" => {
@@ -114,10 +153,94 @@ fn parse_command(string: &str) -> Option<Command> {
     }
 }
 
+struct CommandVisitor {
+    state: State,
+}
+
+enum State {
+    None,
+    Execute,
+    Other,
+}
+
+impl Visitor for State {}
+
+impl CommandVisitor {
+    fn new() -> CommandVisitor {
+        CommandVisitor { state: State::None }
+    }
+}
+
+impl Visitor for CommandVisitor {
+    fn visit_literal(&self, literal: &str) {
+        match self.state {
+            State::None => {
+                if literal == "execute" {
+                    self.state = State::Execute;
+                } else {
+                    self.state = State::Other;
+                }
+            }
+            State::Execute => {}
+            State::Other => {}
+        }
+    }
+}
+
+type Swizzle = ();
+
+trait Visitor {
+    fn visit_literal(&self, literal: &str) {}
+    fn visit_swizzle(&self, swizzle: Swizzle) {}
+}
+
+fn visit_command(string: &str, commands: &HashMap<String, CommandsNode>, visitor: &dyn Visitor) {
+    for (name, node) in commands {
+        if let Some(suffix) = visit_node(node, name, string, visitor) {
+            if suffix == "" && !node.executable() {
+                // WARN
+                println!("WARN");
+            } else {
+                if let Some(suffix) = suffix.strip_prefix(' ') {
+                    visit_command(suffix, node.children(), visitor);
+                } else {
+                    // WARN
+                    println!("WARN");
+                }
+            }
+        }
+    }
+}
+
+fn visit_node<'l>(
+    node: &CommandsNode,
+    name: &str,
+    string: &'l str,
+    visitor: &dyn Visitor,
+) -> Option<&'l str> {
+    match node {
+        CommandsNode::Literal { node } => {
+            let suffix = string.strip_prefix(name)?;
+            visitor.visit_literal(name);
+            Some(suffix)
+        }
+        CommandsNode::Argument { node, parser } => match parser {
+            commands::ArgumentParser::MinecraftSwizzle => {
+                let (swizzle, suffix) = SwizzleArgumentParser::parse(string)?;
+                visitor.visit_swizzle(swizzle);
+                Some(suffix)
+            }
+            commands::ArgumentParser::Unknown => None,
+        },
+    }
+}
+
 fn parse_function(rest: &str) -> Option<FunctionCommand> {
     let (function, _) = FunctionArgumentParser::parse(rest)?;
     Some(FunctionCommand { function })
 }
+
+fn parse_literal(node: &Node, string: &str) -> Option<ExecuteCommand> {}
 
 fn parse_execute(string: &str) -> Option<ExecuteCommand> {
     let (child, rest) = split_once(string, ' ')?;
@@ -215,7 +338,7 @@ impl<'l> ArgumentParser<'l, NamespacedNameRef<&'l str>> for FunctionArgumentPars
 struct SwizzleArgumentParser;
 
 impl ArgumentParser<'_, ()> for SwizzleArgumentParser {
-    fn parse(string: &str) -> Option<((), &str)> {
+    fn parse(string: &str) -> Option<(Swizzle, &str)> {
         let end = string.find(' ')?;
         Some(((), &string[end..]))
     }
