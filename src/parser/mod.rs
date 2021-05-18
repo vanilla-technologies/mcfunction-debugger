@@ -1,11 +1,14 @@
 mod commands;
 
-use self::commands::{default_commands, CommandsNode, Node};
-use crate::utils::split_once;
+use self::commands::{default_commands, CommandsNode};
 use const_format::concatcp;
-use std::{collections::HashMap, fmt::Display, usize};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Display,
+    usize,
+};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Anchor {
     EYES,
     FEET,
@@ -64,214 +67,149 @@ pub fn parse_line(line: &str) -> Line {
     if line == "# breakpoint" {
         Line::Breakpoint
     } else {
-        if let Some(mut command) = parse_command(line) {
-            let mut anchor = None;
-            loop {
-                match command {
-                    Command::Execute {
-                        command: execute_command,
-                    } => {
-                        anchor = execute_command.anchor.or(anchor);
-                        command = *execute_command.run_command;
-                    }
-                    Command::Function { command } => {
-                        break Line::FunctionCall {
-                            name: command.function.to_owned(),
-                            anchor,
-                        }
-                    }
-                }
-            }
-        } else {
-            Line::OtherCommand
-        }
+        parse_command(line).unwrap_or(Line::OtherCommand)
     }
 }
 
-enum Command<'l> {
-    Execute { command: ExecuteCommand<'l> },
-    Function { command: FunctionCommand<'l> },
-}
-
-struct ExecuteCommand<'l> {
-    anchor: Option<Anchor>,
-    run_command: Box<Command<'l>>,
-}
-
-struct FunctionCommand<'l> {
-    function: NamespacedNameRef<&'l str>,
-}
-
-struct ParsedNode<'l> {
-    value: ParsedNodeValue<'l>,
-    child: Option<Box<ParsedNode<'l>>>,
-}
-
-enum ParsedNodeValue<'l> {
-    Literal(&'l str),
-    Swizzle(Swizzle),
-}
-
-fn parse_command(string: &str) -> Option<Command> {
-    let commands = default_commands().ok()?;
-
-    let visitor = CommandVisitor::new();
-    visit_command(string, &commands, &visitor);
-
-    let node: ParsedNode;
-
-    match node.value {
-        ParsedNodeValue::Literal("execute") => {
-            if let Some(node) = node.child {
-                match node.value {
-                    ParsedNodeValue::Literal("anchored") => {
-                        if let Some(node) = node.child {
-                            match node.value {
-                                ParsedNodeValue::Swizzle(_) => {}
-                                _ => {}
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        _ => {}
-    }
-
-    let (command, rest) = split_once(string, ' ')?;
-    match command {
-        "execute" => {
-            let command = parse_execute(rest)?;
-            Some(Command::Execute { command })
-        }
-        "function" => {
-            let command = parse_function(rest)?;
-            Some(Command::Function { command })
-        }
-        _ => None,
-    }
-}
-
-struct CommandVisitor {
-    state: State,
-}
-
-enum State {
-    None,
-    Execute,
-    Other,
-}
-
-impl Visitor for State {}
-
-impl CommandVisitor {
-    fn new() -> CommandVisitor {
-        CommandVisitor { state: State::None }
-    }
-}
-
-impl Visitor for CommandVisitor {
-    fn visit_literal(&self, literal: &str) {
-        match self.state {
-            State::None => {
-                if literal == "execute" {
-                    self.state = State::Execute;
-                } else {
-                    self.state = State::Other;
-                }
-            }
-            State::Execute => {}
-            State::Other => {}
-        }
-    }
-}
-
+type Function<'l> = NamespacedNameRef<&'l str>;
 type Swizzle = ();
 
-trait Visitor {
-    fn visit_literal(&self, literal: &str) {}
-    fn visit_swizzle(&self, swizzle: Swizzle) {}
+enum ParsedNode<'l> {
+    Redirect(&'l str),
+    Literal(&'l str),
+    Function(Function<'l>),
+    Swizzle(Swizzle),
+    Anchor(Anchor),
 }
 
-fn visit_command(string: &str, commands: &HashMap<String, CommandsNode>, visitor: &dyn Visitor) {
-    for (name, node) in commands {
-        if let Some(suffix) = visit_node(node, name, string, visitor) {
-            if suffix == "" && !node.executable() {
-                // WARN
-                println!("WARN");
+fn parse_command(string: &str) -> Option<Line> {
+    let commands = default_commands().ok()?;
+
+    // TODO avoid copying
+    let mut sub_commands = HashMap::new();
+    sub_commands.extend(commands.iter());
+
+    // TODO error handling
+    let vec = Vec::from(parse_command2(string, &commands, &sub_commands).ok()?);
+    let mut nodes = vec.as_slice();
+
+    let mut maybe_anchor: Option<Anchor> = None;
+    let mut maybe_function = None;
+
+    while let Some((head, tail)) = nodes.split_first() {
+        nodes = tail;
+        match head {
+            ParsedNode::Literal("execute") | ParsedNode::Redirect("execute") => {
+                if let Some((ParsedNode::Literal("anchored"), tail)) = tail.split_first() {
+                    if let Some(ParsedNode::Anchor(anchor)) = tail.first() {
+                        maybe_anchor = Some(*anchor);
+                    }
+                }
+            }
+            ParsedNode::Literal("function") => {
+                if let Some(ParsedNode::Function(function)) = tail.first() {
+                    maybe_function = Some(function);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let function = maybe_function?;
+    Some(Line::FunctionCall {
+        name: function.to_owned(),
+        anchor: maybe_anchor,
+    })
+}
+
+fn parse_command2<'l>(
+    string: &'l str,
+    commands: &HashMap<String, CommandsNode>,
+    sub_commands: &HashMap<&String, &CommandsNode>,
+) -> Result<VecDeque<ParsedNode<'l>>, String> {
+    // println!("{:#?}", sub_commands);
+    for (node_name, command_node) in sub_commands {
+        println!("{}", node_name);
+        if let Some((parsed_node, suffix)) = parse_node(string, command_node, node_name) {
+            if suffix == "" {
+                if !command_node.executable() {
+                    // TODO error handling
+                    return Err(
+                    "Unknown or incomplete command, see below for error\n...hored eyes<--[HERE]"
+                        .to_string(),
+                );
+                } else {
+                    let mut result = VecDeque::new();
+                    result.push_front(parsed_node);
+                    return Ok(result);
+                }
             } else {
                 if let Some(suffix) = suffix.strip_prefix(' ') {
-                    visit_command(suffix, node.children(), visitor);
+                    // TODO avoid copying
+                    let mut sub_commands = HashMap::new();
+                    let children = command_node.children();
+                    if children.is_empty() {
+                        if command_node.redirect().is_empty() && !command_node.executable() {
+                            // Special case for run which has no redirect to root for some reason
+                            sub_commands.extend(commands);
+                        } else {
+                            // TODO Add Redirect Node
+                            for redirect in command_node.redirect() {
+                                let command = commands
+                                    .get(redirect)
+                                    .ok_or(format!("Failed to resolve redirect {}", redirect))?;
+
+                                sub_commands.extend(command.children());
+                            }
+                        }
+                    } else {
+                        sub_commands.extend(children);
+                    }
+
+                    let mut nodes = parse_command2(suffix, commands, &sub_commands)?;
+                    nodes.push_front(parsed_node);
+                    return Ok(nodes);
                 } else {
-                    // WARN
-                    println!("WARN");
+                    // TODO error handling
+                    return Err("Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string());
                 }
             }
         }
     }
+    // TODO error handling
+    return Err("Unknown or incomplete command, see below for error\nabcd<--[HERE]".to_string());
 }
 
-fn visit_node<'l>(
-    node: &CommandsNode,
-    name: &str,
+fn parse_node<'l>(
     string: &'l str,
-    visitor: &dyn Visitor,
-) -> Option<&'l str> {
+    node: &CommandsNode,
+    node_name: &str,
+) -> Option<(ParsedNode<'l>, &'l str)> {
     match node {
-        CommandsNode::Literal { node } => {
-            let suffix = string.strip_prefix(name)?;
-            visitor.visit_literal(name);
-            Some(suffix)
+        CommandsNode::Literal { .. } => {
+            if string.starts_with(node_name) {
+                let (node_name, suffix) = string.split_at(node_name.len());
+                Some((ParsedNode::Literal(node_name), suffix))
+            } else {
+                None
+            }
         }
-        CommandsNode::Argument { node, parser } => match parser {
+        CommandsNode::Argument { parser, .. } => match parser {
+            // TODO refactor
+            commands::ArgumentParser::MinecraftFunction => {
+                let (function, suffix) = FunctionArgumentParser::parse(string)?;
+                Some((ParsedNode::Function(function), suffix))
+            }
             commands::ArgumentParser::MinecraftSwizzle => {
                 let (swizzle, suffix) = SwizzleArgumentParser::parse(string)?;
-                visitor.visit_swizzle(swizzle);
-                Some(suffix)
+                Some((ParsedNode::Swizzle(swizzle), suffix))
+            }
+            commands::ArgumentParser::MinecraftEntityAnchor => {
+                let (anchor, suffix) = EntityAnchorArgumentParser::parse(string)?;
+                Some((ParsedNode::Anchor(anchor), suffix))
             }
             commands::ArgumentParser::Unknown => None,
         },
-    }
-}
-
-fn parse_function(rest: &str) -> Option<FunctionCommand> {
-    let (function, _) = FunctionArgumentParser::parse(rest)?;
-    Some(FunctionCommand { function })
-}
-
-fn parse_literal(node: &Node, string: &str) -> Option<ExecuteCommand> {}
-
-fn parse_execute(string: &str) -> Option<ExecuteCommand> {
-    let (child, rest) = split_once(string, ' ')?;
-    match child {
-        "align" => {
-            let ((), rest) = SwizzleArgumentParser::parse(rest)?;
-            let rest = rest.strip_prefix(' ')?;
-            parse_execute(rest)
-        }
-        "anchored" => {
-            let (anchor, rest) = EntityAnchorArgumentParser::parse(rest)?;
-            parse_execute(rest).map(|mut command| {
-                command.anchor = command.anchor.or(Some(anchor));
-                command
-            })
-        }
-        "as" => {
-            let ((), rest) = EntityArgumentParser::parse(rest)?;
-            let rest = rest.strip_prefix(' ')?;
-            parse_execute(rest)
-        }
-        "at" => {
-            let ((), rest) = EntityArgumentParser::parse(rest)?;
-            let rest = rest.strip_prefix(' ')?;
-            parse_execute(rest)
-        }
-        "run" => parse_command(rest).map(|command| ExecuteCommand {
-            anchor: None,
-            run_command: Box::new(command),
-        }),
-        _ => None,
     }
 }
 
@@ -286,9 +224,9 @@ impl ArgumentParser<'_, Anchor> for EntityAnchorArgumentParser {
         let eyes = "eyes";
         let feet = "feet";
         if string.starts_with(eyes) {
-            Some((Anchor::EYES, &string[eyes.len() + 1..]))
+            Some((Anchor::EYES, &string[eyes.len()..]))
         } else if string.starts_with(feet) {
-            Some((Anchor::FEET, &string[feet.len() + 1..]))
+            Some((Anchor::FEET, &string[feet.len()..]))
         } else {
             None
         }

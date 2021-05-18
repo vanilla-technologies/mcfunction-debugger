@@ -51,12 +51,23 @@ impl CommandsNode {
             CommandsNode::Argument { node, .. } => node.executable,
         }
     }
+
+    pub fn redirect(&self) -> &[String] {
+        match self {
+            CommandsNode::Literal { node, .. } => &node.redirect,
+            CommandsNode::Argument { node, .. } => &node.redirect,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ArgumentParser {
     #[serde(rename = "minecraft:swizzle")]
     MinecraftSwizzle,
+    #[serde(rename = "minecraft:function")]
+    MinecraftFunction,
+    #[serde(rename = "minecraft:entity_anchor")]
+    MinecraftEntityAnchor,
     #[serde(other, rename = "")]
     Unknown,
 }
