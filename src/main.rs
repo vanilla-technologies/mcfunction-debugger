@@ -6,7 +6,7 @@ use clap::{App, Arg};
 use const_format::concatcp;
 use load_file::load_str;
 use multimap::MultiMap;
-use parser::commands::NamespacedName;
+use parser::commands::{EntityAnchor, NamespacedName};
 use std::{
     collections::HashMap,
     fs::{create_dir_all, write},
