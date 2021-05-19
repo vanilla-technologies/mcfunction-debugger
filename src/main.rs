@@ -5,7 +5,7 @@ use crate::parser::{parse_line, Line};
 use clap::{App, Arg};
 use const_format::concatcp;
 use load_file::load_str;
-use parser::NamespacedName;
+use parser::commands::NamespacedName;
 use std::{
     collections::HashMap,
     fs::{create_dir_all, write},
@@ -247,14 +247,9 @@ fn find_function_files(
                             if let Some(extension) = path.extension() {
                                 if extension == "mcfunction" {
                                     let relative_path = path.strip_prefix(&functions_path).unwrap();
-                                    let namespace = namespace.to_string_lossy();
                                     let name = NamespacedName::new(
-                                        format!(
-                                            "{}:{}",
-                                            namespace,
-                                            relative_path.with_extension("").display()
-                                        ),
-                                        namespace.len(),
+                                        namespace.to_string_lossy().as_ref(),
+                                        &relative_path.with_extension("").display().to_string(),
                                     );
                                     functions.insert(name, path);
                                 }

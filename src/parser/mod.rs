@@ -1,65 +1,17 @@
-mod commands;
+pub mod commands;
 
-use self::commands::{default_commands, CommandsNode};
-use const_format::concatcp;
-use std::{
-    collections::{HashMap, VecDeque},
-    fmt::Display,
-    usize,
-};
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Anchor {
-    EYES,
-    FEET,
-}
+use self::commands::{default_commands, Argument, CommandsNode, EntityAnchor, NamespacedName};
+use log::warn;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, PartialEq)]
 pub enum Line {
     Breakpoint,
     FunctionCall {
         name: NamespacedName,
-        anchor: Option<Anchor>,
+        anchor: Option<EntityAnchor>,
     },
     OtherCommand,
-}
-
-pub type NamespacedName = NamespacedNameRef<String>;
-
-#[derive(Debug, Eq, Hash, PartialEq)]
-pub struct NamespacedNameRef<S: AsRef<str>> {
-    string: S,
-    namespace_len: usize,
-}
-
-impl<S: AsRef<str>> NamespacedNameRef<S> {
-    pub fn new(string: S, namespace_len: usize) -> NamespacedNameRef<S> {
-        NamespacedNameRef {
-            string,
-            namespace_len,
-        }
-    }
-
-    pub fn namespace(&self) -> &str {
-        &self.string.as_ref()[..self.namespace_len]
-    }
-
-    pub fn name(&self) -> &str {
-        &self.string.as_ref()[self.namespace_len + 1..]
-    }
-
-    pub fn to_owned(&self) -> NamespacedName {
-        NamespacedName {
-            string: self.string.as_ref().to_owned(),
-            namespace_len: self.namespace_len,
-        }
-    }
-}
-
-impl<S: AsRef<str>> Display for NamespacedNameRef<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.string.as_ref().fmt(f)
-    }
 }
 
 pub fn parse_line(line: &str) -> Line {
@@ -67,33 +19,18 @@ pub fn parse_line(line: &str) -> Line {
     if line == "# breakpoint" {
         Line::Breakpoint
     } else {
-        parse_command(line).unwrap_or(Line::OtherCommand)
+        parse_function_call(line).unwrap_or(Line::OtherCommand)
     }
 }
 
-type Function<'l> = NamespacedNameRef<&'l str>;
-type Swizzle = ();
-
-enum ParsedNode<'l> {
-    Redirect(&'l str),
-    Literal(&'l str),
-    Function(Function<'l>),
-    Swizzle(Swizzle),
-    Anchor(Anchor),
-}
-
-fn parse_command(string: &str) -> Option<Line> {
+fn parse_function_call(string: &str) -> Option<Line> {
     let commands = default_commands().ok()?;
 
-    // TODO avoid copying
-    let mut sub_commands = HashMap::new();
-    sub_commands.extend(commands.iter());
-
     // TODO error handling
-    let vec = Vec::from(parse_command2(string, &commands, &sub_commands).ok()?);
+    let vec = Vec::from(parse_command(string, &commands, &commands).ok()?);
     let mut nodes = vec.as_slice();
 
-    let mut maybe_anchor: Option<Anchor> = None;
+    let mut maybe_anchor: Option<EntityAnchor> = None;
     let mut maybe_function = None;
 
     while let Some((head, tail)) = nodes.split_first() {
@@ -101,13 +38,14 @@ fn parse_command(string: &str) -> Option<Line> {
         match head {
             ParsedNode::Literal("execute") | ParsedNode::Redirect("execute") => {
                 if let Some((ParsedNode::Literal("anchored"), tail)) = tail.split_first() {
-                    if let Some(ParsedNode::Anchor(anchor)) = tail.first() {
+                    if let Some(ParsedNode::Argument(Argument::EntityAnchor(anchor))) = tail.first()
+                    {
                         maybe_anchor = Some(*anchor);
                     }
                 }
             }
             ParsedNode::Literal("function") => {
-                if let Some(ParsedNode::Function(function)) = tail.first() {
+                if let Some(ParsedNode::Argument(Argument::Function(function))) = tail.first() {
                     maybe_function = Some(function);
                 }
             }
@@ -122,62 +60,24 @@ fn parse_command(string: &str) -> Option<Line> {
     })
 }
 
-fn parse_command2<'l>(
+fn parse_command<'l>(
     string: &'l str,
-    commands: &HashMap<String, CommandsNode>,
-    sub_commands: &HashMap<&String, &CommandsNode>,
+    commands: &'l HashMap<String, CommandsNode>,
+    sub_commands: &'l HashMap<String, CommandsNode>,
 ) -> Result<VecDeque<ParsedNode<'l>>, String> {
-    // println!("{:#?}", sub_commands);
     for (node_name, command_node) in sub_commands {
-        println!("{}", node_name);
         if let Some((parsed_node, suffix)) = parse_node(string, command_node, node_name) {
-            if suffix == "" {
-                if !command_node.executable() {
-                    // TODO error handling
-                    return Err(
-                    "Unknown or incomplete command, see below for error\n...hored eyes<--[HERE]"
-                        .to_string(),
-                );
-                } else {
-                    let mut result = VecDeque::new();
-                    result.push_front(parsed_node);
-                    return Ok(result);
-                }
-            } else {
-                if let Some(suffix) = suffix.strip_prefix(' ') {
-                    // TODO avoid copying
-                    let mut sub_commands = HashMap::new();
-                    let children = command_node.children();
-                    if children.is_empty() {
-                        if command_node.redirect().is_empty() && !command_node.executable() {
-                            // Special case for run which has no redirect to root for some reason
-                            sub_commands.extend(commands);
-                        } else {
-                            // TODO Add Redirect Node
-                            for redirect in command_node.redirect() {
-                                let command = commands
-                                    .get(redirect)
-                                    .ok_or(format!("Failed to resolve redirect {}", redirect))?;
-
-                                sub_commands.extend(command.children());
-                            }
-                        }
-                    } else {
-                        sub_commands.extend(children);
-                    }
-
-                    let mut nodes = parse_command2(suffix, commands, &sub_commands)?;
-                    nodes.push_front(parsed_node);
-                    return Ok(nodes);
-                } else {
-                    // TODO error handling
-                    return Err("Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string());
-                }
-            }
+            return parse_suffix(suffix, command_node, parsed_node, commands);
         }
     }
     // TODO error handling
-    return Err("Unknown or incomplete command, see below for error\nabcd<--[HERE]".to_string());
+    Err("Unknown command, see below for error\nabcd<--[HERE]".to_string())
+}
+
+enum ParsedNode<'l> {
+    Redirect(&'l str),
+    Literal(&'l str),
+    Argument(Argument<'l>),
 }
 
 fn parse_node<'l>(
@@ -187,98 +87,73 @@ fn parse_node<'l>(
 ) -> Option<(ParsedNode<'l>, &'l str)> {
     match node {
         CommandsNode::Literal { .. } => {
-            if string.starts_with(node_name) {
-                let (node_name, suffix) = string.split_at(node_name.len());
-                Some((ParsedNode::Literal(node_name), suffix))
+            let end = string.find(' ').unwrap_or(string.len());
+            let (literal, suffix) = string.split_at(end);
+            if literal == node_name {
+                Some((ParsedNode::Literal(literal), suffix))
             } else {
                 None
             }
         }
-        CommandsNode::Argument { parser, .. } => match parser {
-            // TODO refactor
-            commands::ArgumentParser::MinecraftFunction => {
-                let (function, suffix) = FunctionArgumentParser::parse(string)?;
-                Some((ParsedNode::Function(function), suffix))
-            }
-            commands::ArgumentParser::MinecraftSwizzle => {
-                let (swizzle, suffix) = SwizzleArgumentParser::parse(string)?;
-                Some((ParsedNode::Swizzle(swizzle), suffix))
-            }
-            commands::ArgumentParser::MinecraftEntityAnchor => {
-                let (anchor, suffix) = EntityAnchorArgumentParser::parse(string)?;
-                Some((ParsedNode::Anchor(anchor), suffix))
-            }
-            commands::ArgumentParser::Unknown => None,
-        },
-    }
-}
-
-trait ArgumentParser<'s, A> {
-    fn parse(string: &'s str) -> Option<(A, &'s str)>;
-}
-
-struct EntityAnchorArgumentParser;
-
-impl ArgumentParser<'_, Anchor> for EntityAnchorArgumentParser {
-    fn parse(string: &str) -> Option<(Anchor, &str)> {
-        let eyes = "eyes";
-        let feet = "feet";
-        if string.starts_with(eyes) {
-            Some((Anchor::EYES, &string[eyes.len()..]))
-        } else if string.starts_with(feet) {
-            Some((Anchor::FEET, &string[feet.len()..]))
-        } else {
-            None
+        CommandsNode::Argument { parser, .. } => {
+            let (argument, suffix) = parser
+                .parse(string)
+                .map_err(|e| warn!("Failed to parse argument {} due to: {}", node_name, e))
+                .ok()?;
+            Some((ParsedNode::Argument(argument), suffix))
         }
     }
 }
 
-struct EntityArgumentParser;
-
-// TODO support ] in strings and NBT
-// TODO support for player name and UUID
-// TODO add support for limits on amount and type
-impl ArgumentParser<'_, ()> for EntityArgumentParser {
-    fn parse(mut string: &str) -> Option<((), &str)> {
-        string = string.strip_prefix('@')?;
-        string = string.strip_prefix(&['a', 'e', 'r', 's'][..])?;
-        let end = if string.starts_with(' ') {
-            0
+fn parse_suffix<'l>(
+    suffix: &'l str,
+    command_node: &'l CommandsNode,
+    parsed_node: ParsedNode<'l>,
+    commands: &'l HashMap<String, CommandsNode>,
+) -> Result<VecDeque<ParsedNode<'l>>, String> {
+    if suffix == "" {
+        if command_node.executable() {
+            Ok(VecDeque::from(vec![parsed_node]))
         } else {
-            string = string.strip_prefix('[')?;
-            1 + string.find(']')?
-        };
-        Some(((), &string[end..]))
-    }
-}
+            // TODO error handling
+            Err("Incomplete command, see below for error\n...hored eyes<--[HERE]".to_string())
+        }
+    } else {
+        let mut redirect_node = None;
+        // let children = command_node.children(commands)?;
+        let children = command_node.children();
+        let children = if !children.is_empty() {
+            Ok(children)
+        } else {
+            if let Some(redirect) = command_node.redirect()? {
+                let command = commands
+                    .get(redirect)
+                    .ok_or(format!("Failed to resolve redirect {}", redirect))?;
+                redirect_node = Some(ParsedNode::Redirect(redirect));
+                Ok(command.children())
+            } else if !command_node.executable() {
+                // Special case for run which has no redirect to root for some reason
+                Ok(commands)
+            } else {
+                // TODO error handling
+                Err("Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string())
+            }
+        }?;
 
-struct FunctionArgumentParser;
-
-const NAMESPACE_CHARS: &str = "0123456789abcdefghijklmnopqrstuvwxyz_-.";
-const NAME_CHARS: &str = concatcp!(NAMESPACE_CHARS, "/");
-
-impl<'l> ArgumentParser<'l, NamespacedNameRef<&'l str>> for FunctionArgumentParser {
-    fn parse(string: &'l str) -> Option<(NamespacedNameRef<&'l str>, &'l str)> {
-        let namespace_end = string.find(|c| !NAMESPACE_CHARS.contains(c))?;
-        let (_namespace, rest) = string.split_at(namespace_end);
-        let rest = rest.strip_prefix(':')?;
-        let name_end = rest.find(|c| !NAME_CHARS.contains(c)).unwrap_or(rest.len());
-        let len = namespace_end + 1 + name_end;
-        let (string, rest) = string.split_at(len);
-        let name = NamespacedNameRef {
-            string,
-            namespace_len: namespace_end,
-        };
-        Some((name, rest))
-    }
-}
-
-struct SwizzleArgumentParser;
-
-impl ArgumentParser<'_, ()> for SwizzleArgumentParser {
-    fn parse(string: &str) -> Option<(Swizzle, &str)> {
-        let end = string.find(' ')?;
-        Some(((), &string[end..]))
+        if children.is_empty() {
+            // TODO error handling
+            Err("Incorrect argument for command at position 13: ...me set day<--[HERE]".to_string())
+        } else {
+            let suffix = suffix.strip_prefix(' ').ok_or(
+                "Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string(),
+            )?;
+            let mut nodes = parse_command(suffix, commands, children)?;
+            if let Some(redirect_node) = redirect_node {
+                nodes.push_front(redirect_node);
+            }
+            nodes.push_front(parsed_node);
+            Ok(nodes)
+        }
     }
 }
 
@@ -322,10 +197,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
             }
         );
@@ -343,10 +215,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
             }
         );
@@ -364,11 +233,8 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
-                anchor: Some(Anchor::EYES),
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: Some(EntityAnchor::EYES),
             }
         );
     }
@@ -385,11 +251,8 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
-                anchor: Some(Anchor::EYES),
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: Some(EntityAnchor::EYES),
             }
         );
     }
@@ -406,11 +269,8 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
-                anchor: Some(Anchor::EYES),
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: Some(EntityAnchor::EYES),
             }
         );
     }
@@ -427,11 +287,8 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
-                anchor: Some(Anchor::EYES),
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: Some(EntityAnchor::EYES),
             }
         );
     }
@@ -448,10 +305,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
             }
         );
@@ -469,10 +323,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::FunctionCall {
-                name: NamespacedName {
-                    string: "test:func".to_string(),
-                    namespace_len: 4,
-                },
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
             }
         );
