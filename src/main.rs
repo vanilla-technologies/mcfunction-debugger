@@ -5,6 +5,7 @@ use crate::parser::{parse_line, Line};
 use clap::{App, Arg};
 use const_format::concatcp;
 use load_file::load_str;
+use multimap::MultiMap;
 use parser::commands::NamespacedName;
 use std::{
     collections::HashMap,
@@ -49,26 +50,51 @@ fn main() -> io::Result<()> {
     let functions = find_function_files(datapack_path)?;
     let output_function_path = output_path.join("data").join(NAMESPACE).join("functions");
 
-    for (name, path) in functions.iter() {
-        create_function_files(path, &output_function_path, name)?;
+    let function_contents = functions
+        .iter()
+        .map(|(name, path)| {
+            let file = File::open(path)?;
+            let lines = io::BufReader::new(file)
+                .lines()
+                .enumerate()
+                .map(|(line_number, line)| {
+                    line.map(|line| {
+                        let command = parse_line(&line);
+                        (line_number + 1, line, command)
+                    })
+                })
+                .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
+
+            Ok((name, lines))
+        })
+        .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
+
+    let call_tree = create_call_tree(&function_contents);
+
+    for (name, lines) in function_contents.iter() {
+        create_function_files(&output_function_path, name, lines, &call_tree)?;
     }
 
-    // original_namespace
-    // original_function
-    // line_numbers
-    // namespace
-
-    // line_number
-    // # content
-    // execute run
-
-    // namespace_caller_namespace_caller_function
-    // callee_namespace
-    // callee_function
-    // # scoreboard players set current namespace_anchor 1
-    // # return_cases
-
     Ok(())
+}
+
+fn create_call_tree<'l>(
+    function_contents: &'l HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+) -> MultiMap<&'l NamespacedName, (&'l NamespacedName, &'l usize)> {
+    function_contents
+        .iter()
+        .flat_map(|(&caller, lines)| {
+            lines
+                .iter()
+                .filter_map(move |(line_number, _line, command)| {
+                    if let Line::FunctionCall { name: callee, .. } = command {
+                        Some((callee, (caller, line_number)))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .collect()
 }
 
 struct TemplateEngine<'l> {
@@ -95,11 +121,21 @@ impl TemplateEngine<'_> {
                 self.expand(&template)
             }
             Line::FunctionCall { name, anchor } => {
-                // TODO # scoreboard players set current namespace_anchor 1
                 let function_call = format!("function {}", name);
-                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
                 let template = include_str!("templates/call_function.mcfunction");
-                let template = template.replace("execute run ", execute);
+                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
+                let caller_function = self.original_function.replace("/", "_");
+                let mut template = template
+                    .replace("execute run ", execute)
+                    .replace("callee_namespace", name.namespace())
+                    .replace("callee_function", name.name())
+                    .replace("caller_namespace", self.original_namespace)
+                    .replace("caller_function", &caller_function);
+                if let Some(EntityAnchor::EYES) = anchor {
+                    let anchor_score =
+                        format!("scoreboard players set current {}_anchor 1", NAMESPACE);
+                    template = template.replace("# debug_anchor", &anchor_score);
+                }
                 self.expand(&template)
             }
             Line::OtherCommand => line.to_owned(),
@@ -108,21 +144,11 @@ impl TemplateEngine<'_> {
 }
 
 fn create_function_files(
-    path: &PathBuf,
     output_function_path: &PathBuf,
     name: &NamespacedName,
+    lines: &Vec<(usize, String, Line)>,
+    call_tree: &MultiMap<&NamespacedName, (&NamespacedName, &usize)>,
 ) -> Result<(), Error> {
-    let file = File::open(path)?;
-    let lines = io::BufReader::new(file)
-        .lines()
-        .enumerate()
-        .map(|(line_number, line)| {
-            line.map(|line| {
-                let command = parse_line(&line);
-                (line_number + 1, line, command)
-            })
-        })
-        .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
     let original_namespace = name.namespace();
     let original_function = name.name();
     let function_directory = output_function_path
@@ -131,13 +157,10 @@ fn create_function_files(
     create_dir_all(&function_directory)?;
 
     let mut start_line = 1;
-    for partition in
-        lines.split_inclusive(|(line_number, line, command)| *command != Line::OtherCommand)
-    {
+    for partition in lines.split_inclusive(|(_, _, command)| *command != Line::OtherCommand) {
         let first = start_line == 1;
         let end_line = start_line + partition.len();
         let line_numbers = format!("{}-{}", start_line, end_line - 1);
-        start_line = end_line;
 
         let engine = TemplateEngine {
             line_numbers: &line_numbers,
@@ -164,12 +187,20 @@ fn create_function_files(
                 "templates/namespace/functions/original_namespace/original_function/start.mcfunction"
             );
             create_file(&path, &engine.expand(template))?;
-
-            // TODO return.mcfunction
+        } else {
+            let file_name = format!("{}_continue.mcfunction", start_line);
+            let path = function_directory.join(file_name);
+            let mut template = include_str!(
+                "templates/namespace/functions/original_namespace/original_function/continue.mcfunction"
+            ).to_string();
+            if let Some(_callers) = call_tree.get_vec(name) {
+                template.push_str(include_str!(
+                    "templates/namespace/functions/original_namespace/original_function/continue_return.mcfunction"
+                ));
+            }
+            create_file(&path, &engine.expand(&template))?;
         }
-
-        // TODO continue.mcfunction & continue_return.mcfunction after breakpoint
-        // TODO continue.mcfunction otherwise?
+        start_line = end_line;
 
         // line_names.mcfunction
         let file_name = format!("{}.mcfunction", &line_numbers);
@@ -193,6 +224,34 @@ fn create_function_files(
         );
         create_file(&path, &engine.expand(template))?;
     }
+
+    if let Some(callers) = call_tree.get_vec(name) {
+        let return_cases = callers
+            .iter()
+            .map(|(caller, line_number)| {
+                format!(
+                    "execute if entity @s[tag=namespace_{caller_namespace}_{caller_function_tag}] run \
+                     function namespace:{caller_namespace}/{caller_function}/{line_number}_continue",
+                    caller_namespace = caller.namespace(),
+                    caller_function = caller.name(),
+                    caller_function_tag = caller.name().replace("/", "_"),
+                    line_number = *line_number + 1
+                )
+                .replace("original_function", original_function)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let content = include_str!(
+            "templates/namespace/functions/original_namespace/original_function/return.mcfunction"
+        )
+        .replace("# return_cases", &return_cases)
+        .replace("namespace", NAMESPACE);
+
+        let path = function_directory.join("return.mcfunction");
+        create_file(&path, &content)?;
+    }
+
     Ok(())
 }
 

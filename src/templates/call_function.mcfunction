@@ -5,7 +5,7 @@ scoreboard players operation @e[type=area_effect_cloud,tag=namespace_new] namesp
 scoreboard players operation @e[type=area_effect_cloud,tag=namespace_new] namespace_depth = current namespace_depth
 tag @e[type=area_effect_cloud,tag=namespace_new] remove namespace_new
 
-# scoreboard players set current namespace_anchor 1
+# debug_anchor
 
 execute run function namespace:select_entity
 function namespace:callee_namespace/callee_function/iterate
