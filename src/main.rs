@@ -54,7 +54,7 @@ fn main() -> io::Result<()> {
         .iter()
         .map(|(name, path)| {
             let file = File::open(path)?;
-            let lines = io::BufReader::new(file)
+            let mut lines = io::BufReader::new(file)
                 .lines()
                 .enumerate()
                 .map(|(line_number, line)| {
@@ -64,6 +64,9 @@ fn main() -> io::Result<()> {
                     })
                 })
                 .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
+
+            // TODO dirty hack for when the last line in a file is a function call or breakpoint
+            lines.push((lines.len() + 1, "".to_string(), Line::OtherCommand));
 
             Ok((name, lines))
         })
