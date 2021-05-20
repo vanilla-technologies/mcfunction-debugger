@@ -131,11 +131,19 @@ impl TemplateEngine<'_> {
                     .replace("callee_function", name.name())
                     .replace("caller_namespace", self.original_namespace)
                     .replace("caller_function", &caller_function);
-                if let Some(EntityAnchor::EYES) = anchor {
-                    let anchor_score =
-                        format!("scoreboard players set current {}_anchor 1", NAMESPACE);
-                    template = template.replace("# debug_anchor", &anchor_score);
-                }
+
+                let debug_anchor = anchor.map_or("".to_string(), |anchor| {
+                    let mut anchor_score = 0;
+                    if anchor == EntityAnchor::EYES {
+                        anchor_score = 1;
+                    }
+                    format!(
+                        "scoreboard players set current {namespace}_anchor {anchor_score}",
+                        namespace = NAMESPACE,
+                        anchor_score = anchor_score
+                    )
+                });
+                template = template.replace("# debug_anchor", &debug_anchor);
                 self.expand(&template)
             }
             Line::OtherCommand => line.to_owned(),
