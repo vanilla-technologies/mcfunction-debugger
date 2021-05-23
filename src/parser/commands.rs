@@ -1,22 +1,100 @@
 use const_format::concatcp;
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
 
-pub fn default_commands() -> serde_json::Result<HashMap<String, CommandsNode>> {
-    let data = include_str!("commands.json");
-    let root_node: RootNode = serde_json::from_str(data)?;
-    Ok(root_node.children)
+pub struct CommandParser {
+    commands: HashMap<String, Command>,
+}
+
+impl CommandParser {
+    pub fn default() -> Result<CommandParser, serde_json::Error> {
+        let json = include_str!("commands.json");
+        CommandParser::from_str(json)
+    }
+
+    pub fn from_str(json: &str) -> serde_json::Result<CommandParser> {
+        let root_node: RootNode = serde_json::from_str(json)?;
+        Ok(CommandParser {
+            commands: root_node.children,
+        })
+    }
+
+    pub fn parse<'l>(&'l self, mut string: &'l str) -> Result<Vec<ParsedNode<'l>>, String> {
+        let mut vec = Vec::new();
+        let mut commands = &self.commands;
+
+        loop {
+            let (command, parsed, suffix) = CommandParser::parse_prefix(string, commands)?;
+            vec.push(parsed);
+
+            if suffix == "" {
+                if command.executable() {
+                    return Ok(vec);
+                } else {
+                    // TODO error handling
+                    return Err(
+                        "Incomplete command, see below for error\n...hored eyes<--[HERE]"
+                            .to_string(),
+                    );
+                }
+            } else {
+                string = suffix.strip_prefix(' ').ok_or(
+                    "Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string()
+                )?;
+
+                commands = command.children();
+                if let Some(redirect) = command.redirect()? {
+                    let command = self
+                        .commands
+                        .get(redirect)
+                        .ok_or(format!("Failed to resolve redirect {}", redirect))?;
+                    vec.push(ParsedNode::Redirect(redirect));
+                    commands = command.children();
+                } else if commands.is_empty() {
+                    if !command.executable() {
+                        // Special case for execute run which has no redirect to root for some reason
+                        commands = &self.commands;
+                    } else {
+                        return Err(
+                            "Incorrect argument for command at position 13: ...me set day<--[HERE]"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_prefix<'c, 's>(
+        string: &'s str,
+        commands: &'c HashMap<String, Command>,
+    ) -> Result<(&'c Command, ParsedNode<'s>, &'s str), String> {
+        for (name, command) in commands {
+            if let Some((parsed, suffix)) = command.parse(name, string) {
+                return Ok((command, parsed, suffix));
+            }
+        }
+        // TODO error handling
+        Err("Unknown command, see below for error\nabcd<--[HERE]".to_string())
+    }
+}
+
+pub enum ParsedNode<'l> {
+    Redirect(&'l str),
+    Literal(&'l str),
+    Argument(Argument<'l>),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "type", rename = "root")]
 struct RootNode {
-    children: HashMap<String, CommandsNode>,
+    children: HashMap<String, Command>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum CommandsNode {
+pub enum Command {
     Literal {
         #[serde(flatten)]
         node: Node,
@@ -28,35 +106,58 @@ pub enum CommandsNode {
     },
 }
 
+impl Command {
+    fn parse<'l>(&self, name: &str, string: &'l str) -> Option<(ParsedNode<'l>, &'l str)> {
+        match self {
+            Command::Literal { .. } => {
+                let end = string.find(' ').unwrap_or(string.len());
+                let (literal, suffix) = string.split_at(end);
+                if literal == name {
+                    Some((ParsedNode::Literal(literal), suffix))
+                } else {
+                    None
+                }
+            }
+            Command::Argument { parser, .. } => {
+                let (argument, suffix) = parser
+                    .parse(string)
+                    .map_err(|e| warn!("Failed to parse argument {} due to: {}", name, e))
+                    .ok()?;
+                Some((ParsedNode::Argument(argument), suffix))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Node {
     #[serde(default)]
-    pub children: HashMap<String, CommandsNode>,
+    pub children: HashMap<String, Command>,
     #[serde(default)]
     pub executable: bool,
     #[serde(default)]
     pub redirect: Vec<String>,
 }
 
-impl CommandsNode {
-    pub fn children(&self) -> &HashMap<String, CommandsNode> {
+impl Command {
+    pub fn children(&self) -> &HashMap<String, Command> {
         match self {
-            CommandsNode::Literal { node, .. } => &node.children,
-            CommandsNode::Argument { node, .. } => &node.children,
+            Command::Literal { node, .. } => &node.children,
+            Command::Argument { node, .. } => &node.children,
         }
     }
 
     pub fn executable(&self) -> bool {
         match self {
-            CommandsNode::Literal { node, .. } => node.executable,
-            CommandsNode::Argument { node, .. } => node.executable,
+            Command::Literal { node, .. } => node.executable,
+            Command::Argument { node, .. } => node.executable,
         }
     }
 
     pub fn redirect(&self) -> Result<Option<&String>, String> {
         let redirect = match self {
-            CommandsNode::Literal { node, .. } => &node.redirect,
-            CommandsNode::Argument { node, .. } => &node.redirect,
+            Command::Literal { node, .. } => &node.redirect,
+            Command::Argument { node, .. } => &node.redirect,
         };
         if redirect.len() > 1 {
             Err(format!("Multi redirect is not supported: {:?}", redirect))
@@ -122,20 +223,25 @@ impl ArgumentParser {
     // TODO support ] in strings and NBT
     // TODO support for player name and UUID
     // TODO add support for limits on amount and type
-    fn parse_entity(mut string: &str) -> Result<(Entity, &str), String> {
-        string = string
+    fn parse_entity(string: &str) -> Result<(Entity, &str), String> {
+        let mut suffix = string
             .strip_prefix('@')
             .ok_or(format!("Invalid entity {}", string))?;
 
-        string = string
+        if suffix.is_empty() {
+            // TODO error handling
+            return Err("Missing selector type".to_string());
+        }
+
+        suffix = suffix
             .strip_prefix(&['a', 'e', 'r', 's'][..])
             .ok_or(format!("Unknown selector type '{}'", &string[..2]))?;
 
-        let suffix = if let Some(string) = string.strip_prefix('[') {
-            let end = string.find(']').ok_or(format!("Expected end of options"))?;
-            &string[1 + end..]
+        suffix = if let Some(suffix) = suffix.strip_prefix('[') {
+            let end = suffix.find(']').ok_or(format!("Expected end of options"))?;
+            &suffix[1 + end..]
         } else {
-            &string
+            &suffix
         };
         Ok(((), suffix))
     }
@@ -235,7 +341,7 @@ mod tests {
     #[test]
     fn test_parse_json() {
         // when:
-        let actual = default_commands().unwrap();
+        let actual = &CommandParser::default().unwrap().commands;
 
         // then:
         assert!(
@@ -246,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_() {
+    fn test_serialize() {
         // when:
         let root = RootNode {
             children: HashMap::new(),

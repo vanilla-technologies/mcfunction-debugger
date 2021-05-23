@@ -5,7 +5,7 @@ use clap::{App, Arg};
 use const_format::concatcp;
 use load_file::load_str;
 use multimap::MultiMap;
-use parser::commands::{EntityAnchor, NamespacedName};
+use parser::commands::{CommandParser, EntityAnchor, NamespacedName};
 use std::{
     collections::HashMap,
     fs::{create_dir_all, write},
@@ -44,6 +44,10 @@ fn main() -> io::Result<()> {
     let pack_mcmeta_path = datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
     let output_path = Path::new(matches.value_of(OUTPUT).unwrap());
+
+    let parser =
+        CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
     generate_output_datapack(output_path)?;
 
     let functions = find_function_files(datapack_path)?;
@@ -58,7 +62,7 @@ fn main() -> io::Result<()> {
                 .enumerate()
                 .map(|(line_number, line)| {
                     line.map(|line| {
-                        let command = parse_line(&line);
+                        let command = parse_line(&parser, &line);
                         (line_number + 1, line, command)
                     })
                 })
