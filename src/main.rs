@@ -188,19 +188,19 @@ fn create_function_files(
             let template  =include_str!(
                 "templates/namespace/functions/original_namespace/original_function/iterate.mcfunction"
             );
-            create_file(&path, &engine.expand(template))?;
+            write(&path, &engine.expand(template))?;
 
             let path = function_directory.join("iteration_step.mcfunction");
             let template  =include_str!(
                 "templates/namespace/functions/original_namespace/original_function/iteration_step.mcfunction"
             );
-            create_file(&path, &engine.expand(template))?;
+            write(&path, &engine.expand(template))?;
 
             let path = function_directory.join("start.mcfunction");
             let template  = include_str!(
                 "templates/namespace/functions/original_namespace/original_function/start.mcfunction"
             );
-            create_file(&path, &engine.expand(template))?;
+            write(&path, &engine.expand(template))?;
         } else {
             let file_name = format!("{}_continue.mcfunction", start_line);
             let path = function_directory.join(file_name);
@@ -212,7 +212,7 @@ fn create_function_files(
                     "templates/namespace/functions/original_namespace/original_function/continue_return.mcfunction"
                 ));
             }
-            create_file(&path, &engine.expand(&template))?;
+            write(&path, &engine.expand(&template))?;
         }
         start_line = end_line;
 
@@ -228,7 +228,7 @@ fn create_function_files(
                 "templates/namespace/functions/original_namespace/original_function/line_numbers.mcfunction"
             );
         let template = template.replace("# content", &content);
-        create_file(&path, &engine.expand(&template))?;
+        write(&path, &engine.expand(&template))?;
 
         // line_numbers_with_context.mcfunction
         let file_name = format!("{}_with_context.mcfunction", &line_numbers);
@@ -236,7 +236,7 @@ fn create_function_files(
         let template  = include_str!(
             "templates/namespace/functions/original_namespace/original_function/line_numbers_with_context.mcfunction"
         );
-        create_file(&path, &engine.expand(template))?;
+        write(&path, &engine.expand(template))?;
     }
 
     if let Some(callers) = call_tree.get_vec(name) {
@@ -263,7 +263,7 @@ fn create_function_files(
         .replace("namespace", NAMESPACE);
 
         let path = function_directory.join("return.mcfunction");
-        create_file(&path, &content)?;
+        write(&path, &content)?;
     }
 
     Ok(())
