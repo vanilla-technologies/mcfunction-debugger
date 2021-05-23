@@ -1,5 +1,4 @@
 mod parser;
-mod utils;
 
 use crate::parser::{parse_line, Line};
 use clap::{App, Arg};
