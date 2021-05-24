@@ -2,6 +2,7 @@
 * Support execute store
 * Prevent AECs from counting down their duration
 * Support scheduled
+* Support breakpoints in functions executed by the server/command block
 * Support function tags
 * Look at all commands
 * Add tag=!debug to all selectors
