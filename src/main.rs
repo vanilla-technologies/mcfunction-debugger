@@ -3,19 +3,17 @@ mod parser;
 use crate::parser::{parse_line, Line};
 use clap::{App, Arg};
 use const_format::concatcp;
+use futures::{future::try_join_all, FutureExt};
 use load_file::load_str;
 use multimap::MultiMap;
 use parser::commands::{CommandParser, EntityAnchor, NamespacedName};
 use std::{
     collections::HashMap,
-    fs::{create_dir_all, write},
-    io::Error,
+    fs::{create_dir_all, write, File},
+    io::{self, BufRead, Error},
     path::{Path, PathBuf},
 };
-use std::{
-    fs::File,
-    io::{self, BufRead},
-};
+use tokio::task::JoinHandle;
 use walkdir::WalkDir;
 
 const DATAPACK: &str = "datapack";
@@ -23,7 +21,8 @@ const OUTPUT: &str = "output";
 
 const NAMESPACE: &str = "debug";
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
         .arg(
             Arg::with_name(DATAPACK)
@@ -50,12 +49,13 @@ fn main() -> io::Result<()> {
 
     generate_output_datapack(output_path)?;
 
-    let functions = find_function_files(datapack_path)?;
+    let functions = find_function_files(datapack_path).await?;
     let output_function_path = output_path.join("data").join(NAMESPACE).join("functions");
 
     let function_contents = functions
         .iter()
         .map(|(name, path)| {
+            //TODO async
             let file = File::open(path)?;
             let mut lines = io::BufReader::new(file)
                 .lines()
@@ -78,6 +78,7 @@ fn main() -> io::Result<()> {
     let call_tree = create_call_tree(&function_contents);
 
     for (name, lines) in function_contents.iter() {
+        //TODO async
         create_function_files(&output_function_path, name, lines, &call_tree)?;
     }
 
@@ -299,39 +300,53 @@ fn create_file<P: AsRef<Path>>(path: P, content: &str) -> io::Result<()> {
     write(path, content)
 }
 
-fn find_function_files(
+async fn find_function_files(
     datapack_path: &Path,
 ) -> Result<HashMap<NamespacedName, PathBuf>, io::Error> {
-    let mut functions = HashMap::new();
     let data_path = datapack_path.join("data");
-    if data_path.is_dir() {
-        for entry in data_path.read_dir()? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                let namespace = entry.file_name();
-                let namespace_path = entry.path();
-                let functions_path = namespace_path.join("functions");
-                if functions_path.is_dir() {
-                    for f_entry in WalkDir::new(&functions_path) {
-                        let f_entry = f_entry?;
-                        let path = f_entry.path().to_owned();
-                        let file_type = f_entry.file_type();
-                        if file_type.is_file() {
-                            if let Some(extension) = path.extension() {
-                                if extension == "mcfunction" {
-                                    let relative_path = path.strip_prefix(&functions_path).unwrap();
-                                    let name = NamespacedName::new(
-                                        namespace.to_string_lossy().as_ref(),
-                                        &relative_path.with_extension("").display().to_string(),
-                                    );
-                                    functions.insert(name, path);
-                                }
+    let threads = data_path
+        .read_dir()?
+        .collect::<io::Result<Vec<_>>>()?
+        .into_iter()
+        .map(|entry| get_functions(entry).map(|result| result?));
+
+    Ok(try_join_all(threads)
+        .await?
+        .into_iter()
+        .flat_map(|it| it)
+        .collect::<HashMap<NamespacedName, PathBuf>>())
+}
+
+fn get_functions(
+    entry: std::fs::DirEntry,
+) -> JoinHandle<Result<Vec<(NamespacedName, PathBuf)>, io::Error>> {
+    tokio::spawn(async move {
+        let mut functions = Vec::new();
+        if entry.file_type()?.is_dir() {
+            let namespace = entry.file_name();
+            let namespace_path = entry.path();
+            let functions_path = namespace_path.join("functions");
+            if functions_path.is_dir() {
+                for f_entry in WalkDir::new(&functions_path) {
+                    let f_entry = f_entry?;
+                    let path = f_entry.path().to_owned();
+                    let file_type = f_entry.file_type();
+                    if file_type.is_file() {
+                        if let Some(extension) = path.extension() {
+                            if extension == "mcfunction" {
+                                let relative_path = path.strip_prefix(&functions_path).unwrap();
+                                let name = NamespacedName::new(
+                                    namespace.to_string_lossy().as_ref(),
+                                    &relative_path.with_extension("").display().to_string(),
+                                );
+
+                                functions.push((name, path));
                             }
                         }
                     }
                 }
             }
         }
-    }
-    Ok(functions)
+        Ok(functions)
+    })
 }
