@@ -1,18 +1,24 @@
 # TODO
-* Support execute store
+## MVP
+* Support breakpoints in functions executed by the server/command block
 * Prevent AECs from counting down their duration
 * Support scheduled
+* Add tag=!debug to all selectors
+* Store current breakpoint via tags/scoreboard and offer a single function to continue from the current breakpoint
+* When trying to start a new function while standing on a breakpoint abort and inform the user
+* Instead of /start shadow names of original datapack (easier to understand for users and command blocks may still work when not using execute)
+
+## Advanced
+* Support execute store
 * Support function tags
 * Look at all commands
-* Add tag=!debug to all selectors
 * Random tick speed
 * Document potential problems with chunkloading
 * Document how to increase max command limit
-* Support function calls without execute.
-* Store current breakpoint via tags/scoreboard and offer a single function to continue from the current breakpoint
-* When trying to start a new function while standing on a breakpoint abort and inform the user
+* Document that killing entities while they are executing a function cannot properly be handled by the debugger
+  * When restoring the context: if the executing entity is not found: execute unless score @s id matches 0 unless entity @e[tag=!debug_selected_entity_marker,tag=debug_tmp] run say error entity killed while selected
 * disable original datapack in load.json
-* Instead of /start shadow names of original datapack (easier to understand for users and command blocks may still work when not using execute)
+* Support AECs with Age >= Duration+WaitTime in schedules running at the beginning of the "next tick" after a breakpoint
 * Restore command block context by changing block content when continuing from a breakpoint
 
 # Optimizations
@@ -27,4 +33,4 @@
 * Anchored eyes must be kept for functions called by a function which is called with anchored eyes
 * Support execute facing
 * Use commands.json for parsing execute
-* Support breakpoints in functions executed by the server/command block
+* Support function calls without execute.
