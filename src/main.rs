@@ -127,7 +127,11 @@ impl TemplateEngine<'_> {
                 let template = template.replace("line_number", &line_number.to_string());
                 self.expand(&template)
             }
-            Line::FunctionCall { name, anchor } => {
+            Line::FunctionCall {
+                name,
+                anchor,
+                execute_as,
+            } => {
                 let function_call = format!("function {}", name);
                 let template = include_str!("templates/call_function.mcfunction");
                 let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!

@@ -8,7 +8,9 @@ pub enum Line {
     FunctionCall {
         name: NamespacedName,
         anchor: Option<EntityAnchor>,
+        execute_as: bool,
     },
+    // scheduled: Option<Duration>, -> time, append, function
     OtherCommand,
 }
 
@@ -28,6 +30,7 @@ fn parse_function_call(parser: &CommandParser, string: &str) -> Option<Line> {
 
     let mut maybe_anchor: Option<EntityAnchor> = None;
     let mut maybe_function = None;
+    let mut execute_as = false;
 
     while let Some((head, tail)) = nodes.split_first() {
         nodes = tail;
@@ -38,6 +41,9 @@ fn parse_function_call(parser: &CommandParser, string: &str) -> Option<Line> {
                     {
                         maybe_anchor = Some(*anchor);
                     }
+                }
+                if let Some((ParsedNode::Literal("as"), _tail)) = tail.split_first() {
+                    execute_as = true;
                 }
             }
             ParsedNode::Literal("function") => {
@@ -53,6 +59,7 @@ fn parse_function_call(parser: &CommandParser, string: &str) -> Option<Line> {
     Some(Line::FunctionCall {
         name: function.to_owned(),
         anchor: maybe_anchor,
+        execute_as,
     })
 }
 
@@ -101,6 +108,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
+                execute_as: false
             }
         );
     }
@@ -120,6 +128,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
+                execute_as: false
             }
         );
     }
@@ -139,6 +148,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(EntityAnchor::EYES),
+                execute_as: false
             }
         );
     }
@@ -158,6 +168,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(EntityAnchor::EYES),
+                execute_as: false
             }
         );
     }
@@ -177,6 +188,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(EntityAnchor::EYES),
+                execute_as: false
             }
         );
     }
@@ -196,6 +208,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(EntityAnchor::EYES),
+                execute_as: true
             }
         );
     }
@@ -215,6 +228,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
+                execute_as: true,
             }
         );
     }
@@ -234,6 +248,7 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
+                execute_as: false
             }
         );
     }
