@@ -8,6 +8,6 @@ tag @e[type=area_effect_cloud,tag=namespace_new] remove namespace_new
 # debug_anchor
 
 execute run function namespace:select_entity
-# TODO: replace debug_iterate with iterate or iterate_same_executor if no as in execute
-function namespace:callee_namespace/callee_function/debug_iterate
+# TODO: replace iterate with iterate or iterate_same_executor if no as in execute
+function namespace:callee_namespace/callee_function/iterate
 execute if score breakpoint namespace_breakpoint matches 0 as @e[type=area_effect_cloud,tag=namespace_function_call] if score @s namespace_depth = current namespace_depth run function namespace:callee_namespace/callee_function/return

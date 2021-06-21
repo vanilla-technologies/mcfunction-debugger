@@ -11,6 +11,7 @@ use std::{
     collections::HashMap,
     fs::{create_dir_all, write, File},
     io::{self, BufRead, Error},
+    iter::repeat,
     path::{Path, PathBuf},
 };
 use tokio::task::JoinHandle;
@@ -82,6 +83,8 @@ async fn main() -> io::Result<()> {
         create_function_files(&output_function_path, name, lines, &call_tree)?;
     }
 
+    create_continue_files(output_function_path, function_contents)?;
+
     Ok(())
 }
 
@@ -115,6 +118,10 @@ impl TemplateEngine<'_> {
     fn expand(&self, template: &str) -> String {
         template
             .replace("original_namespace", self.original_namespace)
+            .replace(
+                "original_function_tag",
+                &self.original_function.replace('/', "_"),
+            )
             .replace("original_function", self.original_function)
             .replace("line_numbers", self.line_numbers)
             .replace("namespace", self.namespace)
@@ -256,7 +263,6 @@ fn create_function_files(
                     caller_function_tag = caller.name().replace("/", "_"),
                     line_number = *line_number + 1
                 )
-                .replace("original_function", original_function)
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -270,6 +276,51 @@ fn create_function_files(
         let path = function_directory.join("return.mcfunction");
         write(&path, &content)?;
     }
+
+    Ok(())
+}
+
+fn create_continue_files(
+    output_function_path: PathBuf,
+    function_contents: HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+) -> io::Result<()> {
+    let content = include_str!("templates/namespace/functions/continue.mcfunction")
+        .replace("namespace", NAMESPACE);
+    let path = output_function_path.join("continue.mcfunction");
+    write(&path, &content)?;
+
+    let continue_cases = function_contents
+        .iter()
+        .flat_map(|(name, lines)| {
+            repeat(name).zip(
+                lines
+                    .iter()
+                    .filter(|(_, _, command)| matches!(command, Line::Breakpoint))
+                    .map(|it| it.0),
+            )
+        })
+        .map(|(name, line_number)| {
+            format!(
+                "execute \
+                  store success score continue_success {namespace}_global \
+                  if entity @s[tag={namespace}_{original_namespace}_{original_function_tag}_{line_number}] \
+                  run function {namespace}:{original_namespace}/{original_function}/{line_number_1}_continue",
+                namespace = NAMESPACE,
+                original_namespace = name.namespace(),
+                original_function = name.name(),
+                original_function_tag = name.name().replace("/", "_"),
+                line_number = line_number ,
+                line_number_1 = line_number + 1
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let content = include_str!("templates/namespace/functions/continue_aec.mcfunction")
+        .replace("# continue_cases", &continue_cases)
+        .replace("namespace", NAMESPACE);
+
+    let path = output_function_path.join("continue_aec.mcfunction");
+    write(&path, &content)?;
 
     Ok(())
 }

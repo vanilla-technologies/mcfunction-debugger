@@ -4,7 +4,6 @@
 * Prevent AECs from counting down their duration
 * Support scheduled
 * Add tag=!debug to all selectors
-* Store current breakpoint via tags/scoreboard and offer a single function to continue from the current breakpoint
 * When trying to start a new function while standing on a breakpoint abort and inform the user
 * Instead of /start shadow names of original datapack (easier to understand for users and command blocks may still work when not using execute)
 
@@ -34,3 +33,4 @@
 * Support execute facing
 * Use commands.json for parsing execute
 * Support function calls without execute.
+* Store current breakpoint via tags/scoreboard and offer a single function to continue from the current breakpoint
