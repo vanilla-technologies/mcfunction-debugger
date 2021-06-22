@@ -10,4 +10,4 @@ tag @e[type=area_effect_cloud,tag=namespace_new] remove namespace_new
 execute run function namespace:select_entity
 # TODO: replace iterate with iterate or iterate_same_executor if no as in execute
 function namespace:callee_namespace/callee_function/iterate
-execute if score breakpoint namespace_breakpoint matches 0 as @e[type=area_effect_cloud,tag=namespace_function_call] if score @s namespace_depth = current namespace_depth run function namespace:callee_namespace/callee_function/return
+execute if score breakpoint namespace_global matches 0 as @e[type=area_effect_cloud,tag=namespace_function_call] if score @s namespace_depth = current namespace_depth run function namespace:callee_namespace/callee_function/return
