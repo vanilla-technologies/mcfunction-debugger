@@ -1,2 +1,0 @@
-function namespace:original_namespace/original_function/line_numbers_with_context
-execute if score breakpoint namespace_global matches 0 run function namespace:original_namespace/original_function/iterate

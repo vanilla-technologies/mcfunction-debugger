@@ -11,7 +11,7 @@ use std::{
     collections::HashMap,
     fs::{create_dir_all, write, File},
     io::{self, BufRead, Error},
-    iter::repeat,
+    iter::{repeat, FromIterator},
     path::{Path, PathBuf},
 };
 use tokio::task::JoinHandle;
@@ -48,11 +48,7 @@ async fn main() -> io::Result<()> {
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    generate_output_datapack(output_path)?;
-
     let functions = find_function_files(datapack_path).await?;
-    let output_function_path = output_path.join("data").join(NAMESPACE).join("functions");
-
     let function_contents = functions
         .iter()
         .map(|(name, path)| {
@@ -71,288 +67,12 @@ async fn main() -> io::Result<()> {
 
             // TODO dirty hack for when the last line in a file is a function call or breakpoint
             lines.push((lines.len() + 1, "".to_string(), Line::OtherCommand));
-
             Ok((name, lines))
         })
         .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
 
-    let call_tree = create_call_tree(&function_contents);
-
-    for (name, lines) in function_contents.iter() {
-        //TODO async
-        create_function_files(&output_function_path, name, lines, &call_tree)?;
-    }
-
-    create_continue_files(output_function_path, function_contents)?;
-
+    generate_output_datapack(output_path, &function_contents)?;
     Ok(())
-}
-
-fn create_call_tree<'l>(
-    function_contents: &'l HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
-) -> MultiMap<&'l NamespacedName, (&'l NamespacedName, &'l usize)> {
-    function_contents
-        .iter()
-        .flat_map(|(&caller, lines)| {
-            lines
-                .iter()
-                .filter_map(move |(line_number, _line, command)| {
-                    if let Line::FunctionCall { name: callee, .. } = command {
-                        Some((callee, (caller, line_number)))
-                    } else {
-                        None
-                    }
-                })
-        })
-        .collect()
-}
-
-struct TemplateEngine<'l> {
-    line_numbers: &'l str,
-    original_namespace: &'l str,
-    original_function: &'l str,
-    namespace: &'l str,
-}
-
-impl TemplateEngine<'_> {
-    fn expand(&self, template: &str) -> String {
-        template
-            .replace("original_namespace", self.original_namespace)
-            .replace(
-                "original_function_tag",
-                &self.original_function.replace('/', "_"),
-            )
-            .replace("original_function", self.original_function)
-            .replace("line_numbers", self.line_numbers)
-            .replace("namespace", self.namespace)
-    }
-
-    fn expand_line(&self, (line_number, line, command): &(usize, String, Line)) -> String {
-        match command {
-            Line::Breakpoint => {
-                let template = include_str!("templates/set_breakpoint.mcfunction");
-                let template = template.replace("line_number", &line_number.to_string());
-                self.expand(&template)
-            }
-            Line::FunctionCall {
-                name,
-                anchor,
-                execute_as,
-            } => {
-                let function_call = format!("function {}", name);
-                let template = include_str!("templates/call_function.mcfunction");
-                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
-                let caller_function = self.original_function.replace("/", "_");
-                let mut template = template
-                    .replace("execute run ", execute)
-                    .replace("callee_namespace", name.namespace())
-                    .replace("callee_function", name.name())
-                    .replace("caller_namespace", self.original_namespace)
-                    .replace("caller_function", &caller_function);
-
-                let debug_anchor = anchor.map_or("".to_string(), |anchor| {
-                    let mut anchor_score = 0;
-                    if anchor == EntityAnchor::EYES {
-                        anchor_score = 1;
-                    }
-                    format!(
-                        "scoreboard players set current {namespace}_anchor {anchor_score}",
-                        namespace = NAMESPACE,
-                        anchor_score = anchor_score
-                    )
-                });
-                template = template.replace("# debug_anchor", &debug_anchor);
-                self.expand(&template)
-            }
-            Line::OtherCommand => line.to_owned(),
-        }
-    }
-}
-
-fn create_function_files(
-    output_function_path: &PathBuf,
-    name: &NamespacedName,
-    lines: &Vec<(usize, String, Line)>,
-    call_tree: &MultiMap<&NamespacedName, (&NamespacedName, &usize)>,
-) -> Result<(), Error> {
-    let original_namespace = name.namespace();
-    let original_function = name.name();
-    let function_directory = output_function_path
-        .join(original_namespace)
-        .join(original_function);
-    create_dir_all(&function_directory)?;
-
-    let mut start_line = 1;
-    for partition in lines.split_inclusive(|(_, _, command)| *command != Line::OtherCommand) {
-        let first = start_line == 1;
-        let end_line = start_line + partition.len();
-        let line_numbers = format!("{}-{}", start_line, end_line - 1);
-
-        let engine = TemplateEngine {
-            line_numbers: &line_numbers,
-            original_namespace,
-            original_function,
-            namespace: NAMESPACE,
-        };
-
-        if first {
-            let path = function_directory.join("iterate.mcfunction");
-            let template  =include_str!(
-                "templates/namespace/functions/original_namespace/original_function/iterate.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
-
-            let path = function_directory.join("iteration_step.mcfunction");
-            let template  =include_str!(
-                "templates/namespace/functions/original_namespace/original_function/iteration_step.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
-
-            let path = function_directory.join("start.mcfunction");
-            let template  = include_str!(
-                "templates/namespace/functions/original_namespace/original_function/start.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
-        } else {
-            let file_name = format!("{}_continue.mcfunction", start_line);
-            let path = function_directory.join(file_name);
-            let mut template = include_str!(
-                "templates/namespace/functions/original_namespace/original_function/continue.mcfunction"
-            ).to_string();
-            if let Some(_callers) = call_tree.get_vec(name) {
-                template.push_str(include_str!(
-                    "templates/namespace/functions/original_namespace/original_function/continue_return.mcfunction"
-                ));
-            }
-            write(&path, &engine.expand(&template))?;
-        }
-        start_line = end_line;
-
-        // line_names.mcfunction
-        let file_name = format!("{}.mcfunction", &line_numbers);
-        let path = function_directory.join(file_name);
-        let content = partition
-            .iter()
-            .map(|line| engine.expand_line(line))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let template  = include_str!(
-                "templates/namespace/functions/original_namespace/original_function/line_numbers.mcfunction"
-            );
-        let template = template.replace("# content", &content);
-        write(&path, &engine.expand(&template))?;
-
-        // line_numbers_with_context.mcfunction
-        let file_name = format!("{}_with_context.mcfunction", &line_numbers);
-        let path = function_directory.join(file_name);
-        let template  = include_str!(
-            "templates/namespace/functions/original_namespace/original_function/line_numbers_with_context.mcfunction"
-        );
-        write(&path, &engine.expand(template))?;
-    }
-
-    if let Some(callers) = call_tree.get_vec(name) {
-        let return_cases = callers
-            .iter()
-            .map(|(caller, line_number)| {
-                format!(
-                    "execute if entity @s[tag=namespace_{caller_namespace}_{caller_function_tag}] run \
-                     function namespace:{caller_namespace}/{caller_function}/{line_number}_continue",
-                    caller_namespace = caller.namespace(),
-                    caller_function = caller.name(),
-                    caller_function_tag = caller.name().replace("/", "_"),
-                    line_number = *line_number + 1
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let content = include_str!(
-            "templates/namespace/functions/original_namespace/original_function/return.mcfunction"
-        )
-        .replace("# return_cases", &return_cases)
-        .replace("namespace", NAMESPACE);
-
-        let path = function_directory.join("return.mcfunction");
-        write(&path, &content)?;
-    }
-
-    Ok(())
-}
-
-fn create_continue_files(
-    output_function_path: PathBuf,
-    function_contents: HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
-) -> io::Result<()> {
-    let content = include_str!("templates/namespace/functions/continue.mcfunction")
-        .replace("namespace", NAMESPACE);
-    let path = output_function_path.join("continue.mcfunction");
-    write(&path, &content)?;
-
-    let continue_cases = function_contents
-        .iter()
-        .flat_map(|(name, lines)| {
-            repeat(name).zip(
-                lines
-                    .iter()
-                    .filter(|(_, _, command)| matches!(command, Line::Breakpoint))
-                    .map(|it| it.0),
-            )
-        })
-        .map(|(name, line_number)| {
-            format!(
-                "execute \
-                  store success score continue_success {namespace}_global \
-                  if entity @s[tag={namespace}_{original_namespace}_{original_function_tag}_{line_number}] \
-                  run function {namespace}:{original_namespace}/{original_function}/{line_number_1}_continue",
-                namespace = NAMESPACE,
-                original_namespace = name.namespace(),
-                original_function = name.name(),
-                original_function_tag = name.name().replace("/", "_"),
-                line_number = line_number ,
-                line_number_1 = line_number + 1
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let content = include_str!("templates/namespace/functions/continue_aec.mcfunction")
-        .replace("# continue_cases", &continue_cases)
-        .replace("namespace", NAMESPACE);
-
-    let path = output_function_path.join("continue_aec.mcfunction");
-    write(&path, &content)?;
-
-    Ok(())
-}
-
-fn generate_output_datapack(path: &Path) -> Result<(), io::Error> {
-    const PREFIX: &str = "datapack_resources/";
-    const ASSIGN: &str = "data/debug/functions/id/assign.mcfunction";
-    create_file(path.join(ASSIGN), load_str!(concatcp!(PREFIX, ASSIGN)))?;
-    const INIT: &str = "data/debug/functions/id/init_self.mcfunction";
-    create_file(path.join(INIT), load_str!(concatcp!(PREFIX, INIT)))?;
-    const INSTALL: &str = "data/debug/functions/id/install.mcfunction";
-    create_file(path.join(INSTALL), load_str!(concatcp!(PREFIX, INSTALL)))?;
-    const UNINSTALL: &str = "data/debug/functions/id/uninstall.mcfunction";
-    create_file(
-        path.join(UNINSTALL),
-        load_str!(concatcp!(PREFIX, UNINSTALL)),
-    )?;
-    const SELECT_ENTITY: &str = "data/debug/functions/select_entity.mcfunction";
-    create_file(
-        path.join(SELECT_ENTITY),
-        load_str!(concatcp!(PREFIX, SELECT_ENTITY)),
-    )?;
-    const PACK: &str = "pack.mcmeta";
-    create_file(path.join(PACK), load_str!(concatcp!(PREFIX, PACK)))?;
-    Ok(())
-}
-
-fn create_file<P: AsRef<Path>>(path: P, content: &str) -> io::Result<()> {
-    if let Some(parent) = path.as_ref().parent() {
-        create_dir_all(parent)?;
-    }
-    write(path, content)
 }
 
 async fn find_function_files(
@@ -404,4 +124,307 @@ fn get_functions(
         }
         Ok(functions)
     })
+}
+
+fn generate_output_datapack(
+    output_path: &Path,
+    function_contents: &HashMap<
+        &parser::commands::NamespacedNameRef<String>,
+        Vec<(usize, String, Line)>,
+    >,
+) -> io::Result<()> {
+    const RESOURCE_PATH: &str = "datapack_template/";
+    const FN_PATH: &str = "data/-ns-/functions/";
+    const PREFIX: &str = concatcp!(RESOURCE_PATH, FN_PATH);
+
+    let engine = TemplateEngine {
+        replacements: HashMap::from_iter([("-ns-", NAMESPACE)]),
+    };
+
+    let fn_path = output_path.join(engine.expand(FN_PATH));
+
+    create_dir_all(fn_path.join("id"))?;
+
+    const ID_ASSIGN: &str = "id/assign.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_ASSIGN)));
+    write(fn_path.join(ID_ASSIGN), &content)?;
+
+    const ID_INIT_SELF: &str = "id/init_self.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_INIT_SELF)));
+    write(fn_path.join(ID_INIT_SELF), &content)?;
+
+    const ID_INSTALL: &str = "id/install.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_INSTALL)));
+    write(fn_path.join(ID_INSTALL), &content)?;
+
+    const ID_UNINSTALL: &str = "id/uninstall.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_UNINSTALL)));
+    write(fn_path.join(ID_UNINSTALL), &content)?;
+
+    create_continue_aec_file(&fn_path, function_contents, &engine)?;
+
+    const CONTINUE: &str = "continue.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, CONTINUE)));
+    write(fn_path.join(CONTINUE), &content)?;
+
+    const INSTALL: &str = "install.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, INSTALL)));
+    write(fn_path.join(INSTALL), &content)?;
+
+    const SELECT_ENTITY: &str = "select_entity.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, SELECT_ENTITY)));
+    write(fn_path.join(SELECT_ENTITY), &content)?;
+
+    const UNINSTALL: &str = "uninstall.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, UNINSTALL)));
+    write(fn_path.join(UNINSTALL), &content)?;
+
+    const PACK: &str = "pack.mcmeta";
+    let content = engine.expand(load_str!(concatcp!(RESOURCE_PATH, PACK)));
+    write(output_path.join(PACK), &content)?;
+
+    let call_tree = create_call_tree(&function_contents);
+
+    for (name, lines) in function_contents.iter() {
+        //TODO async
+        create_function_files(&fn_path, name, lines, &call_tree, &engine)?;
+    }
+
+    Ok(())
+}
+
+fn create_continue_aec_file(
+    output_function_path: &PathBuf,
+    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    engine: &TemplateEngine,
+) -> io::Result<()> {
+    let continue_cases = function_contents
+        .iter()
+        .flat_map(|(name, lines)| {
+            repeat(name).zip(
+                lines
+                    .iter()
+                    .filter(|(_, _, command)| matches!(command, Line::Breakpoint))
+                    .map(|it| it.0),
+            )
+        })
+        .map(|(name, line_number)| {
+           engine.expand( &format!(
+                "execute \
+                  store success score continue_success -ns-_global \
+                  if entity @s[tag=-ns-_{original_namespace}_{original_function_tag}_{line_number}] \
+                  run function -ns-:{original_namespace}/{original_function}/{line_number_1}_continue",
+                original_namespace = name.namespace(),
+                original_function = name.name(),
+                original_function_tag = name.name().replace("/", "_"),
+                line_number = line_number ,
+                line_number_1 = line_number + 1
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let content = engine
+        .expand(include_str!(
+            "datapack_template/data/-ns-/functions/continue_aec.mcfunction"
+        ))
+        .replace("# -continue_cases-", &continue_cases);
+
+    let path = output_function_path.join("continue_aec.mcfunction");
+    write(&path, &content)?;
+
+    Ok(())
+}
+
+fn create_call_tree<'l>(
+    function_contents: &'l HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+) -> MultiMap<&'l NamespacedName, (&'l NamespacedName, &'l usize)> {
+    function_contents
+        .iter()
+        .flat_map(|(&caller, lines)| {
+            lines
+                .iter()
+                .filter_map(move |(line_number, _line, command)| {
+                    if let Line::FunctionCall { name: callee, .. } = command {
+                        Some((callee, (caller, line_number)))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .collect()
+}
+
+fn create_function_files(
+    output_function_path: &PathBuf,
+    name: &NamespacedName,
+    lines: &Vec<(usize, String, Line)>,
+    call_tree: &MultiMap<&NamespacedName, (&NamespacedName, &usize)>,
+    engine: &TemplateEngine,
+) -> Result<(), Error> {
+    let original_namespace = name.namespace();
+    let original_function = name.name();
+    let function_directory = output_function_path
+        .join(original_namespace)
+        .join(original_function);
+    create_dir_all(&function_directory)?;
+
+    let mut start_line = 1;
+    for partition in lines.split_inclusive(|(_, _, command)| *command != Line::OtherCommand) {
+        let first = start_line == 1;
+        let end_line = start_line + partition.len();
+        let line_numbers = format!("{}-{}", start_line, end_line - 1);
+
+        let orig_fn_tag = original_function.replace('/', "_");
+        let engine = engine.extend([
+            ("-orig_ns-", original_namespace),
+            ("-line_numbers-", &line_numbers),
+            ("-orig_fn-", &orig_fn_tag),
+            ("-orig/fn-", original_function),
+        ]);
+
+        if first {
+            let path = function_directory.join("iterate.mcfunction");
+            let template = include_str!(
+                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"
+            );
+            write(&path, &engine.expand(template))?;
+
+            let path = function_directory.join("iteration_step.mcfunction");
+            let template  =include_str!(
+                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"
+            );
+            write(&path, &engine.expand(template))?;
+
+            let path = function_directory.join("start.mcfunction");
+            let template = include_str!(
+                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"
+            );
+            write(&path, &engine.expand(template))?;
+        } else {
+            let file_name = format!("{}_continue.mcfunction", start_line);
+            let path = function_directory.join(file_name);
+            let mut template = include_str!(
+                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/continue.mcfunction"
+            )
+            .to_string();
+            if let Some(_callers) = call_tree.get_vec(name) {
+                template.push_str(include_str!(
+                    "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/continue_return.mcfunction"
+                ));
+            }
+            write(&path, &engine.expand(&template))?;
+        }
+        start_line = end_line;
+
+        // line_names.mcfunction
+        let file_name = format!("{}.mcfunction", &line_numbers);
+        let path = function_directory.join(file_name);
+        let content = partition
+            .iter()
+            .map(|line| engine.expand_line(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let template = include_str!(
+            "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-.mcfunction"
+        );
+        let template = template.replace("# -content-", &content);
+        write(&path, &engine.expand(&template))?;
+
+        // line_numbers_with_context.mcfunction
+        let file_name = format!("{}_with_context.mcfunction", &line_numbers);
+        let path = function_directory.join(file_name);
+        let template  = include_str!(
+            "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-_with_context.mcfunction"
+        );
+        write(&path, &engine.expand(template))?;
+    }
+
+    if let Some(callers) = call_tree.get_vec(name) {
+        let return_cases = callers
+            .iter()
+            .map(|(caller, line_number)| {
+                engine.expand(&format!(
+                    "execute if entity @s[tag=-ns-_{caller_namespace}_{caller_function_tag}] run \
+                     function -ns-:{caller_namespace}/{caller_function}/{line_number}_continue",
+                    caller_namespace = caller.namespace(),
+                    caller_function = caller.name(),
+                    caller_function_tag = caller.name().replace("/", "_"),
+                    line_number = *line_number + 1
+                ))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let content = engine
+            .expand(include_str!(
+                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"
+            ))
+            .replace("# -return_cases-", &return_cases);
+
+        let path = function_directory.join("return.mcfunction");
+        write(&path, &content)?;
+    }
+
+    Ok(())
+}
+
+struct TemplateEngine<'l> {
+    replacements: HashMap<&'l str, &'l str>,
+}
+
+impl<'l> TemplateEngine<'l> {
+    fn extend<T: IntoIterator<Item = (&'l str, &'l str)>>(&self, iter: T) -> TemplateEngine<'l> {
+        let mut replacements = HashMap::from_iter(iter);
+        replacements.extend(self.replacements.iter());
+        TemplateEngine { replacements }
+    }
+
+    fn expand(&self, string: &str) -> String {
+        let mut result = string.to_owned();
+        for (from, to) in &self.replacements {
+            result = result.replace(from, to);
+        }
+        result
+    }
+
+    fn expand_line(&self, (line_number, line, command): &(usize, String, Line)) -> String {
+        match command {
+            Line::Breakpoint => {
+                let template = include_str!(
+                    "datapack_template/data/template/functions/set_breakpoint.mcfunction"
+                );
+                let template = template.replace("-line_number-", &line_number.to_string());
+                self.expand(&template)
+            }
+            Line::FunctionCall {
+                name,
+                anchor,
+                execute_as,
+            } => {
+                let template = include_str!(
+                    "datapack_template/data/template/functions/call_function.mcfunction"
+                );
+                let function_call = format!("function {}", name);
+                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
+                let debug_anchor = anchor.map_or("".to_string(), |anchor| {
+                    let mut anchor_score = 0;
+                    if anchor == EntityAnchor::EYES {
+                        anchor_score = 1;
+                    }
+                    format!(
+                        "scoreboard players set current {namespace}_anchor {anchor_score}",
+                        namespace = NAMESPACE,
+                        anchor_score = anchor_score
+                    )
+                });
+                let template = template
+                    .replace("-call_ns-", name.namespace())
+                    .replace("-call/fn-", name.name())
+                    .replace("execute run ", execute)
+                    .replace("# -debug_anchor-", &debug_anchor);
+                self.expand(&template)
+            }
+            Line::OtherCommand => line.to_owned(),
+        }
+    }
 }
