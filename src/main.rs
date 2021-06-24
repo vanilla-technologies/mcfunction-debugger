@@ -138,7 +138,7 @@ fn generate_output_datapack(
     const PREFIX: &str = concatcp!(RESOURCE_PATH, FN_PATH);
 
     let engine = TemplateEngine {
-        replacements: HashMap::from_iter([("-ns-", NAMESPACE)]),
+        replacements: HashMap::from_iter(vec![("-ns-", NAMESPACE)]),
     };
 
     let fn_path = output_path.join(engine.expand(FN_PATH));
@@ -275,7 +275,7 @@ fn create_function_files(
         let line_numbers = format!("{}-{}", start_line, end_line - 1);
 
         let orig_fn_tag = original_function.replace('/', "_");
-        let engine = engine.extend([
+        let engine = engine.extend(vec![
             ("-orig_ns-", original_namespace),
             ("-line_numbers-", &line_numbers),
             ("-orig_fn-", &orig_fn_tag),
