@@ -8,6 +8,5 @@ tag @e[type=area_effect_cloud,tag=-ns-_new] remove -ns-_new
 # -debug_anchor-
 
 execute run function -ns-:select_entity
-# TODO: replace iterate with iterate or iterate_same_executor if no as in execute
-function -ns-:-call_ns-/-call/fn-/iterate
+function -ns-:-call_ns-/-call/fn-/-iterate_as-
 execute if score breakpoint -ns-_global matches 0 as @e[type=area_effect_cloud,tag=-ns-_function_call] if score @s -ns-_depth = current -ns-_depth run function -ns-:-call_ns-/-call/fn-/return

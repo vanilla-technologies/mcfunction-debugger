@@ -295,6 +295,12 @@ fn create_function_files(
             );
             write(&path, &engine.expand(template))?;
 
+            let path = function_directory.join("iterate_same_executor.mcfunction");
+            let template = include_str!(
+                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/iterate_same_executor.mcfunction"
+            );
+            write(&path, &engine.expand(template))?;
+
             let path = function_directory.join("start.mcfunction");
             let template = include_str!(
                 "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"
@@ -417,11 +423,15 @@ impl<'l> TemplateEngine<'l> {
                         anchor_score = anchor_score
                     )
                 });
+                let iterate_as = execute_as
+                    .then(|| "iterate")
+                    .unwrap_or("iterate_same_executor");
                 let template = template
                     .replace("-call_ns-", name.namespace())
                     .replace("-call/fn-", name.name())
                     .replace("execute run ", execute)
-                    .replace("# -debug_anchor-", &debug_anchor);
+                    .replace("# -debug_anchor-", &debug_anchor)
+                    .replace("-iterate_as-", iterate_as);
                 self.expand(&template)
             }
             Line::OtherCommand => line.to_owned(),
