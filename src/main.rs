@@ -1,12 +1,16 @@
 mod parser;
+mod template_engine;
 
-use crate::parser::{parse_line, Line};
+use crate::{
+    parser::{parse_line, Line},
+    template_engine::TemplateEngine,
+};
 use clap::{App, Arg};
 use const_format::concatcp;
 use futures::{future::try_join_all, FutureExt};
 use load_file::load_str;
 use multimap::MultiMap;
-use parser::commands::{CommandParser, EntityAnchor, NamespacedName};
+use parser::commands::{CommandParser, NamespacedName};
 use std::{
     collections::HashMap,
     fs::{create_dir_all, write, File},
@@ -20,7 +24,7 @@ use walkdir::WalkDir;
 const DATAPACK: &str = "datapack";
 const OUTPUT: &str = "output";
 
-const NAMESPACE: &str = "debug";
+const NAMESPACE: &str = "namespace";
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -39,11 +43,19 @@ async fn main() -> io::Result<()> {
                 .takes_value(true)
                 .required(true),
         )
+        .arg(
+            Arg::with_name(NAMESPACE)
+                .long("namespace")
+                .value_name("STRING")
+                .takes_value(true)
+                .required(true),
+        )
         .get_matches();
     let datapack_path = Path::new(matches.value_of(DATAPACK).unwrap());
     let pack_mcmeta_path = datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
     let output_path = Path::new(matches.value_of(OUTPUT).unwrap());
+    let namespace = matches.value_of(NAMESPACE).unwrap();
 
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -71,7 +83,7 @@ async fn main() -> io::Result<()> {
         })
         .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
 
-    generate_output_datapack(output_path, &function_contents)?;
+    generate_output_datapack(output_path, &function_contents, namespace)?;
     Ok(())
 }
 
@@ -132,13 +144,14 @@ fn generate_output_datapack(
         &parser::commands::NamespacedNameRef<String>,
         Vec<(usize, String, Line)>,
     >,
+    namespace: &str,
 ) -> io::Result<()> {
     const RESOURCE_PATH: &str = "datapack_template/";
     const FN_PATH: &str = "data/-ns-/functions/";
     const PREFIX: &str = concatcp!(RESOURCE_PATH, FN_PATH);
 
     let engine = TemplateEngine {
-        replacements: HashMap::from_iter(vec![("-ns-", NAMESPACE)]),
+        replacements: HashMap::from_iter(vec![("-ns-", namespace)]),
     };
 
     let fn_path = output_path.join(engine.expand(FN_PATH));
@@ -187,7 +200,7 @@ fn generate_output_datapack(
 
     for (name, lines) in function_contents.iter() {
         //TODO async
-        create_function_files(&fn_path, name, lines, &call_tree, &engine)?;
+        create_function_files(&fn_path, name, lines, &call_tree, &engine, namespace)?;
     }
 
     Ok(())
@@ -260,6 +273,7 @@ fn create_function_files(
     lines: &Vec<(usize, String, Line)>,
     call_tree: &MultiMap<&NamespacedName, (&NamespacedName, &usize)>,
     engine: &TemplateEngine,
+    namespace: &str,
 ) -> Result<(), Error> {
     let original_namespace = name.namespace();
     let original_function = name.name();
@@ -327,7 +341,7 @@ fn create_function_files(
         let path = function_directory.join(file_name);
         let content = partition
             .iter()
-            .map(|line| engine.expand_line(line))
+            .map(|line| engine.expand_line(line, namespace))
             .collect::<Vec<_>>()
             .join("\n");
         let template = include_str!(
@@ -372,69 +386,4 @@ fn create_function_files(
     }
 
     Ok(())
-}
-
-struct TemplateEngine<'l> {
-    replacements: HashMap<&'l str, &'l str>,
-}
-
-impl<'l> TemplateEngine<'l> {
-    fn extend<T: IntoIterator<Item = (&'l str, &'l str)>>(&self, iter: T) -> TemplateEngine<'l> {
-        let mut replacements = HashMap::from_iter(iter);
-        replacements.extend(self.replacements.iter());
-        TemplateEngine { replacements }
-    }
-
-    fn expand(&self, string: &str) -> String {
-        let mut result = string.to_owned();
-        for (from, to) in &self.replacements {
-            result = result.replace(from, to);
-        }
-        result
-    }
-
-    fn expand_line(&self, (line_number, line, command): &(usize, String, Line)) -> String {
-        match command {
-            Line::Breakpoint => {
-                let template = include_str!(
-                    "datapack_template/data/template/functions/set_breakpoint.mcfunction"
-                );
-                let template = template.replace("-line_number-", &line_number.to_string());
-                self.expand(&template)
-            }
-            Line::FunctionCall {
-                name,
-                anchor,
-                execute_as,
-            } => {
-                let template = include_str!(
-                    "datapack_template/data/template/functions/call_function.mcfunction"
-                );
-                let function_call = format!("function {}", name);
-                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
-                let debug_anchor = anchor.map_or("".to_string(), |anchor| {
-                    let mut anchor_score = 0;
-                    if anchor == EntityAnchor::EYES {
-                        anchor_score = 1;
-                    }
-                    format!(
-                        "scoreboard players set current {namespace}_anchor {anchor_score}",
-                        namespace = NAMESPACE,
-                        anchor_score = anchor_score
-                    )
-                });
-                let iterate_as = execute_as
-                    .then(|| "iterate")
-                    .unwrap_or("iterate_same_executor");
-                let template = template
-                    .replace("-call_ns-", name.namespace())
-                    .replace("-call/fn-", name.name())
-                    .replace("execute run ", execute)
-                    .replace("# -debug_anchor-", &debug_anchor)
-                    .replace("-iterate_as-", iterate_as);
-                self.expand(&template)
-            }
-            Line::OtherCommand => line.to_owned(),
-        }
-    }
 }
