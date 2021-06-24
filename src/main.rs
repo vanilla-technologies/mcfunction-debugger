@@ -48,7 +48,14 @@ async fn main() -> io::Result<()> {
                 .long("namespace")
                 .value_name("STRING")
                 .takes_value(true)
-                .required(true),
+                .required(true)
+                .validator(|namespace| {
+                    if namespace.len() < 10 {
+                        //max len of identifiers 16 => scoreboard {}_global has 7 characters -> 9 remaining for namespace
+                        return Ok(());
+                    }
+                    Err(String::from("Max 'namespace' name length: 9 characters"))
+                }),
         )
         .get_matches();
     let datapack_path = Path::new(matches.value_of(DATAPACK).unwrap());
