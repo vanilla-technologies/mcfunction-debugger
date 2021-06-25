@@ -1,4 +1,4 @@
-use crate::parser::{commands::EntityAnchor, Line};
+use crate::parser::{commands::MinecraftEntityAnchor, Line};
 use std::{collections::HashMap, iter::FromIterator};
 
 pub struct TemplateEngine<'l> {
@@ -48,7 +48,7 @@ impl<'l> TemplateEngine<'l> {
                 let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
                 let debug_anchor = anchor.map_or("".to_string(), |anchor| {
                     let mut anchor_score = 0;
-                    if anchor == EntityAnchor::EYES {
+                    if anchor == MinecraftEntityAnchor::EYES {
                         anchor_score = 1;
                     }
                     format!(
@@ -68,6 +68,7 @@ impl<'l> TemplateEngine<'l> {
                     .replace("-iterate_as-", iterate_as);
                 self.expand(&template)
             }
+            Line::Schedule { .. } => unimplemented!(),
             Line::OtherCommand => line.to_owned(),
         }
     }

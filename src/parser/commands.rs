@@ -102,6 +102,7 @@ pub enum Command {
     Argument {
         #[serde(flatten)]
         node: Node,
+        #[serde(flatten)]
         parser: ArgumentParser,
     },
 }
@@ -167,63 +168,216 @@ impl Command {
     }
 }
 
-type Entity = ();
+type MinecraftEntity = ();
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum EntityAnchor {
+pub enum MinecraftEntityAnchor {
     EYES,
     FEET,
 }
-type Function<'l> = NamespacedNameRef<&'l str>;
-type Swizzle = ();
+type MinecraftFunction<'l> = NamespacedNameRef<&'l str>;
+type MinecraftSwizzle = ();
+#[derive(Clone, Debug, PartialEq)]
+pub struct MinecraftTime {
+    pub time: f32,
+    pub unit: MinecraftTimeUnit,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MinecraftTimeUnit {
+    Tick,
+    Second,
+    Day,
+}
 
 pub enum Argument<'l> {
-    Entity(Entity),
-    EntityAnchor(EntityAnchor),
-    Function(Function<'l>),
-    Swizzle(Swizzle),
+    BrigadierString(String),
+    MinecraftEntity(MinecraftEntity),
+    MinecraftEntityAnchor(MinecraftEntityAnchor),
+    MinecraftFunction(MinecraftFunction<'l>),
+    MinecraftSwizzle(MinecraftSwizzle),
+    MinecraftTime(MinecraftTime),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
+#[serde(tag = "parser", content = "properties")]
 pub enum ArgumentParser {
+    #[serde(rename = "brigadier:bool")]
+    BrigadierBool,
+    #[serde(rename = "brigadier:double")]
+    BrigadierDouble,
+    #[serde(rename = "brigadier:float")]
+    BrigadierFloat(Option<BrigadierFloatProperties>),
+    #[serde(rename = "brigadier:integer")]
+    BrigadierInteger(Option<BrigadierIntegerProperties>),
+    #[serde(rename = "brigadier:string")]
+    BrigadierString {
+        #[serde(rename = "type")]
+        type_: BrigadierStringType,
+    },
+    #[serde(rename = "minecraft:angle")]
+    MinecraftAngle,
+    #[serde(rename = "minecraft:block_pos")]
+    MinecraftBlockPos,
+    #[serde(rename = "minecraft:block_predicate")]
+    MinecraftBlockPredicate,
+    #[serde(rename = "minecraft:block_state")]
+    MinecraftBlockState,
+    #[serde(rename = "minecraft:color")]
+    MinecraftColor,
+    #[serde(rename = "minecraft:column_pos")]
+    MinecraftColumnPos,
+    #[serde(rename = "minecraft:component")]
+    MinecraftComponent,
+    #[serde(rename = "minecraft:dimension")]
+    MinecraftDimension,
     #[serde(rename = "minecraft:entity")]
-    MinecraftEntity,
+    MinecraftEntity {
+        #[serde(rename = "type")]
+        type_: MinecraftEntityType,
+        amount: MinecraftAmount,
+    },
     #[serde(rename = "minecraft:entity_anchor")]
     MinecraftEntityAnchor,
+    #[serde(rename = "minecraft:entity_summon")]
+    MinecraftEntitySummon,
     #[serde(rename = "minecraft:function")]
     MinecraftFunction,
+    #[serde(rename = "minecraft:game_profile")]
+    MinecraftGameProfile,
+    #[serde(rename = "minecraft:int_range")]
+    MinecraftIntRange,
+    #[serde(rename = "minecraft:item_enchantment")]
+    MinecraftItemEnchantment,
+    #[serde(rename = "minecraft:item_predicate")]
+    MinecraftItemPredicate,
+    #[serde(rename = "minecraft:item_slot")]
+    MinecraftItemSlot,
+    #[serde(rename = "minecraft:item_stack")]
+    MinecraftItemStack,
+    #[serde(rename = "minecraft:message")]
+    MinecraftMessage,
+    #[serde(rename = "minecraft:mob_effect")]
+    MinecraftMobEffect,
+    #[serde(rename = "minecraft:nbt_compound_tag")]
+    MinecraftNbtCompoundTag,
+    #[serde(rename = "minecraft:nbt_path")]
+    MinecraftNbtPath,
+    #[serde(rename = "minecraft:nbt_tag")]
+    MinecraftNbtTag,
+    #[serde(rename = "minecraft:objective")]
+    MinecraftObjective,
+    #[serde(rename = "minecraft:objective_criteria")]
+    MinecraftObjectiveCriteria,
+    #[serde(rename = "minecraft:operation")]
+    MinecraftOperation,
+    #[serde(rename = "minecraft:particle")]
+    MinecraftParticle,
+    #[serde(rename = "minecraft:resource_location")]
+    MinecraftResourceLocation,
+    #[serde(rename = "minecraft:rotation")]
+    MinecraftRotation,
+    #[serde(rename = "minecraft:score_holder")]
+    MinecraftScoreHolder { amount: MinecraftAmount },
+    #[serde(rename = "minecraft:scoreboard_slot")]
+    MinecraftScoreboardSlot,
     #[serde(rename = "minecraft:swizzle")]
     MinecraftSwizzle,
-    #[serde(other, rename = "")]
-    Unknown,
+    #[serde(rename = "minecraft:team")]
+    MinecraftTeam,
+    #[serde(rename = "minecraft:time")]
+    MinecraftTime,
+    #[serde(rename = "minecraft:uuid")]
+    MinecraftUuid,
+    #[serde(rename = "minecraft:vec2")]
+    MinecraftVec2,
+    #[serde(rename = "minecraft:vec3")]
+    MinecraftVec3,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct BrigadierFloatProperties {
+    pub min: Option<f32>,
+    pub max: Option<f32>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct BrigadierIntegerProperties {
+    pub min: Option<i32>,
+    pub max: Option<i32>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum BrigadierStringType {
+    Greedy,
+    Phrase,
+    Word,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum MinecraftEntityType {
+    Players,
+    Entities,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum MinecraftAmount {
+    Single,
+    Multiple,
 }
 
 impl ArgumentParser {
     pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, &'l str), String> {
         match self {
-            ArgumentParser::MinecraftEntity => {
-                let (entity, suffix) = ArgumentParser::parse_entity(string)?;
-                Ok((Argument::Entity(entity), suffix))
+            ArgumentParser::BrigadierString { type_ } => {
+                let (string, suffix) = ArgumentParser::parse_brigadier_string(string, type_)?;
+                Ok((Argument::BrigadierString(string), suffix))
+            }
+            ArgumentParser::MinecraftEntity { .. } => {
+                let (entity, suffix) = ArgumentParser::parse_minecraft_entity(string)?;
+                Ok((Argument::MinecraftEntity(entity), suffix))
             }
             ArgumentParser::MinecraftEntityAnchor => {
-                let (entity_anchor, suffix) = ArgumentParser::parse_entity_anchor(string)?;
-                Ok((Argument::EntityAnchor(entity_anchor), suffix))
+                let (entity_anchor, suffix) =
+                    ArgumentParser::parse_minecraft_entity_anchor(string)?;
+                Ok((Argument::MinecraftEntityAnchor(entity_anchor), suffix))
             }
             ArgumentParser::MinecraftFunction => {
-                let (function, suffix) = ArgumentParser::parse_function(string)?;
-                Ok((Argument::Function(function), suffix))
+                let (function, suffix) = ArgumentParser::parse_minecraft_function(string)?;
+                Ok((Argument::MinecraftFunction(function), suffix))
             }
             ArgumentParser::MinecraftSwizzle => {
-                let (swizzle, suffix) = ArgumentParser::parse_swizzle(string)?;
-                Ok((Argument::Swizzle(swizzle), suffix))
+                let (swizzle, suffix) = ArgumentParser::parse_minecraft_swizzle(string)?;
+                Ok((Argument::MinecraftSwizzle(swizzle), suffix))
             }
-            ArgumentParser::Unknown => Err("Unknown argument".to_string()),
+            ArgumentParser::MinecraftTime => {
+                let (time, suffix) = ArgumentParser::parse_minecraft_time(string)?;
+                Ok((Argument::MinecraftTime(time), suffix))
+            }
+            _ => Err("Unknown argument".to_string()),
+        }
+    }
+
+    fn parse_brigadier_string<'l>(
+        string: &'l str,
+        type_: &BrigadierStringType,
+    ) -> Result<(String, &'l str), String> {
+        match type_ {
+            BrigadierStringType::Greedy => Ok((string.to_string(), "")),
+            BrigadierStringType::Phrase => {
+                Err("Unsupported type 'phrase' for argument parser brigadier:string".to_string())
+            }
+            BrigadierStringType::Word => {
+                Err("Unsupported type 'word' for argument parser brigadier:string".to_string())
+            }
         }
     }
 
     // TODO support ] in strings and NBT
     // TODO support for player name and UUID
     // TODO add support for limits on amount and type
-    fn parse_entity(string: &str) -> Result<(Entity, &str), String> {
+    fn parse_minecraft_entity(string: &str) -> Result<(MinecraftEntity, &str), String> {
         let mut suffix = string
             .strip_prefix('@')
             .ok_or(format!("Invalid entity {}", string))?;
@@ -246,19 +400,21 @@ impl ArgumentParser {
         Ok(((), suffix))
     }
 
-    fn parse_entity_anchor(string: &str) -> Result<(EntityAnchor, &str), String> {
+    fn parse_minecraft_entity_anchor(
+        string: &str,
+    ) -> Result<(MinecraftEntityAnchor, &str), String> {
         let eyes = "eyes";
         let feet = "feet";
         if string.starts_with(eyes) {
-            Ok((EntityAnchor::EYES, &string[eyes.len()..]))
+            Ok((MinecraftEntityAnchor::EYES, &string[eyes.len()..]))
         } else if string.starts_with(feet) {
-            Ok((EntityAnchor::FEET, &string[feet.len()..]))
+            Ok((MinecraftEntityAnchor::FEET, &string[feet.len()..]))
         } else {
             Err(format!("Invalid entity anchor {}", string))
         }
     }
 
-    fn parse_function(string: &str) -> Result<(Function, &str), String> {
+    fn parse_minecraft_function(string: &str) -> Result<(MinecraftFunction, &str), String> {
         let namespace_end = string
             .find(|c| !NAMESPACE_CHARS.contains(c))
             .ok_or(format!("Invalid ID: '{}'", string))?;
@@ -276,12 +432,36 @@ impl ArgumentParser {
         Ok((name, rest))
     }
 
-    fn parse_swizzle(string: &str) -> Result<(Swizzle, &str), String> {
+    fn parse_minecraft_swizzle(string: &str) -> Result<(MinecraftSwizzle, &str), String> {
         let end = string
             .find(' ')
             .ok_or("Failed to parse swizzle".to_string())?;
         let swizzle = ();
         Ok((swizzle, &string[end..]))
+    }
+
+    fn parse_minecraft_time(string: &str) -> Result<(MinecraftTime, &str), String> {
+        let float_len = string
+            .find(|c| c < '0' || c > '9' && c != '.' && c != '-')
+            .unwrap_or(string.len());
+        let float_sting = &string[..float_len];
+        let time = float_sting
+            .parse()
+            .map_err(|_| format!("Expected float but got '{}'", &float_sting))?;
+        let (unit, suffix) = match string[float_len..].chars().next() {
+            Some(unit) if unit != ' ' => {
+                let unit = match unit {
+                    't' => MinecraftTimeUnit::Tick,
+                    's' => MinecraftTimeUnit::Second,
+                    'd' => MinecraftTimeUnit::Day,
+                    unit => return Err(format!("Unknown unit '{}'", unit)),
+                };
+                (unit, &string[float_len + 1..])
+            }
+            _ => (MinecraftTimeUnit::Tick, &string[float_len..]),
+        };
+
+        Ok((MinecraftTime { time, unit }, suffix))
     }
 }
 
