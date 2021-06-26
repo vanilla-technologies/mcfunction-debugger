@@ -157,9 +157,7 @@ fn generate_output_datapack(
     const FN_PATH: &str = "data/-ns-/functions/";
     const PREFIX: &str = concatcp!(RESOURCE_PATH, FN_PATH);
 
-    let engine = TemplateEngine {
-        replacements: HashMap::from_iter(vec![("-ns-", namespace)]),
-    };
+    let engine = TemplateEngine::new(HashMap::from_iter(vec![("-ns-", namespace)]));
 
     let fn_path = output_path.join(engine.expand(FN_PATH));
 
@@ -187,13 +185,27 @@ fn generate_output_datapack(
     let content = engine.expand(load_str!(concatcp!(PREFIX, CONTINUE)));
     write(fn_path.join(CONTINUE), &content)?;
 
+    const DECREMENT_AGE: &str = "decrement_age.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, DECREMENT_AGE)));
+    write(fn_path.join(DECREMENT_AGE), &content)?;
+
     const INSTALL: &str = "install.mcfunction";
     let content = engine.expand(load_str!(concatcp!(PREFIX, INSTALL)));
     write(fn_path.join(INSTALL), &content)?;
 
+    create_schedule_file(&fn_path, function_contents, &engine)?;
+
     const SELECT_ENTITY: &str = "select_entity.mcfunction";
     let content = engine.expand(load_str!(concatcp!(PREFIX, SELECT_ENTITY)));
     write(fn_path.join(SELECT_ENTITY), &content)?;
+
+    const TICK_START: &str = "tick_start.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, TICK_START)));
+    write(fn_path.join(TICK_START), &content)?;
+
+    const TICK: &str = "tick.mcfunction";
+    let content = engine.expand(load_str!(concatcp!(PREFIX, TICK)));
+    write(fn_path.join(TICK), &content)?;
 
     const UNINSTALL: &str = "uninstall.mcfunction";
     let content = engine.expand(load_str!(concatcp!(PREFIX, UNINSTALL)));
@@ -209,6 +221,28 @@ fn generate_output_datapack(
         //TODO async
         create_function_files(&fn_path, name, lines, &call_tree, &engine, namespace)?;
     }
+
+    Ok(())
+}
+
+fn create_schedule_file(
+    fn_path: &PathBuf,
+    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    engine: &TemplateEngine,
+) -> io::Result<()> {
+    let content = function_contents
+        .keys()
+        .map(|name| {
+            let engine = engine.extend_orig_name(name);
+            engine.expand(include_str!(
+                "datapack_template/data/-ns-/functions/schedule.mcfunction"
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    let path = fn_path.join("schedule.mcfunction");
+    write(&path, &content)?;
 
     Ok(())
 }
@@ -325,6 +359,12 @@ fn create_function_files(
             let path = function_directory.join("start.mcfunction");
             let template = include_str!(
                 "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"
+            );
+            write(&path, &engine.expand(template))?;
+
+            let path = function_directory.join("scheduled.mcfunction");
+            let template = include_str!(
+                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"
             );
             write(&path, &engine.expand(template))?;
         } else {

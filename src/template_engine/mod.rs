@@ -1,23 +1,53 @@
-use crate::parser::{commands::MinecraftEntityAnchor, Line};
+use crate::parser::{
+    commands::{MinecraftEntityAnchor, NamespacedNameRef},
+    Line,
+};
 use std::{collections::HashMap, iter::FromIterator};
 
 pub struct TemplateEngine<'l> {
-    pub replacements: HashMap<&'l str, &'l str>,
+    replacements: HashMap<&'l str, &'l str>,
+    replacements_owned: HashMap<&'l str, String>,
 }
 
 impl<'l> TemplateEngine<'l> {
+    pub fn new(replacements: HashMap<&'l str, &'l str>) -> TemplateEngine<'l> {
+        TemplateEngine {
+            replacements,
+            replacements_owned: HashMap::new(),
+        }
+    }
+
     pub fn extend<T: IntoIterator<Item = (&'l str, &'l str)>>(
         &self,
         iter: T,
     ) -> TemplateEngine<'l> {
         let mut replacements = HashMap::from_iter(iter);
         replacements.extend(self.replacements.iter());
-        TemplateEngine { replacements }
+        TemplateEngine {
+            replacements,
+            replacements_owned: self.replacements_owned.clone(),
+        }
+    }
+
+    pub fn extend_orig_name<N: AsRef<str>>(
+        &'l self,
+        orig_name: &'l NamespacedNameRef<N>,
+    ) -> TemplateEngine<'l> {
+        let orig_fn_tag = orig_name.name().replace('/', "_");
+        let mut engine = self.extend(vec![
+            ("-orig_ns-", orig_name.namespace()),
+            ("-orig/fn-", orig_name.name()),
+        ]);
+        engine.replacements_owned.insert("-orig_fn-", orig_fn_tag);
+        engine
     }
 
     pub fn expand(&self, string: &str) -> String {
         let mut result = string.to_owned();
         for (from, to) in &self.replacements {
+            result = result.replace(from, to);
+        }
+        for (from, to) in &self.replacements_owned {
             result = result.replace(from, to);
         }
         result
@@ -68,7 +98,7 @@ impl<'l> TemplateEngine<'l> {
                     .replace("-iterate_as-", iterate_as);
                 self.expand(&template)
             }
-            Line::Schedule { .. } => unimplemented!(),
+            Line::Schedule { .. } => line.to_owned(),
             Line::OtherCommand => line.to_owned(),
         }
     }
