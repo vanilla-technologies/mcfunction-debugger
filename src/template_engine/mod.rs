@@ -98,7 +98,31 @@ impl<'l> TemplateEngine<'l> {
                     .replace("-iterate_as-", iterate_as);
                 self.expand(&template)
             }
-            Line::Schedule { .. } => line.to_owned(),
+            Line::Schedule {
+                schedule_start,
+                function,
+                time,
+                append,
+            } => {
+                let template = if *append {
+                    include_str!(
+                        "../datapack_template/data/template/functions/schedule_append.mcfunction"
+                    )
+                } else {
+                    include_str!(
+                        "../datapack_template/data/template/functions/schedule_replace.mcfunction"
+                    )
+                };
+                let schedule_fn = function.name().replace('/', "_");
+                let ticks = time.as_ticks().to_string();
+                let engine = self.extend(vec![
+                    ("-schedule_ns-", function.namespace()),
+                    ("-schedule_fn-", &schedule_fn),
+                    ("-ticks-", &ticks),
+                    ("execute run ", &line[..*schedule_start]),
+                ]);
+                engine.expand(template)
+            }
             Line::OtherCommand => line.to_owned(),
         }
     }

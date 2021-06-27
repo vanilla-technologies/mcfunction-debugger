@@ -211,6 +211,11 @@ fn generate_output_datapack(
     let content = engine.expand(load_str!(concatcp!(PREFIX, UNINSTALL)));
     write(fn_path.join(UNINSTALL), &content)?;
 
+    create_dir_all(output_path.join("data/minecraft/tags/functions"))?;
+    const TICK_JSON: &str = "data/minecraft/tags/functions/tick.json";
+    let content = engine.expand(load_str!(concatcp!(RESOURCE_PATH, TICK_JSON)));
+    write(output_path.join(TICK_JSON), &content)?;
+
     const PACK: &str = "pack.mcmeta";
     let content = engine.expand(load_str!(concatcp!(RESOURCE_PATH, PACK)));
     write(output_path.join(PACK), &content)?;
@@ -324,7 +329,9 @@ fn create_function_files(
     create_dir_all(&function_directory)?;
 
     let mut start_line = 1;
-    for partition in lines.split_inclusive(|(_, _, command)| *command != Line::OtherCommand) {
+    for partition in lines.split_inclusive(|(_, _, command)| {
+        matches!(*command, Line::Breakpoint | Line::FunctionCall { .. })
+    }) {
         let first = start_line == 1;
         let end_line = start_line + partition.len();
         let line_numbers = format!("{}-{}", start_line, end_line - 1);

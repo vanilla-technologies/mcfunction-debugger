@@ -1,7 +1,7 @@
 use const_format::concatcp;
 use log::warn;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, u32, usize};
 
 pub struct CommandParser {
     commands: HashMap<String, Command>,
@@ -24,8 +24,9 @@ impl CommandParser {
         let mut vec = Vec::new();
         let mut commands = &self.commands;
 
+        let mut index = 0;
         loop {
-            let (command, parsed, suffix) = CommandParser::parse_prefix(string, commands)?;
+            let (command, parsed, suffix) = CommandParser::parse_prefix(string, index, commands)?;
             vec.push(parsed);
 
             if suffix == "" {
@@ -39,9 +40,11 @@ impl CommandParser {
                     );
                 }
             } else {
+                index += string.len();
                 string = suffix.strip_prefix(' ').ok_or(
                     "Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string()
                 )?;
+                index -= string.len();
 
                 commands = command.children();
                 if let Some(redirect) = command.redirect()? {
@@ -68,10 +71,11 @@ impl CommandParser {
 
     fn parse_prefix<'c, 's>(
         string: &'s str,
+        index: usize,
         commands: &'c HashMap<String, Command>,
     ) -> Result<(&'c Command, ParsedNode<'s>, &'s str), String> {
         for (name, command) in commands {
-            if let Some((parsed, suffix)) = command.parse(name, string) {
+            if let Some((parsed, suffix)) = command.parse(name, string, index) {
                 return Ok((command, parsed, suffix));
             }
         }
@@ -82,8 +86,14 @@ impl CommandParser {
 
 pub enum ParsedNode<'l> {
     Redirect(&'l str),
-    Literal(&'l str),
-    Argument(Argument<'l>),
+    Literal {
+        literal: &'l str,
+        index: usize,
+    },
+    Argument {
+        argument: Argument<'l>,
+        index: usize,
+    },
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -108,13 +118,18 @@ pub enum Command {
 }
 
 impl Command {
-    fn parse<'l>(&self, name: &str, string: &'l str) -> Option<(ParsedNode<'l>, &'l str)> {
+    fn parse<'l>(
+        &self,
+        name: &str,
+        string: &'l str,
+        index: usize,
+    ) -> Option<(ParsedNode<'l>, &'l str)> {
         match self {
             Command::Literal { .. } => {
                 let end = string.find(' ').unwrap_or(string.len());
                 let (literal, suffix) = string.split_at(end);
                 if literal == name {
-                    Some((ParsedNode::Literal(literal), suffix))
+                    Some((ParsedNode::Literal { literal, index }, suffix))
                 } else {
                     None
                 }
@@ -124,7 +139,7 @@ impl Command {
                     .parse(string)
                     .map_err(|e| warn!("Failed to parse argument {} due to: {}", name, e))
                     .ok()?;
-                Some((ParsedNode::Argument(argument), suffix))
+                Some((ParsedNode::Argument { argument, index }, suffix))
             }
         }
     }
@@ -181,11 +196,29 @@ pub struct MinecraftTime {
     pub time: f32,
     pub unit: MinecraftTimeUnit,
 }
+
+impl MinecraftTime {
+    pub fn as_ticks(&self) -> u32 {
+        let ticks = self.time * self.unit.factor() as f32;
+        ticks.round() as u32
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MinecraftTimeUnit {
     Tick,
     Second,
     Day,
+}
+
+impl MinecraftTimeUnit {
+    pub fn factor(&self) -> u32 {
+        match self {
+            MinecraftTimeUnit::Tick => 1,
+            MinecraftTimeUnit::Second => 20,
+            MinecraftTimeUnit::Day => 24000,
+        }
+    }
 }
 
 pub enum Argument<'l> {

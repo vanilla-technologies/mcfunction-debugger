@@ -1,5 +1,7 @@
 pub mod commands;
 
+use std::usize;
+
 use self::commands::{
     Argument, CommandParser, MinecraftEntityAnchor, MinecraftTime, NamespacedName, ParsedNode,
 };
@@ -14,6 +16,7 @@ pub enum Line {
     },
     Schedule {
         // TODO clear
+        schedule_start: usize,
         function: NamespacedName,
         time: MinecraftTime,
         append: bool,
@@ -42,39 +45,82 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
     while let Some((head, tail)) = nodes.split_first() {
         nodes = tail;
         match head {
-            ParsedNode::Literal("execute") | ParsedNode::Redirect("execute") => {
-                if let Some((ParsedNode::Literal("anchored"), tail)) = tail.split_first() {
-                    if let Some(ParsedNode::Argument(Argument::MinecraftEntityAnchor(anchor))) =
-                        tail.first()
+            ParsedNode::Literal {
+                literal: "execute", ..
+            }
+            | ParsedNode::Redirect("execute") => {
+                if let Some((
+                    ParsedNode::Literal {
+                        literal: "anchored",
+                        ..
+                    },
+                    tail,
+                )) = tail.split_first()
+                {
+                    if let Some(ParsedNode::Argument {
+                        argument: Argument::MinecraftEntityAnchor(anchor),
+                        ..
+                    }) = tail.first()
                     {
                         maybe_anchor = Some(*anchor);
                     }
                 }
-                if let Some((ParsedNode::Literal("as"), _tail)) = tail.split_first() {
+                if let Some((ParsedNode::Literal { literal: "as", .. }, _tail)) = tail.split_first()
+                {
                     execute_as = true;
                 }
             }
-            ParsedNode::Literal("function") => {
-                if let Some(ParsedNode::Argument(Argument::MinecraftFunction(function))) =
-                    tail.first()
+            ParsedNode::Literal {
+                literal: "function",
+                ..
+            } => {
+                if let Some(ParsedNode::Argument {
+                    argument: Argument::MinecraftFunction(function),
+                    ..
+                }) = tail.first()
                 {
                     maybe_function = Some(function);
                 }
             }
-            ParsedNode::Literal("schedule") => {
-                if let Some((ParsedNode::Literal("function"), tail)) = tail.split_first() {
+            ParsedNode::Literal {
+                literal: "schedule",
+                index,
+            } => {
+                if let Some((
+                    ParsedNode::Literal {
+                        literal: "function",
+                        ..
+                    },
+                    tail,
+                )) = tail.split_first()
+                {
                     if let Some((
-                        ParsedNode::Argument(Argument::MinecraftFunction(function)),
+                        ParsedNode::Argument {
+                            argument: Argument::MinecraftFunction(function),
+                            ..
+                        },
                         tail,
                     )) = tail.split_first()
                     {
-                        if let Some((ParsedNode::Argument(Argument::MinecraftTime(time)), tail)) =
-                            tail.split_first()
+                        if let Some((
+                            ParsedNode::Argument {
+                                argument: Argument::MinecraftTime(time),
+                                ..
+                            },
+                            tail,
+                        )) = tail.split_first()
                         {
                             return Some(Line::Schedule {
+                                schedule_start: *index,
                                 function: function.to_owned(),
                                 time: time.clone(),
-                                append: matches!(tail.first(), Some(ParsedNode::Literal("append"))),
+                                append: matches!(
+                                    tail.first(),
+                                    Some(ParsedNode::Literal {
+                                        literal: "append",
+                                        ..
+                                    })
+                                ),
                             });
                         }
                     }
@@ -297,6 +343,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::Schedule {
+                schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
                 time: MinecraftTime {
                     time: 1f32,
@@ -320,6 +367,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::Schedule {
+                schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
                 time: MinecraftTime {
                     time: 1f32,
@@ -343,6 +391,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::Schedule {
+                schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
                 time: MinecraftTime {
                     time: 1f32,
@@ -366,6 +415,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::Schedule {
+                schedule_start: 42,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
                 time: MinecraftTime {
                     time: 1f32,
