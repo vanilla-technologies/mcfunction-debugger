@@ -5,6 +5,10 @@
 * Instead of /start shadow names of original datapack (easier to understand for users and command blocks may still work when not using execute)
 
 ## Advanced
+* Bug: returning into server context takes one tick but does not decrement age
+* preserve load and tick.json (and block/item tags etc.) of original datapack
+* disable original datapack in load.json
+* Support multiple input datapacks
 * Support execute store
 * Support function tags
 * Look at all commands
@@ -13,7 +17,6 @@
 * Document how to increase max command limit
 * Document that killing entities while they are executing a function cannot properly be handled by the debugger
   * When restoring the context: if the executing entity is not found: execute unless score @s id matches 0 unless entity @e[tag=!debug_selected_entity_marker,tag=debug_tmp] run say error entity killed while selected
-* disable original datapack in load.json
 * Support AECs with Age >= Duration+WaitTime in schedules running at the beginning of the "next tick" after a breakpoint
 * Restore command block context by changing block content when continuing from a breakpoint
 
