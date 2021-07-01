@@ -11,12 +11,16 @@ use multimap::MultiMap;
 use parser::commands::{CommandParser, NamespacedName};
 use std::{
     collections::HashMap,
-    fs::{create_dir_all, write, File},
-    io::{self, BufRead, Error},
+    fs::File,
+    io::{self, BufRead},
     iter::{repeat, FromIterator},
     path::{Path, PathBuf},
 };
-use tokio::task::JoinHandle;
+use tokio::{
+    fs::{create_dir_all, write},
+    task::JoinHandle,
+    try_join,
+};
 use walkdir::WalkDir;
 
 const DATAPACK: &str = "datapack";
@@ -88,7 +92,8 @@ async fn main() -> io::Result<()> {
         })
         .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
 
-    generate_output_datapack(output_path, &function_contents, namespace)?;
+    generate_output_datapack(&function_contents, namespace, output_path).await?;
+
     Ok(())
 }
 
@@ -143,111 +148,75 @@ fn get_functions(
     })
 }
 
-fn generate_output_datapack(
-    output_path: &Path,
+async fn generate_output_datapack<P: AsRef<Path>>(
     function_contents: &HashMap<
         &parser::commands::NamespacedNameRef<String>,
         Vec<(usize, String, Line)>,
     >,
     namespace: &str,
+    output_path: P,
 ) -> io::Result<()> {
-    macro_rules! expand_template {
-        ($e:ident, $p:literal) => {
-            (
-                $e.expand($p),
-                $e.expand(include_str!(concat!("datapack_template/", $p))),
-            )
+    let engine = TemplateEngine::new(HashMap::from_iter(vec![("-ns-", namespace)]));
+    try_join!(
+        expand_global_templates(&engine, function_contents, &output_path),
+        expand_function_specific_templates(&engine, function_contents, &output_path),
+    )?;
+    Ok(())
+}
+
+macro_rules! expand_template {
+    ($e:ident, $o:ident, $p:literal) => {{
+        let path = $o.as_ref().join($e.expand($p));
+        let content = $e.expand(include_str!(concat!("datapack_template/", $p)));
+        write(path, content)
+    }};
+}
+
+async fn expand_global_templates<P: AsRef<Path>>(
+    engine: &TemplateEngine<'_>,
+    function_contents: &HashMap<
+        &parser::commands::NamespacedNameRef<String>,
+        Vec<(usize, String, Line)>,
+    >,
+    output_path: P,
+) -> io::Result<()> {
+    macro_rules! expand_template_local {
+        ($p:literal) => {
+            expand_template!(engine, output_path, $p)
         };
     }
 
-    let engine = TemplateEngine::new(HashMap::from_iter(vec![("-ns-", namespace)]));
+    let output_path = output_path.as_ref();
+    try_join!(
+        create_dir_all(output_path.join(engine.expand("data/-ns-/functions/id")),),
+        create_dir_all(output_path.join("data/minecraft/tags/functions")),
+    )?;
 
-    create_dir_all(output_path.join(engine.expand("data/-ns-/functions/id")))?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/assign.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/init_self.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/install.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/uninstall.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    create_continue_aec_file(&output_path, function_contents, &engine)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/continue.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/decrement_age.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/install.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    create_schedule_file(&output_path, function_contents, &engine)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/select_entity.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/tick_start.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/tick.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "data/-ns-/functions/uninstall.mcfunction");
-    write(output_path.join(path), &content)?;
-
-    create_dir_all(output_path.join("data/minecraft/tags/functions"))?;
-
-    let (path, content) = expand_template!(engine, "data/minecraft/tags/functions/tick.json");
-    write(output_path.join(path), &content)?;
-
-    let (path, content) = expand_template!(engine, "pack.mcmeta");
-    write(output_path.join(path), &content)?;
-
-    let call_tree = create_call_tree(&function_contents);
-
-    let fn_path = output_path.join(engine.expand("data/-ns-/functions"));
-
-    for (name, lines) in function_contents.iter() {
-        //TODO async
-        create_function_files(&fn_path, name, lines, &call_tree, &engine, namespace)?;
-    }
+    try_join!(
+        expand_template_local!("data/-ns-/functions/id/assign.mcfunction"),
+        expand_template_local!("data/-ns-/functions/id/init_self.mcfunction"),
+        expand_template_local!("data/-ns-/functions/id/install.mcfunction"),
+        expand_template_local!("data/-ns-/functions/id/uninstall.mcfunction"),
+        expand_continue_aec_template(&engine, function_contents, &output_path,),
+        expand_template_local!("data/-ns-/functions/continue.mcfunction"),
+        expand_template_local!("data/-ns-/functions/decrement_age.mcfunction"),
+        expand_template_local!("data/-ns-/functions/install.mcfunction"),
+        expand_schedule_template(&engine, function_contents, &output_path,),
+        expand_template_local!("data/-ns-/functions/select_entity.mcfunction"),
+        expand_template_local!("data/-ns-/functions/tick_start.mcfunction"),
+        expand_template_local!("data/-ns-/functions/tick.mcfunction"),
+        expand_template_local!("data/-ns-/functions/uninstall.mcfunction"),
+        expand_template_local!("data/minecraft/tags/functions/tick.json"),
+        expand_template_local!("pack.mcmeta"),
+    )?;
 
     Ok(())
 }
 
-fn create_schedule_file<P: AsRef<Path>>(
-    output_path: P,
+async fn expand_continue_aec_template<P: AsRef<Path>>(
+    engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
-    engine: &TemplateEngine,
-) -> io::Result<()> {
-    #[rustfmt::skip]
-    macro_rules! PATH { () => { "data/-ns-/functions/schedule.mcfunction" }; }
-
-    let content = function_contents
-        .keys()
-        .map(|name| {
-            let engine = engine.extend_orig_name(name);
-            engine.expand(include_str!(concat!("datapack_template/", PATH!())))
-        })
-        .collect::<Vec<_>>()
-        .join("");
-
-    let path = output_path.as_ref().join(engine.expand(PATH!()));
-    write(&path, &content)?;
-
-    Ok(())
-}
-
-fn create_continue_aec_file<P: AsRef<Path>>(
     output_path: P,
-    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
-    engine: &TemplateEngine,
 ) -> io::Result<()> {
     let continue_cases = function_contents
         .iter()
@@ -283,7 +252,44 @@ fn create_continue_aec_file<P: AsRef<Path>>(
         .replace("# -continue_cases-", &continue_cases);
 
     let path = output_path.as_ref().join(engine.expand(PATH!()));
-    write(&path, &content)?;
+    write(&path, &content).await
+}
+
+async fn expand_schedule_template<P: AsRef<Path>>(
+    engine: &TemplateEngine<'_>,
+    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    output_path: P,
+) -> io::Result<()> {
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/-ns-/functions/schedule.mcfunction" }; }
+
+    let content = function_contents
+        .keys()
+        .map(|name| {
+            let engine = engine.extend_orig_name(name);
+            engine.expand(include_str!(concat!("datapack_template/", PATH!())))
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    let path = output_path.as_ref().join(engine.expand(PATH!()));
+    write(&path, &content).await
+}
+
+async fn expand_function_specific_templates<P: AsRef<Path>>(
+    engine: &TemplateEngine<'_>,
+    function_contents: &HashMap<
+        &parser::commands::NamespacedNameRef<String>,
+        Vec<(usize, String, Line)>,
+    >,
+    output_path: P,
+) -> io::Result<()> {
+    let call_tree = create_call_tree(&function_contents);
+
+    try_join_all(function_contents.iter().map(|(fn_name, lines)| {
+        expand_function_templates(&engine, fn_name, lines, &call_tree, &output_path)
+    }))
+    .await?;
 
     Ok(())
 }
@@ -307,20 +313,25 @@ fn create_call_tree<'l>(
         .collect()
 }
 
-fn create_function_files(
-    output_function_path: &PathBuf,
-    name: &NamespacedName,
+async fn expand_function_templates<P: AsRef<Path>>(
+    engine: &TemplateEngine<'_>,
+    fn_name: &NamespacedName,
     lines: &Vec<(usize, String, Line)>,
     call_tree: &MultiMap<&NamespacedName, (&NamespacedName, &usize)>,
-    engine: &TemplateEngine,
-    namespace: &str,
-) -> Result<(), Error> {
-    let original_namespace = name.namespace();
-    let original_function = name.name();
-    let function_directory = output_function_path
-        .join(original_namespace)
-        .join(original_function);
-    create_dir_all(&function_directory)?;
+    output_path: P,
+) -> io::Result<()> {
+    let orig_fn = fn_name.name();
+    let orig_fn_tag = orig_fn.replace('/', "_");
+    let engine = engine.extend(vec![
+        ("-orig_ns-", fn_name.namespace()),
+        ("-orig_fn-", &orig_fn_tag),
+        ("-orig/fn-", orig_fn),
+    ]);
+
+    let fn_dir = output_path
+        .as_ref()
+        .join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
+    create_dir_all(&fn_dir).await?;
 
     let mut start_line = 1;
     for partition in lines.split_inclusive(|(_, _, command)| {
@@ -330,84 +341,70 @@ fn create_function_files(
         let end_line = start_line + partition.len();
         let line_numbers = format!("{}-{}", start_line, end_line - 1);
 
-        let orig_fn_tag = original_function.replace('/', "_");
-        let engine = engine.extend(vec![
-            ("-orig_ns-", original_namespace),
-            ("-line_numbers-", &line_numbers),
-            ("-orig_fn-", &orig_fn_tag),
-            ("-orig/fn-", original_function),
-        ]);
+        let engine = engine.extend(vec![("-line_numbers-", line_numbers.as_str())]);
+
+        macro_rules! expand_template_local {
+            ($p:literal) => {
+                expand_template!(engine, output_path, $p)
+            };
+        }
 
         if first {
-            let path = function_directory.join("iterate.mcfunction");
-            let template = include_str!(
-                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
-
-            let path = function_directory.join("iteration_step.mcfunction");
-            let template  =include_str!(
-                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
-
-            let path = function_directory.join("iterate_same_executor.mcfunction");
-            let template = include_str!(
-                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/iterate_same_executor.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
-
-            let path = function_directory.join("start.mcfunction");
-            let template = include_str!(
-                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
-
-            let path = function_directory.join("scheduled.mcfunction");
-            let template = include_str!(
-                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"
-            );
-            write(&path, &engine.expand(template))?;
+            try_join!(
+                expand_template_local!(
+                    "data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"
+                ),
+                expand_template_local!(
+                    "data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"
+                ),
+                expand_template_local!(
+                    "data/-ns-/functions/-orig_ns-/-orig/fn-/iterate_same_executor.mcfunction"
+                ),
+                expand_template_local!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
+                expand_template_local!(
+                    "data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"
+                ),
+            )?;
         } else {
             let file_name = format!("{}_continue.mcfunction", start_line);
-            let path = function_directory.join(file_name);
+            let path = fn_dir.join(file_name);
             let mut template = include_str!(
                 "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/continue.mcfunction"
             )
             .to_string();
-            if let Some(_callers) = call_tree.get_vec(name) {
+            if let Some(_callers) = call_tree.get_vec(fn_name) {
                 template.push_str(include_str!(
                     "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/continue_return.mcfunction"
                 ));
             }
-            write(&path, &engine.expand(&template))?;
+            write(&path, &engine.expand(&template)).await?;
         }
         start_line = end_line;
 
         // line_names.mcfunction
         let file_name = format!("{}.mcfunction", &line_numbers);
-        let path = function_directory.join(file_name);
+        let path = fn_dir.join(file_name);
         let content = partition
             .iter()
-            .map(|line| engine.expand_line(line, namespace))
+            .map(|line| engine.expand_line(line))
             .collect::<Vec<_>>()
             .join("\n");
         let template = include_str!(
             "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-.mcfunction"
         );
         let template = template.replace("# -content-", &content);
-        write(&path, &engine.expand(&template))?;
+        write(&path, &engine.expand(&template)).await?;
 
         // line_numbers_with_context.mcfunction
         let file_name = format!("{}_with_context.mcfunction", &line_numbers);
-        let path = function_directory.join(file_name);
+        let path = fn_dir.join(file_name);
         let template  = include_str!(
             "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-_with_context.mcfunction"
         );
-        write(&path, &engine.expand(template))?;
+        write(&path, &engine.expand(template)).await?;
     }
 
-    if let Some(callers) = call_tree.get_vec(name) {
+    if let Some(callers) = call_tree.get_vec(fn_name) {
         let return_cases = callers
             .iter()
             .map(|(caller, line_number)| {
@@ -429,8 +426,8 @@ fn create_function_files(
             ))
             .replace("# -return_cases-", &return_cases);
 
-        let path = function_directory.join("return.mcfunction");
-        write(&path, &content)?;
+        let path = fn_dir.join("return.mcfunction");
+        write(&path, &content).await?;
     }
 
     Ok(())

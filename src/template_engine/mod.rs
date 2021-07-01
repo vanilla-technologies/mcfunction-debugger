@@ -53,11 +53,7 @@ impl<'l> TemplateEngine<'l> {
         result
     }
 
-    pub fn expand_line(
-        &self,
-        (line_number, line, command): &(usize, String, Line),
-        namespace: &str,
-    ) -> String {
+    pub fn expand_line(&self, (line_number, line, command): &(usize, String, Line)) -> String {
         match command {
             Line::Breakpoint => {
                 let template = include_str!(
@@ -82,8 +78,7 @@ impl<'l> TemplateEngine<'l> {
                         anchor_score = 1;
                     }
                     format!(
-                        "scoreboard players set current {namespace}_anchor {anchor_score}",
-                        namespace = namespace,
+                        "scoreboard players set current -ns-_anchor {anchor_score}",
                         anchor_score = anchor_score
                     )
                 });
