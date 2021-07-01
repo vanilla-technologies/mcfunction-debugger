@@ -6,9 +6,7 @@ use crate::{
     template_engine::TemplateEngine,
 };
 use clap::{App, Arg};
-use const_format::concatcp;
 use futures::{future::try_join_all, FutureExt};
-use load_file::load_str;
 use multimap::MultiMap;
 use parser::commands::{CommandParser, NamespacedName};
 use std::{
@@ -153,74 +151,67 @@ fn generate_output_datapack(
     >,
     namespace: &str,
 ) -> io::Result<()> {
-    const RESOURCE_PATH: &str = "datapack_template/";
-    const FN_PATH: &str = "data/-ns-/functions/";
-    const PREFIX: &str = concatcp!(RESOURCE_PATH, FN_PATH);
+    macro_rules! expand_template {
+        ($e:ident, $p:literal) => {
+            (
+                $e.expand($p),
+                $e.expand(include_str!(concat!("datapack_template/", $p))),
+            )
+        };
+    }
 
     let engine = TemplateEngine::new(HashMap::from_iter(vec![("-ns-", namespace)]));
 
-    let fn_path = output_path.join(engine.expand(FN_PATH));
+    create_dir_all(output_path.join(engine.expand("data/-ns-/functions/id")))?;
 
-    create_dir_all(fn_path.join("id"))?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/assign.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const ID_ASSIGN: &str = "id/assign.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_ASSIGN)));
-    write(fn_path.join(ID_ASSIGN), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/init_self.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const ID_INIT_SELF: &str = "id/init_self.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_INIT_SELF)));
-    write(fn_path.join(ID_INIT_SELF), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/install.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const ID_INSTALL: &str = "id/install.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_INSTALL)));
-    write(fn_path.join(ID_INSTALL), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/id/uninstall.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const ID_UNINSTALL: &str = "id/uninstall.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, ID_UNINSTALL)));
-    write(fn_path.join(ID_UNINSTALL), &content)?;
+    create_continue_aec_file(&output_path, function_contents, &engine)?;
 
-    create_continue_aec_file(&fn_path, function_contents, &engine)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/continue.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const CONTINUE: &str = "continue.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, CONTINUE)));
-    write(fn_path.join(CONTINUE), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/decrement_age.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const DECREMENT_AGE: &str = "decrement_age.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, DECREMENT_AGE)));
-    write(fn_path.join(DECREMENT_AGE), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/install.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const INSTALL: &str = "install.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, INSTALL)));
-    write(fn_path.join(INSTALL), &content)?;
+    create_schedule_file(&output_path, function_contents, &engine)?;
 
-    create_schedule_file(&fn_path, function_contents, &engine)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/select_entity.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const SELECT_ENTITY: &str = "select_entity.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, SELECT_ENTITY)));
-    write(fn_path.join(SELECT_ENTITY), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/tick_start.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const TICK_START: &str = "tick_start.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, TICK_START)));
-    write(fn_path.join(TICK_START), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/tick.mcfunction");
+    write(output_path.join(path), &content)?;
 
-    const TICK: &str = "tick.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, TICK)));
-    write(fn_path.join(TICK), &content)?;
-
-    const UNINSTALL: &str = "uninstall.mcfunction";
-    let content = engine.expand(load_str!(concatcp!(PREFIX, UNINSTALL)));
-    write(fn_path.join(UNINSTALL), &content)?;
+    let (path, content) = expand_template!(engine, "data/-ns-/functions/uninstall.mcfunction");
+    write(output_path.join(path), &content)?;
 
     create_dir_all(output_path.join("data/minecraft/tags/functions"))?;
-    const TICK_JSON: &str = "data/minecraft/tags/functions/tick.json";
-    let content = engine.expand(load_str!(concatcp!(RESOURCE_PATH, TICK_JSON)));
-    write(output_path.join(TICK_JSON), &content)?;
 
-    const PACK: &str = "pack.mcmeta";
-    let content = engine.expand(load_str!(concatcp!(RESOURCE_PATH, PACK)));
-    write(output_path.join(PACK), &content)?;
+    let (path, content) = expand_template!(engine, "data/minecraft/tags/functions/tick.json");
+    write(output_path.join(path), &content)?;
+
+    let (path, content) = expand_template!(engine, "pack.mcmeta");
+    write(output_path.join(path), &content)?;
 
     let call_tree = create_call_tree(&function_contents);
+
+    let fn_path = output_path.join(engine.expand("data/-ns-/functions"));
 
     for (name, lines) in function_contents.iter() {
         //TODO async
@@ -230,30 +221,31 @@ fn generate_output_datapack(
     Ok(())
 }
 
-fn create_schedule_file(
-    fn_path: &PathBuf,
+fn create_schedule_file<P: AsRef<Path>>(
+    output_path: P,
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     engine: &TemplateEngine,
 ) -> io::Result<()> {
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/-ns-/functions/schedule.mcfunction" }; }
+
     let content = function_contents
         .keys()
         .map(|name| {
             let engine = engine.extend_orig_name(name);
-            engine.expand(include_str!(
-                "datapack_template/data/-ns-/functions/schedule.mcfunction"
-            ))
+            engine.expand(include_str!(concat!("datapack_template/", PATH!())))
         })
         .collect::<Vec<_>>()
         .join("");
 
-    let path = fn_path.join("schedule.mcfunction");
+    let path = output_path.as_ref().join(engine.expand(PATH!()));
     write(&path, &content)?;
 
     Ok(())
 }
 
-fn create_continue_aec_file(
-    output_function_path: &PathBuf,
+fn create_continue_aec_file<P: AsRef<Path>>(
+    output_path: P,
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     engine: &TemplateEngine,
 ) -> io::Result<()> {
@@ -282,13 +274,15 @@ fn create_continue_aec_file(
         })
         .collect::<Vec<_>>()
         .join("\n");
+
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/-ns-/functions/continue_aec.mcfunction" }; }
+
     let content = engine
-        .expand(include_str!(
-            "datapack_template/data/-ns-/functions/continue_aec.mcfunction"
-        ))
+        .expand(include_str!(concat!("datapack_template/", PATH!())))
         .replace("# -continue_cases-", &continue_cases);
 
-    let path = output_function_path.join("continue_aec.mcfunction");
+    let path = output_path.as_ref().join(engine.expand(PATH!()));
     write(&path, &content)?;
 
     Ok(())
