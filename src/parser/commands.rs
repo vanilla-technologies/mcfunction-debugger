@@ -517,6 +517,7 @@ impl<S: AsRef<str>> NamespacedNameRef<S> {
         }
     }
 
+    #[cfg(test)]
     pub fn from(string: S) -> Option<NamespacedNameRef<S>> {
         let namespace_len = string.as_ref().find(':')?;
         Some(NamespacedNameRef {
