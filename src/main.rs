@@ -153,7 +153,7 @@ async fn generate_output_datapack<P: AsRef<Path>>(
     namespace: &str,
     output_path: P,
 ) -> io::Result<()> {
-    let engine = TemplateEngine::new(HashMap::from_iter(vec![("-ns-", namespace)]));
+    let engine = TemplateEngine::new(HashMap::from_iter([("-ns-", namespace)]));
     try_join!(
         expand_global_templates(&engine, function_contents, &output_path),
         expand_function_specific_templates(&engine, function_contents, &output_path),
@@ -313,7 +313,7 @@ async fn expand_function_templates<P: AsRef<Path>>(
 ) -> io::Result<()> {
     let orig_fn = fn_name.name();
     let orig_fn_tag = orig_fn.replace('/', "_");
-    let engine = engine.extend(vec![
+    let engine = engine.extend([
         ("-orig_ns-", fn_name.namespace()),
         ("-orig_fn-", &orig_fn_tag),
         ("-orig/fn-", orig_fn),
@@ -332,7 +332,7 @@ async fn expand_function_templates<P: AsRef<Path>>(
         let end_line = start_line + partition.len();
         let line_numbers = format!("{}-{}", start_line, end_line - 1);
 
-        let engine = engine.extend(vec![("-line_numbers-", line_numbers.as_str())]);
+        let engine = engine.extend([("-line_numbers-", line_numbers.as_str())]);
 
         macro_rules! expand_template_local {
             ($p:literal) => {

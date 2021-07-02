@@ -34,7 +34,7 @@ impl<'l> TemplateEngine<'l> {
         orig_name: &'l NamespacedNameRef<N>,
     ) -> TemplateEngine<'l> {
         let orig_fn_tag = orig_name.name().replace('/', "_");
-        let mut engine = self.extend(vec![
+        let mut engine = self.extend([
             ("-orig_ns-", orig_name.namespace()),
             ("-orig/fn-", orig_name.name()),
         ]);
@@ -110,7 +110,7 @@ impl<'l> TemplateEngine<'l> {
                 };
                 let schedule_fn = function.name().replace('/', "_");
                 let ticks = time.as_ticks().to_string();
-                let engine = self.extend(vec![
+                let engine = self.extend([
                     ("-schedule_ns-", function.namespace()),
                     ("-schedule_fn-", &schedule_fn),
                     ("-ticks-", &ticks),
