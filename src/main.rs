@@ -353,6 +353,9 @@ async fn expand_function_templates<P: AsRef<Path>>(
                 ),
                 expand_template_local!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
                 expand_template_local!(
+                    "data/-ns-/functions/-orig_ns-/-orig/fn-/start_unchecked.mcfunction"
+                ),
+                expand_template_local!(
                     "data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"
                 ),
             )?;
