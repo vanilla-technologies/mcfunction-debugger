@@ -149,10 +149,7 @@ fn get_functions(
 }
 
 async fn generate_output_datapack<P: AsRef<Path>>(
-    function_contents: &HashMap<
-        &parser::commands::NamespacedNameRef<String>,
-        Vec<(usize, String, Line)>,
-    >,
+    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     namespace: &str,
     output_path: P,
 ) -> io::Result<()> {
@@ -174,10 +171,7 @@ macro_rules! expand_template {
 
 async fn expand_global_templates<P: AsRef<Path>>(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<
-        &parser::commands::NamespacedNameRef<String>,
-        Vec<(usize, String, Line)>,
-    >,
+    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     output_path: P,
 ) -> io::Result<()> {
     macro_rules! expand_template_local {
@@ -278,10 +272,7 @@ async fn expand_schedule_template<P: AsRef<Path>>(
 
 async fn expand_function_specific_templates<P: AsRef<Path>>(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<
-        &parser::commands::NamespacedNameRef<String>,
-        Vec<(usize, String, Line)>,
-    >,
+    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     output_path: P,
 ) -> io::Result<()> {
     let call_tree = create_call_tree(&function_contents);
