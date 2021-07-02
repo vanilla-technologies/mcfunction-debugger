@@ -57,7 +57,7 @@ impl<'l> TemplateEngine<'l> {
         match command {
             Line::Breakpoint => {
                 let template = include_str!(
-                    "../datapack_template/data/template/functions/set_breakpoint.mcfunction"
+                    "datapack_template/data/template/functions/set_breakpoint.mcfunction"
                 );
                 let template = template.replace("-line_number-", &line_number.to_string());
                 self.expand(&template)
@@ -68,7 +68,7 @@ impl<'l> TemplateEngine<'l> {
                 execute_as,
             } => {
                 let template = include_str!(
-                    "../datapack_template/data/template/functions/call_function.mcfunction"
+                    "datapack_template/data/template/functions/call_function.mcfunction"
                 );
                 let function_call = format!("function {}", name);
                 let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
@@ -101,11 +101,11 @@ impl<'l> TemplateEngine<'l> {
             } => {
                 let template = if *append {
                     include_str!(
-                        "../datapack_template/data/template/functions/schedule_append.mcfunction"
+                        "datapack_template/data/template/functions/schedule_append.mcfunction"
                     )
                 } else {
                     include_str!(
-                        "../datapack_template/data/template/functions/schedule_replace.mcfunction"
+                        "datapack_template/data/template/functions/schedule_replace.mcfunction"
                     )
                 };
                 let schedule_fn = function.name().replace('/', "_");
