@@ -1,2 +1,0 @@
-execute if score breakpoint -ns-_global matches 1 run tellraw @s [{"text": "Cannot start debugging -orig_ns-:-orig/fn-, because a function is already suspended at a breakpoint!\nTo resume run: ","color": "red"},{"text": "/function -ns-:resume","clickEvent": {"action": "suggest_command","value": "/function -ns-:resume"},"color": "aqua"}]
-execute unless score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/start_unchecked

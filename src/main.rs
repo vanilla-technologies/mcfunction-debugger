@@ -200,33 +200,34 @@ async fn expand_global_templates(
 ) -> io::Result<()> {
     let output_path = config.output_path;
 
-    macro_rules! expand_template_local {
+    macro_rules! expand {
         ($p:literal) => {
             expand_template!(engine, output_path, $p)
         };
     }
 
     try_join!(
-        create_dir_all(output_path.join(engine.expand("data/-ns-/functions/id")),),
+        create_dir_all(output_path.join(engine.expand("data/-ns-/functions/id"))),
+        create_dir_all(output_path.join("data/debug/functions")),
         create_dir_all(output_path.join("data/minecraft/tags/functions")),
     )?;
 
     try_join!(
-        expand_template_local!("data/-ns-/functions/id/assign.mcfunction"),
-        expand_template_local!("data/-ns-/functions/id/init_self.mcfunction"),
-        expand_template_local!("data/-ns-/functions/id/install.mcfunction"),
-        expand_template_local!("data/-ns-/functions/id/uninstall.mcfunction"),
-        expand_resume_aec_template(&engine, function_contents, &output_path,),
-        expand_template_local!("data/-ns-/functions/resume.mcfunction"),
-        expand_template_local!("data/-ns-/functions/decrement_age.mcfunction"),
-        expand_template_local!("data/-ns-/functions/install.mcfunction"),
-        expand_schedule_template(&engine, function_contents, &output_path,),
-        expand_template_local!("data/-ns-/functions/select_entity.mcfunction"),
-        expand_template_local!("data/-ns-/functions/tick_start.mcfunction"),
-        expand_template_local!("data/-ns-/functions/tick.mcfunction"),
-        expand_template_local!("data/-ns-/functions/uninstall.mcfunction"),
-        expand_template_local!("data/minecraft/tags/functions/tick.json"),
-        expand_template_local!("pack.mcmeta"),
+        expand!("data/-ns-/functions/id/assign.mcfunction"),
+        expand!("data/-ns-/functions/id/init_self.mcfunction"),
+        expand!("data/-ns-/functions/id/install.mcfunction"),
+        expand!("data/-ns-/functions/id/uninstall.mcfunction"),
+        expand!("data/-ns-/functions/decrement_age.mcfunction"),
+        expand!("data/-ns-/functions/install.mcfunction"),
+        expand_resume_aec_template(&engine, function_contents, &output_path),
+        expand_schedule_template(&engine, function_contents, &output_path),
+        expand!("data/-ns-/functions/select_entity.mcfunction"),
+        expand!("data/-ns-/functions/tick_start.mcfunction"),
+        expand!("data/-ns-/functions/tick.mcfunction"),
+        expand!("data/-ns-/functions/uninstall.mcfunction"),
+        expand!("data/debug/functions/resume.mcfunction"),
+        expand!("data/minecraft/tags/functions/tick.json"),
+        expand!("pack.mcmeta"),
     )?;
 
     Ok(())
@@ -358,41 +359,31 @@ async fn expand_function_templates(
 
         let engine = engine.extend([("-line_numbers-", line_numbers.as_str())]);
 
-        macro_rules! expand_template_local {
+        macro_rules! expand {
             ($p:literal) => {
                 expand_template!(engine, output_path, $p)
             };
         }
 
         if first {
+            create_parent_dir(
+                output_path.join(engine.expand("data/debug/functions/-orig_ns-/-orig/fn-")),
+            )
+            .await?;
             let mut futures = vec![
-                expand_template_local!(
-                    "data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"
-                ),
-                expand_template_local!(
-                    "data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"
-                ),
-                expand_template_local!(
-                    "data/-ns-/functions/-orig_ns-/-orig/fn-/iterate_same_executor.mcfunction"
-                ),
-                expand_template_local!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
-                expand_template_local!(
-                    "data/-ns-/functions/-orig_ns-/-orig/fn-/start_unchecked.mcfunction"
-                ),
-                expand_template_local!(
-                    "data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"
-                ),
+                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"),
+                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iterate_same_executor.mcfunction"),
+                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"),
+                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
+                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start_unchecked.mcfunction"),
+                expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
             ];
             if config.shadow {
-                if let Some(dir) = output_path
-                    .join(engine.expand("data/-orig_ns-/functions/-orig/fn-"))
-                    .parent()
-                {
-                    create_dir_all(dir).await?;
-                }
-                futures.push(expand_template_local!(
-                    "data/-orig_ns-/functions/-orig/fn-.mcfunction"
-                ));
+                create_parent_dir(
+                    output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")),
+                )
+                .await?;
+                futures.push(expand!("data/-orig_ns-/functions/-orig/fn-.mcfunction"));
             }
             try_join_all(futures).await?;
         } else {
@@ -411,7 +402,7 @@ async fn expand_function_templates(
         }
         start_line = end_line;
 
-        // line_names.mcfunction
+        // -line_numbers-.mcfunction
         let file_name = format!("{}.mcfunction", &line_numbers);
         let path = fn_dir.join(file_name);
         let content = partition
@@ -425,7 +416,7 @@ async fn expand_function_templates(
         let template = template.replace("# -content-", &content);
         write(&path, &engine.expand(&template)).await?;
 
-        // line_numbers_with_context.mcfunction
+        // -line_numbers-_with_context.mcfunction
         let file_name = format!("{}_with_context.mcfunction", &line_numbers);
         let path = fn_dir.join(file_name);
         let template  = include_str!(
@@ -460,5 +451,12 @@ async fn expand_function_templates(
         write(&path, &content).await?;
     }
 
+    Ok(())
+}
+
+async fn create_parent_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    if let Some(parent_dir) = path.as_ref().parent() {
+        create_dir_all(parent_dir).await?;
+    }
     Ok(())
 }
