@@ -216,8 +216,8 @@ async fn expand_global_templates(
         expand_template_local!("data/-ns-/functions/id/init_self.mcfunction"),
         expand_template_local!("data/-ns-/functions/id/install.mcfunction"),
         expand_template_local!("data/-ns-/functions/id/uninstall.mcfunction"),
-        expand_continue_aec_template(&engine, function_contents, &output_path,),
-        expand_template_local!("data/-ns-/functions/continue.mcfunction"),
+        expand_resume_aec_template(&engine, function_contents, &output_path,),
+        expand_template_local!("data/-ns-/functions/resume.mcfunction"),
         expand_template_local!("data/-ns-/functions/decrement_age.mcfunction"),
         expand_template_local!("data/-ns-/functions/install.mcfunction"),
         expand_schedule_template(&engine, function_contents, &output_path,),
@@ -232,12 +232,12 @@ async fn expand_global_templates(
     Ok(())
 }
 
-async fn expand_continue_aec_template<P: AsRef<Path>>(
+async fn expand_resume_aec_template<P: AsRef<Path>>(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     output_path: P,
 ) -> io::Result<()> {
-    let continue_cases = function_contents
+    let resume_cases = function_contents
         .iter()
         .flat_map(|(name, lines)| {
             repeat(name).zip(
@@ -250,7 +250,7 @@ async fn expand_continue_aec_template<P: AsRef<Path>>(
         .map(|(name, line_number)| {
            engine.expand( &format!(
                 "execute \
-                  store success score continue_success -ns-_global \
+                  store success score resume_success -ns-_global \
                   if entity @s[tag=-ns-_{original_namespace}_{original_function_tag}_{line_number}] \
                   run function -ns-:{original_namespace}/{original_function}/{line_number_1}_continue",
                 original_namespace = name.namespace(),
@@ -264,11 +264,11 @@ async fn expand_continue_aec_template<P: AsRef<Path>>(
         .join("\n");
 
     #[rustfmt::skip]
-    macro_rules! PATH { () => { "data/-ns-/functions/continue_aec.mcfunction" }; }
+    macro_rules! PATH { () => { "data/-ns-/functions/resume_aec.mcfunction" }; }
 
     let content = engine
         .expand(include_str!(concat!("datapack_template/", PATH!())))
-        .replace("# -continue_cases-", &continue_cases);
+        .replace("# -resume_cases-", &resume_cases);
 
     let path = output_path.as_ref().join(engine.expand(PATH!()));
     write(&path, &content).await
