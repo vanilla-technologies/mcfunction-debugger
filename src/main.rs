@@ -23,48 +23,67 @@ use tokio::{
 };
 use walkdir::WalkDir;
 
-const DATAPACK: &str = "datapack";
-const OUTPUT: &str = "output";
-
-const NAMESPACE: &str = "namespace";
+const DATAPACK_ARG: &str = "datapack";
+const OUTPUT_ARG: &str = "output";
+const NAMESPACE_ARG: &str = "namespace";
+const SHADOW_ARG: &str = "shadow";
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
         .arg(
-            Arg::with_name(DATAPACK)
+            Arg::with_name(DATAPACK_ARG)
                 .long("datapack")
                 .value_name("DIRECTORY")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
-            Arg::with_name(OUTPUT)
-                .long(OUTPUT)
+            Arg::with_name(OUTPUT_ARG)
+                .long("output")
                 .value_name("DIRECTORY")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
-            Arg::with_name(NAMESPACE)
+            Arg::with_name(NAMESPACE_ARG)
                 .long("namespace")
                 .value_name("STRING")
                 .takes_value(true)
-                .required(true)
                 .validator(|namespace| {
-                    if namespace.len() < 10 {
+                    if namespace.len() <= 9 {
                         //max len of identifiers 16 => scoreboard {}_global has 7 characters -> 9 remaining for namespace
                         return Ok(());
                     }
-                    Err(String::from("Max 'namespace' name length: 9 characters"))
+                    Err(String::from("string must have <= 9 characters"))
+                }),
+        )
+        .arg(
+            Arg::with_name(SHADOW_ARG)
+                .long("shadow")
+                .value_name("BOOL")
+                .takes_value(true)
+                .validator(|shadow| {
+                    shadow
+                        .parse::<bool>()
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
                 }),
         )
         .get_matches();
-    let datapack_path = Path::new(matches.value_of(DATAPACK).unwrap());
+    let datapack_path = Path::new(matches.value_of(DATAPACK_ARG).unwrap());
     let pack_mcmeta_path = datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
-    let output_path = Path::new(matches.value_of(OUTPUT).unwrap());
-    let namespace = matches.value_of(NAMESPACE).unwrap();
+    let output_path = Path::new(matches.value_of(OUTPUT_ARG).unwrap());
+    let namespace = matches.value_of(NAMESPACE_ARG).unwrap_or("mcfd");
+    let shadow = matches
+        .value_of(SHADOW_ARG)
+        .map(|shadow| shadow.parse().unwrap())
+        .unwrap_or(true);
+    let config = Config {
+        output_path,
+        shadow,
+    };
 
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -92,9 +111,14 @@ async fn main() -> io::Result<()> {
         })
         .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
 
-    generate_output_datapack(&function_contents, namespace, output_path).await?;
+    generate_output_datapack(&function_contents, namespace, &config).await?;
 
     Ok(())
+}
+
+struct Config<'l> {
+    output_path: &'l Path,
+    shadow: bool,
 }
 
 async fn find_function_files(
@@ -148,39 +172,40 @@ fn get_functions(
     })
 }
 
-async fn generate_output_datapack<P: AsRef<Path>>(
+async fn generate_output_datapack(
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     namespace: &str,
-    output_path: P,
+    config: &Config<'_>,
 ) -> io::Result<()> {
     let engine = TemplateEngine::new(HashMap::from_iter([("-ns-", namespace)]));
     try_join!(
-        expand_global_templates(&engine, function_contents, &output_path),
-        expand_function_specific_templates(&engine, function_contents, &output_path),
+        expand_global_templates(&engine, function_contents, config),
+        expand_function_specific_templates(&engine, function_contents, config),
     )?;
     Ok(())
 }
 
 macro_rules! expand_template {
     ($e:ident, $o:ident, $p:literal) => {{
-        let path = $o.as_ref().join($e.expand($p));
+        let path = $o.join($e.expand($p));
         let content = $e.expand(include_str!(concat!("datapack_template/", $p)));
         write(path, content)
     }};
 }
 
-async fn expand_global_templates<P: AsRef<Path>>(
+async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
-    output_path: P,
+    config: &Config<'_>,
 ) -> io::Result<()> {
+    let output_path = config.output_path;
+
     macro_rules! expand_template_local {
         ($p:literal) => {
             expand_template!(engine, output_path, $p)
         };
     }
 
-    let output_path = output_path.as_ref();
     try_join!(
         create_dir_all(output_path.join(engine.expand("data/-ns-/functions/id")),),
         create_dir_all(output_path.join("data/minecraft/tags/functions")),
@@ -270,15 +295,15 @@ async fn expand_schedule_template<P: AsRef<Path>>(
     write(&path, &content).await
 }
 
-async fn expand_function_specific_templates<P: AsRef<Path>>(
+async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
-    output_path: P,
+    config: &Config<'_>,
 ) -> io::Result<()> {
     let call_tree = create_call_tree(&function_contents);
 
     try_join_all(function_contents.iter().map(|(fn_name, lines)| {
-        expand_function_templates(&engine, fn_name, lines, &call_tree, &output_path)
+        expand_function_templates(&engine, fn_name, lines, &call_tree, config)
     }))
     .await?;
 
@@ -304,12 +329,12 @@ fn create_call_tree<'l>(
         .collect()
 }
 
-async fn expand_function_templates<P: AsRef<Path>>(
+async fn expand_function_templates(
     engine: &TemplateEngine<'_>,
     fn_name: &NamespacedName,
     lines: &Vec<(usize, String, Line)>,
     call_tree: &MultiMap<&NamespacedName, (&NamespacedName, &usize)>,
-    output_path: P,
+    config: &Config<'_>,
 ) -> io::Result<()> {
     let orig_fn = fn_name.name();
     let orig_fn_tag = orig_fn.replace('/', "_");
@@ -319,9 +344,8 @@ async fn expand_function_templates<P: AsRef<Path>>(
         ("-orig/fn-", orig_fn),
     ]);
 
-    let fn_dir = output_path
-        .as_ref()
-        .join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
+    let output_path = config.output_path;
+    let fn_dir = output_path.join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
     create_dir_all(&fn_dir).await?;
 
     let mut start_line = 1;
@@ -341,7 +365,7 @@ async fn expand_function_templates<P: AsRef<Path>>(
         }
 
         if first {
-            try_join!(
+            let mut futures = vec![
                 expand_template_local!(
                     "data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"
                 ),
@@ -358,7 +382,19 @@ async fn expand_function_templates<P: AsRef<Path>>(
                 expand_template_local!(
                     "data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"
                 ),
-            )?;
+            ];
+            if config.shadow {
+                if let Some(dir) = output_path
+                    .join(engine.expand("data/-orig_ns-/functions/-orig/fn-"))
+                    .parent()
+                {
+                    create_dir_all(dir).await?;
+                }
+                futures.push(expand_template_local!(
+                    "data/-orig_ns-/functions/-orig/fn-.mcfunction"
+                ));
+            }
+            try_join_all(futures).await?;
         } else {
             let file_name = format!("{}_continue.mcfunction", start_line);
             let path = fn_dir.join(file_name);

@@ -1,7 +1,6 @@
 # TODO
 ## MVP
 * Add tag=!debug to all selectors
-* Instead of /start shadow names of original datapack (easier to understand for users and command blocks may still work when not using execute)
 
 ## Advanced
 * Bug: returning into server context takes one tick but does not decrement age
@@ -38,3 +37,4 @@
 * Support breakpoints in functions executed by the server/command block
 * Prevent AECs from counting down their duration
 * Support scheduled
+* Instead of /start shadow names of original datapack (easier to understand for users and command blocks may still work when not using execute)
