@@ -1,12 +1,13 @@
 # TODO
 ## MVP
 * Add tag=!debug to all selectors
+* disable original datapack in load.json
+* uninstall datapack when unloaded. Since there is no unload.json we could have a command block at 0/0/0 trying to remove itself and uninstall each tick unless the datapack is loaded.
 
 ## Advanced
 * Bug: returning into server context takes one tick but does not decrement age
 * Selector parser: add support for ']' in strings and NBT, support for player name and UUID, support for limits on amount and type
 * preserve load and tick.json (and block/item tags etc.) of original datapack
-* disable original datapack in load.json
 * Support multiple input datapacks
 * Support execute store
 * Support function tags
