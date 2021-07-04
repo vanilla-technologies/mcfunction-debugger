@@ -377,7 +377,7 @@ async fn expand_function_templates(
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iterate_same_executor.mcfunction"),
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"),
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
-                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start_unchecked.mcfunction"),
+                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
                 expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
             ];
             if config.shadow {
