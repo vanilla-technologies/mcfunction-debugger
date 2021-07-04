@@ -2,7 +2,8 @@
 ## MVP
 * Add tag=!debug to all selectors
 * disable original datapack in load.json
-* uninstall datapack when unloaded. Since there is no unload.json we could have a command block at 0/0/0 trying to remove itself and uninstall each tick unless the datapack is loaded.
+* enable original datapack when unloaded. Since there is no unload.json we could have a command block at 0/0/0 trying to remove itself and enable orig each tick unless the datapack is loaded.
+* tests
 
 ## Advanced
 * Bug: returning into server context takes one tick but does not decrement age
