@@ -225,7 +225,9 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/tick_start.mcfunction"),
         expand!("data/-ns-/functions/tick.mcfunction"),
         expand!("data/-ns-/functions/uninstall.mcfunction"),
+        expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
+        expand!("data/debug/functions/uninstall.mcfunction"),
         expand!("data/minecraft/tags/functions/tick.json"),
         expand!("pack.mcmeta"),
     )?;
