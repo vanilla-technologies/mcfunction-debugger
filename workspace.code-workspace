@@ -5,6 +5,9 @@
         },
         {
             "path": "src/datapack_template"
+        },
+        {
+            "path": "test/datapack_template"
         }
     ]
 }

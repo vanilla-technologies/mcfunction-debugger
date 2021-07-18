@@ -462,3 +462,6 @@ async fn create_parent_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
