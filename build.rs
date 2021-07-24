@@ -29,7 +29,7 @@ fn main() -> io::Result<()> {
 }
 
 fn set_env() -> io::Result<()> {
-    let path = "build.properties";
+    let path = "build.env";
     println!("cargo:rerun-if-changed={}", path);
 
     for (key, value) in BufReader::new(File::open(path)?)
