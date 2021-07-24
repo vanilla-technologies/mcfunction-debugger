@@ -71,8 +71,8 @@ async fn main() -> io::Result<()> {
                 }),
         )
         .get_matches();
-    let datapack_path = Path::new(matches.value_of(DATAPACK_ARG).unwrap());
-    let pack_mcmeta_path = datapack_path.join("pack.mcmeta");
+    let input_datapack_path = Path::new(matches.value_of(DATAPACK_ARG).unwrap());
+    let pack_mcmeta_path = input_datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
     let output_path = Path::new(matches.value_of(OUTPUT_ARG).unwrap());
     let namespace = matches.value_of(NAMESPACE_ARG).unwrap_or("mcfd");
@@ -80,15 +80,25 @@ async fn main() -> io::Result<()> {
         .value_of(SHADOW_ARG)
         .map(|shadow| shadow.parse().unwrap())
         .unwrap_or(true);
+
+    generate_debug_datapack(input_datapack_path, namespace, output_path, shadow).await?;
+
+    Ok(())
+}
+
+async fn generate_debug_datapack(
+    input_datapack_path: &Path,
+    namespace: &str,
+    output_path: &Path,
+    shadow: bool,
+) -> io::Result<()> {
     let config = Config {
         output_path,
         shadow,
     };
-
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-    let functions = find_function_files(datapack_path).await?;
+    let functions = find_function_files(input_datapack_path).await?;
     let function_contents = functions
         .iter()
         .map(|(name, path)| {
@@ -111,9 +121,7 @@ async fn main() -> io::Result<()> {
         })
         .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
 
-    generate_output_datapack(&function_contents, namespace, &config).await?;
-
-    Ok(())
+    generate_output_datapack(&function_contents, namespace, &config).await
 }
 
 struct Config<'l> {

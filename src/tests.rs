@@ -1,10 +1,11 @@
 use super::*;
 use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
+use serial_test::serial;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
 macro_rules! create_function {
-    ($path:literal) => {
+    ($path:expr) => {
         create_file(
             Path::new(TEST_WORLD_DIR).join(concat!("datapacks/minect/", $path)),
             &expand_function(include_str!(concat!(
@@ -19,27 +20,59 @@ macro_rules! create_function {
 
 macro_rules! create_functions {
     () => {};
-    ($path:literal $(, $paths:literal),*) => {{
+    ($path:expr $(, $paths:expr),*) => {{
         create_function!($path)?;
-        create_functions!($($paths:literal),*);
+        create_functions!($($paths),*);
     }};
 }
 
 macro_rules! test {
-    ($name:ident $(, $paths:literal),*) => {
+    ($name:ident, $fn_name_debug:ident, $path:literal $(, $paths:literal),*) => {
         #[tokio::test]
+        #[serial]
         async fn $name() -> io::Result<()> {
             // given:
             let mut connection = connection();
 
             let commands = to_commands(include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/test/datapack_template/data/test/functions/",
-                stringify!($name),
-                "/test.mcfunction"
+                "/test/datapack_template/",
+                $path
             )));
 
             create_functions!($($paths),*);
+
+            sleep(Duration::from_millis(500)).await; // Wait for mount
+
+            let mut events = connection.add_listener("test");
+
+            // when:
+            connection.inject_commands(commands)?;
+
+            // then:
+            let event = timeout(Duration::from_secs(5), events.recv())
+                .await?
+                .unwrap();
+            assert_eq!(event.message, "Added tag 'success' to test");
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        #[serial]
+        async fn $fn_name_debug() -> io::Result<()> {
+            // given:
+            let mut connection = connection();
+
+            let commands = to_commands(concat!("function debug:test/", stringify!($name), "/test"));
+
+            create_functions!($path, $($paths),*);
+
+            let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/minect/");
+            let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/test_debug/");
+            let namespace = "mcfd";
+
+            generate_debug_datapack(&test_datapack_path, namespace, &output_path, false).await?;
 
             sleep(Duration::from_millis(500)).await; // Wait for mount
 

@@ -70,6 +70,7 @@ fn find_tests() -> io::Result<Vec<TestCase>> {
                 if let Some(name) = test_dir.file_name().and_then(OsStr::to_str) {
                     tests.push(TestCase {
                         name: name.to_string(),
+                        test_file: test_file.strip_prefix(datapack_path).unwrap().to_path_buf(),
                         util_files,
                     });
                 }
@@ -81,6 +82,7 @@ fn find_tests() -> io::Result<Vec<TestCase>> {
 
 struct TestCase {
     name: String,
+    test_file: PathBuf,
     util_files: Vec<PathBuf>,
 }
 
@@ -88,6 +90,11 @@ impl Display for TestCase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("test!(")?;
         f.write_str(&self.name)?;
+        f.write_str(", ")?;
+        f.write_str(&self.name)?;
+        f.write_str("_debug, \"")?;
+        f.write_str(&self.test_file.display().to_string())?;
+        f.write_char('"')?;
         for util_file in &self.util_files {
             f.write_str(", \"")?;
             f.write_str(&util_file.display().to_string())?;
