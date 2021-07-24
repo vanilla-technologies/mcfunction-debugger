@@ -1,5 +1,5 @@
 use super::*;
-use minect::{Command, CommandBuilder, InjectionConnection};
+use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
@@ -32,7 +32,7 @@ macro_rules! test {
             // given:
             let mut connection = connection();
 
-            let group = to_group(include_str!(concat!(
+            let commands = to_commands(include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/test/datapack_template/data/test/functions/",
                 stringify!($name),
@@ -46,7 +46,7 @@ macro_rules! test {
             let mut events = connection.add_listener("test");
 
             // when:
-            connection.inject_group(group)?;
+            connection.inject_commands(commands)?;
 
             // then:
             let event = timeout(Duration::from_secs(5), events.recv())
@@ -63,33 +63,19 @@ include!(concat!(env!("OUT_DIR"), "/tests.rs"));
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 
-fn connection() -> InjectionConnection {
-    let panic_invalid_dir = || {
-        panic!(
-            "Expected world_dir to be in .minecraft/saves, but was: {}",
-            TEST_WORLD_DIR
-        )
-    };
-    let world_dir = Path::new(TEST_WORLD_DIR);
-    let minecraft_dir = world_dir
-        .parent()
-        .unwrap_or_else(panic_invalid_dir)
-        .parent()
-        .unwrap_or_else(panic_invalid_dir);
-    let log_file = minecraft_dir.join("logs/latest.log");
-    InjectionConnection::new("test", &world_dir, log_file)
+fn connection() -> MinecraftConnection {
+    MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR).build()
 }
 
-fn to_group(function_contents: &str) -> Vec<Command> {
-    let group = function_contents
+fn to_commands(function_contents: &str) -> Vec<String> {
+    function_contents
         .split_terminator('\n')
         .filter(|line| {
             let trimmed = line.trim_start();
             !trimmed.is_empty() && !trimmed.starts_with('#')
         })
-        .map(|it| CommandBuilder::new(it).build())
-        .collect::<Vec<_>>();
-    group
+        .map(|it| it.to_string())
+        .collect()
 }
 
 fn expand_function(string: &str) -> String {
@@ -115,8 +101,8 @@ fn expand_function(string: &str) -> String {
 }
 
 fn log_command(command: &str, name: &str) -> String {
-    CommandBuilder::new(command)
-        .name(Some(name))
+    LoggedCommand::builder(command.to_string())
+        .name(name)
         .build()
         .to_string()
 }

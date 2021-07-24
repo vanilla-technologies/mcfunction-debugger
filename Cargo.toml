@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros"] }
 walkdir = "2"
 
 [dev-dependencies]
-minect = { path = "../minect" }
+minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 
 [build-dependencies]
 walkdir = "2"
