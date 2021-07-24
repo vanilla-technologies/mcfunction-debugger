@@ -30,6 +30,8 @@ fn main() -> io::Result<()> {
 
 fn set_env() -> io::Result<()> {
     let path = "build.properties";
+    println!("cargo:rerun-if-changed={}", path);
+
     for (key, value) in BufReader::new(File::open(path)?)
         .lines()
         .collect::<Result<Vec<_>, _>>()?
@@ -43,7 +45,6 @@ fn set_env() -> io::Result<()> {
 
 fn find_tests() -> io::Result<Vec<TestCase>> {
     let datapack_path = Path::new("test/datapack_template");
-
     println!("cargo:rerun-if-changed={}", datapack_path.display());
 
     let mut tests = Vec::new();
