@@ -18,11 +18,12 @@ fn main() -> io::Result<()> {
     set_env()?;
 
     let path = Path::new(&out_dir).join("tests.rs");
-    let contents = find_tests()?
+    let mut contents = find_tests()?
         .iter()
         .map(|test| test.to_string())
         .collect::<Vec<_>>()
         .join("\n");
+    contents.push('\n');
     fs::write(&path, contents).unwrap();
 
     Ok(())
@@ -88,18 +89,10 @@ struct TestCase {
 
 impl Display for TestCase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("test!(")?;
-        f.write_str(&self.name)?;
-        f.write_str(", ")?;
-        f.write_str(&self.name)?;
-        f.write_str("_debug, \"")?;
-        f.write_str(&self.test_file.display().to_string())?;
-        f.write_char('"')?;
+        write!(f, "test!({}, \"{}\"", self.name, self.test_file.display())?;
         for util_file in &self.util_files {
-            f.write_str(", \"")?;
-            f.write_str(&util_file.display().to_string())?;
-            f.write_char('"')?;
+            write!(f, ", \"{}\"", util_file.display())?;
         }
-        f.write_str(");\n")
+        write!(f, ");")
     }
 }

@@ -1,5 +1,6 @@
 use super::*;
 use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
+use paste::paste;
 use serial_test::serial;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
@@ -27,67 +28,69 @@ macro_rules! create_functions {
 }
 
 macro_rules! test {
-    ($name:ident, $fn_name_debug:ident, $path:literal $(, $paths:literal),*) => {
-        #[tokio::test]
-        #[serial]
-        async fn $name() -> io::Result<()> {
-            // given:
-            let mut connection = connection();
+    ($name:ident, $path:literal $(, $paths:literal),*) => {
+        paste! {
+            #[tokio::test]
+            #[serial]
+            async fn [<$name _minecraft>]() -> io::Result<()> {
+                // given:
+                let mut connection = connection();
 
-            let commands = to_commands(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/test/datapack_template/",
-                $path
-            )));
+                let commands = to_commands(include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/test/datapack_template/",
+                    $path
+                )));
 
-            create_functions!("pack.mcmeta", $($paths),*);
+                create_functions!("pack.mcmeta", $($paths),*);
 
-            sleep(Duration::from_millis(500)).await; // Wait for mount
+                sleep(Duration::from_millis(500)).await; // Wait for mount
 
-            let mut events = connection.add_listener("test");
+                let mut events = connection.add_listener("test");
 
-            // when:
-            connection.inject_commands(commands)?;
+                // when:
+                connection.inject_commands(commands)?;
 
-            // then:
-            let event = timeout(Duration::from_secs(5), events.recv())
-                .await?
-                .unwrap();
-            assert_eq!(event.message, "Added tag 'success' to test");
+                // then:
+                let event = timeout(Duration::from_secs(5), events.recv())
+                    .await?
+                    .unwrap();
+                assert_eq!(event.message, "Added tag 'success' to test");
 
-            Ok(())
-        }
+                Ok(())
+            }
 
-        #[tokio::test]
-        #[serial]
-        async fn $fn_name_debug() -> io::Result<()> {
-            // given:
-            let mut connection = connection();
+            #[tokio::test]
+            #[serial]
+            async fn [<$name _debug>]() -> io::Result<()> {
+                // given:
+                let mut connection = connection();
 
-            let commands = to_commands(concat!("function debug:test/", stringify!($name), "/test"));
+                let commands = to_commands(concat!("function debug:test/", stringify!($name), "/test"));
 
-            create_functions!("pack.mcmeta", $path, $($paths),*);
+                create_functions!("pack.mcmeta", $path, $($paths),*);
 
-            let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test/");
-            let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug/");
-            let namespace = "mcfd";
+                let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test/");
+                let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug/");
+                let namespace = "mcfd";
 
-            generate_debug_datapack(&test_datapack_path, namespace, &output_path, false).await?;
+                generate_debug_datapack(&test_datapack_path, namespace, &output_path, false).await?;
 
-            sleep(Duration::from_millis(500)).await; // Wait for mount
+                sleep(Duration::from_millis(500)).await; // Wait for mount
 
-            let mut events = connection.add_listener("test");
+                let mut events = connection.add_listener("test");
 
-            // when:
-            connection.inject_commands(commands)?;
+                // when:
+                connection.inject_commands(commands)?;
 
-            // then:
-            let event = timeout(Duration::from_secs(5), events.recv())
-                .await?
-                .unwrap();
-            assert_eq!(event.message, "Added tag 'success' to test");
+                // then:
+                let event = timeout(Duration::from_secs(5), events.recv())
+                    .await?
+                    .unwrap();
+                assert_eq!(event.message, "Added tag 'success' to test");
 
-            Ok(())
+                Ok(())
+            }
         }
     };
 }
