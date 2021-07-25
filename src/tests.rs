@@ -110,7 +110,10 @@ fn connection() -> MinecraftConnection {
 }
 
 fn to_commands(test_name: &str, function_contents: &str) -> Vec<String> {
-    let mut commands = vec![format!("say running test {}", test_name)];
+    let mut commands = vec![format!(
+        "tellraw @a {{\"text\": \"Running test {}\"}}",
+        test_name
+    )];
     commands.extend(
         function_contents
             .split_terminator('\n')
