@@ -7,7 +7,7 @@ use tokio::time::{sleep, timeout};
 macro_rules! create_function {
     ($path:expr) => {
         create_file(
-            Path::new(TEST_WORLD_DIR).join(concat!("datapacks/minect/", $path)),
+            Path::new(TEST_WORLD_DIR).join(concat!("datapacks/mcfd_test/", $path)),
             &expand_function(include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/test/datapack_template/",
@@ -20,7 +20,7 @@ macro_rules! create_function {
 
 macro_rules! create_functions {
     () => {};
-    ($path:expr $(, $paths:expr),*) => {{
+    ($path:expr $(, $paths:expr)*) => {{
         create_function!($path)?;
         create_functions!($($paths),*);
     }};
@@ -40,7 +40,7 @@ macro_rules! test {
                 $path
             )));
 
-            create_functions!($($paths),*);
+            create_functions!("pack.mcmeta", $($paths),*);
 
             sleep(Duration::from_millis(500)).await; // Wait for mount
 
@@ -66,10 +66,10 @@ macro_rules! test {
 
             let commands = to_commands(concat!("function debug:test/", stringify!($name), "/test"));
 
-            create_functions!($path, $($paths),*);
+            create_functions!("pack.mcmeta", $path, $($paths),*);
 
-            let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/minect/");
-            let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/test_debug/");
+            let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test/");
+            let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug/");
             let namespace = "mcfd";
 
             generate_debug_datapack(&test_datapack_path, namespace, &output_path, false).await?;
