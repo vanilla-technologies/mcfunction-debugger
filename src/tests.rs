@@ -36,11 +36,14 @@ macro_rules! test {
                 // given:
                 let mut connection = connection();
 
-                let commands = to_commands(include_str!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/test/datapack_template/",
-                    $path
-                )));
+                let commands = to_commands(
+                    concat!(stringify!($name), "_minecraft"),
+                    include_str!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/test/datapack_template/",
+                        $path
+                    )),
+                );
 
                 create_functions!("pack.mcmeta", $($paths),*);
 
@@ -66,7 +69,10 @@ macro_rules! test {
                 // given:
                 let mut connection = connection();
 
-                let commands = to_commands(concat!("function debug:test/", stringify!($name), "/test"));
+                let commands = to_commands(
+                    concat!(stringify!($name), "_debug"),
+                    concat!("function debug:test/", stringify!($name), "/test"),
+                );
 
                 create_functions!("pack.mcmeta", $path, $($paths),*);
 
@@ -103,15 +109,18 @@ fn connection() -> MinecraftConnection {
     MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR).build()
 }
 
-fn to_commands(function_contents: &str) -> Vec<String> {
-    function_contents
-        .split_terminator('\n')
-        .filter(|line| {
-            let trimmed = line.trim_start();
-            !trimmed.is_empty() && !trimmed.starts_with('#')
-        })
-        .map(|it| it.to_string())
-        .collect()
+fn to_commands(test_name: &str, function_contents: &str) -> Vec<String> {
+    let mut commands = vec![format!("say running test {}", test_name)];
+    commands.extend(
+        function_contents
+            .split_terminator('\n')
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                !trimmed.is_empty() && !trimmed.starts_with('#')
+            })
+            .map(|it| it.to_string()),
+    );
+    commands
 }
 
 fn expand_function(string: &str) -> String {

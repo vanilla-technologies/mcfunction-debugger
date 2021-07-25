@@ -1,15 +1,11 @@
-use std::env;
-use std::ffi::OsStr;
-use std::fmt::Display;
-use std::fmt::Write;
-use std::fs;
-use std::fs::read_dir;
-use std::fs::File;
-use std::io;
-use std::io::BufRead;
-use std::io::BufReader;
-use std::path::Path;
-use std::path::PathBuf;
+use std::{
+    env,
+    ffi::OsStr,
+    fmt::Display,
+    fs::{read_dir, write, File},
+    io::{self, BufRead, BufReader},
+    path::{Path, PathBuf},
+};
 use walkdir::WalkDir;
 
 fn main() -> io::Result<()> {
@@ -24,7 +20,7 @@ fn main() -> io::Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
     contents.push('\n');
-    fs::write(&path, contents).unwrap();
+    write(&path, contents).unwrap();
 
     Ok(())
 }
