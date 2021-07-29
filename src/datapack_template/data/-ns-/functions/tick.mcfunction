@@ -1,5 +1,5 @@
 # This area_effect_cloud will die next tick when Minecraft increments it's age after running schedules and command blocks, even if someone calls decrement_age
-summon area_effect_cloud ~ ~ ~ {Tags: [-ns-_before_age_increment]}
+summon area_effect_cloud ~ ~ ~ {Tags: [-ns-, -ns-_before_age_increment]}
 
 execute as @e[type=area_effect_cloud,tag=-ns-_schedule,nbt={Age: -1}] run function -ns-:schedule
 
