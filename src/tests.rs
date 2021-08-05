@@ -28,7 +28,7 @@ macro_rules! create_functions {
 }
 
 macro_rules! test {
-    ($name:ident, $path:literal $(, $paths:literal),*) => {
+    ($name:ident, $path:literal $(, $paths:literal)*) => {
         paste! {
             #[tokio::test]
             #[serial]
