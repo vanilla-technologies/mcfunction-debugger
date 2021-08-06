@@ -87,12 +87,12 @@ macro_rules! test_before_age_increment {
                 // given:
                 let mut connection = connection();
 
-                let commands = to_test_commands(
-                    concat!(stringify!($namespace), ":", stringify!($name), "_minecraft"),
-                    include_template!($path),
-                );
+                let commands = vec![
+                    running_test_cmd(concat!(stringify!($namespace), ":", stringify!($name), "_minecraft")),
+                    concat!("function ", stringify!($namespace), ":", stringify!($name), "/test").to_string(),
+                ];
 
-                expand_test_templates!("mcfd_test/pack.mcmeta" $(, $paths)*);
+                expand_test_templates!("mcfd_test/pack.mcmeta", $path $(, $paths)*);
 
                 wait_for_mount().await;
 
@@ -116,18 +116,16 @@ macro_rules! test_before_age_increment {
                 // given:
                 let mut connection = connection();
 
-                let commands = to_test_commands(
-                    concat!(stringify!($namespace), ":", stringify!($name), "_debug"),
-                    concat!("function debug:", stringify!($namespace), "/", stringify!($name), "/test"),
-                );
+                let commands = vec![
+                    running_test_cmd(concat!(stringify!($namespace), ":", stringify!($name), "_minecraft")),
+                    concat!("function debug:", stringify!($namespace), "/", stringify!($name), "/test").to_string(),
+                ];
 
                 expand_test_templates!("mcfd_test/pack.mcmeta", $path $(, $paths)*);
 
                 let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test/");
                 let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug/");
-                let namespace = "mcfd";
-
-                generate_debug_datapack(&test_datapack_path, namespace, &output_path, false).await?;
+                generate_debug_datapack(&test_datapack_path, "mcfd", &output_path, false).await?;
 
                 wait_for_mount().await;
 
@@ -246,24 +244,8 @@ fn connection() -> MinecraftConnection {
     MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR).build()
 }
 
-fn to_test_commands(test_name: &str, function_contents: &str) -> Vec<String> {
-    let mut commands = vec![running_test_cmd(test_name)];
-    commands.extend(to_commands(function_contents));
-    commands
-}
-
 fn running_test_cmd(test_name: &str) -> String {
     format!("tellraw @a {{\"text\": \"Running test {}\"}}", test_name)
-}
-
-fn to_commands(function_contents: &str) -> impl Iterator<Item = String> + '_ {
-    function_contents
-        .split_terminator('\n')
-        .filter(|line| {
-            let trimmed = line.trim_start();
-            !trimmed.is_empty() && !trimmed.starts_with('#')
-        })
-        .map(|it| it.to_string())
 }
 
 async fn create_tick_datapack(function: &str) -> io::Result<()> {
