@@ -51,6 +51,7 @@ fn find_tests() -> io::Result<Vec<TestCase>> {
         datapacks_path,
         "test_before_age_increment",
     )?);
+    tests.extend(find_test_cases(datapacks_path, "test_after_age_increment")?);
     Ok(tests)
 }
 

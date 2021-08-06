@@ -8,6 +8,9 @@
         },
         {
             "path": "test/datapack_templates/mcfd_test"
+        },
+        {
+            "path": "test/datapack_templates/mcfd_tick"
         }
     ]
 }
