@@ -7,7 +7,7 @@
             "path": "src/datapack_template"
         },
         {
-            "path": "test/datapack_template"
+            "path": "test/datapack_templates/mcfd_test"
         }
     ]
 }

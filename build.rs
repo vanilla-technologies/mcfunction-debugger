@@ -42,11 +42,26 @@ fn set_env() -> io::Result<()> {
 }
 
 fn find_tests() -> io::Result<Vec<TestCase>> {
-    let datapack_path = Path::new("test/datapack_template");
-    println!("cargo:rerun-if-changed={}", datapack_path.display());
+    let datapacks_path = Path::new("test/datapack_templates");
+    println!("cargo:rerun-if-changed={}", datapacks_path.display());
 
     let mut tests = Vec::new();
-    for test_entry in read_dir(datapack_path.join("data/test/functions"))? {
+    tests.extend(find_test_cases(datapacks_path, "test")?);
+    tests.extend(find_test_cases(
+        datapacks_path,
+        "test_before_age_increment",
+    )?);
+    Ok(tests)
+}
+
+fn find_test_cases(datapacks_path: &Path, category: &str) -> io::Result<Vec<TestCase>> {
+    let mut tests = Vec::new();
+    for test_entry in read_dir(
+        datapacks_path
+            .join("mcfd_test/data")
+            .join(category)
+            .join("functions"),
+    )? {
         let test_entry = test_entry?;
         if test_entry.file_type()?.is_dir() {
             let test_dir = test_entry.path();
@@ -60,14 +75,22 @@ fn find_tests() -> io::Result<Vec<TestCase>> {
                         && util_file.extension() == Some(OsStr::new("mcfunction"))
                         && util_entry.file_type().is_file()
                     {
-                        util_files
-                            .push(util_file.strip_prefix(datapack_path).unwrap().to_path_buf());
+                        util_files.push(
+                            util_file
+                                .strip_prefix(datapacks_path)
+                                .unwrap()
+                                .to_path_buf(),
+                        );
                     }
                 }
                 if let Some(name) = test_dir.file_name().and_then(OsStr::to_str) {
                     tests.push(TestCase {
+                        category: category.to_string(),
                         name: name.to_string(),
-                        test_file: test_file.strip_prefix(datapack_path).unwrap().to_path_buf(),
+                        test_file: test_file
+                            .strip_prefix(datapacks_path)
+                            .unwrap()
+                            .to_path_buf(),
                         util_files,
                     });
                 }
@@ -78,6 +101,7 @@ fn find_tests() -> io::Result<Vec<TestCase>> {
 }
 
 struct TestCase {
+    category: String,
     name: String,
     test_file: PathBuf,
     util_files: Vec<PathBuf>,
@@ -85,7 +109,14 @@ struct TestCase {
 
 impl Display for TestCase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "test!({}, \"{}\"", self.name, self.test_file.display())?;
+        write!(
+            f,
+            "{}!({}, {}, \"{}\"",
+            self.category,
+            self.category,
+            self.name,
+            self.test_file.display()
+        )?;
         for util_file in &self.util_files {
             write!(f, ", \"{}\"", util_file.display())?;
         }
