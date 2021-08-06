@@ -82,7 +82,7 @@ macro_rules! test {
 
                 generate_debug_datapack(&test_datapack_path, namespace, &output_path, false).await?;
 
-                sleep(Duration::from_millis(500)).await; // Wait for mount
+                sleep(Duration::from_millis(1000)).await; // Wait for mount
 
                 let mut events = connection.add_listener("test");
 
@@ -90,7 +90,7 @@ macro_rules! test {
                 connection.inject_commands(commands)?;
 
                 // then:
-                let event = timeout(Duration::from_secs(5), events.recv())
+                let event = timeout(Duration::from_secs(10), events.recv())
                     .await?
                     .unwrap();
                 assert_eq!(event.message, "Added tag 'success' to test");
