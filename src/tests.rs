@@ -167,7 +167,7 @@ async fn run_test(
             // Must run before debugger tick.json
             commands.extend([
                 r#"datapack disable "file/mcfd_tick""#.to_string(),
-                r#"datapack enable "file/mcfd_tick" first"#.to_string(),
+                r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#.to_string(),
             ]);
         }
     }
