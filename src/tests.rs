@@ -83,14 +83,14 @@ macro_rules! test_before_age_increment {
         paste! {
             #[tokio::test]
             #[serial]
-            async fn [<$namespace _ $name _minecraft>]() -> io::Result<()> {
+            async fn [<test_before_age_increment_ $name _minecraft>]() -> io::Result<()> {
                 expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                 run_test(stringify!($namespace), stringify!($name), false, false).await
             }
 
             #[tokio::test]
             #[serial]
-            async fn [<$namespace _ $name _debug>]() -> io::Result<()> {
+            async fn [<test_before_age_increment_ $name _debug>]() -> io::Result<()> {
                 expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                 run_test(stringify!($namespace), stringify!($name), false, true).await
             }
@@ -103,14 +103,14 @@ macro_rules! test_after_age_increment {
         paste! {
             #[tokio::test]
             #[serial]
-            async fn [<$namespace _ $name _minecraft>]() -> io::Result<()> {
+            async fn [<test_after_age_increment_ $name _minecraft>]() -> io::Result<()> {
                 expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                 run_test(stringify!($namespace), stringify!($name), true, false).await
             }
 
             #[tokio::test]
             #[serial]
-            async fn [<$namespace _ $name _debug>]() -> io::Result<()> {
+            async fn [<test_after_age_increment_ $name _debug>]() -> io::Result<()> {
                 expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                 run_test(stringify!($namespace), stringify!($name), true, true).await
             }
@@ -121,25 +121,11 @@ macro_rules! test_after_age_increment {
 macro_rules! test {
     ($namespace:ident, $name:ident, $($paths:expr),+) => {
         test_before_age_increment!($namespace, $name, $($paths),+);
-        // test_after_age_increment!($namespace, $name, $($paths),+);
+        test_after_age_increment!($namespace, $name, $($paths),+);
     }
 }
 
 include!(concat!(env!("OUT_DIR"), "/tests.rs"));
-
-// Additionally run schedule_gametime_1t after age increment to ensure that all tests are run
-// before the tick.json of the debugger, just as if they were executed by a user.
-// Using a submodule to avoid name conflicts.
-mod schedule_gametime_1t {
-    use super::*;
-
-    test_after_age_increment!(
-        test,
-        schedule_gametime_1t,
-        "mcfd_test/data/test/functions/schedule_gametime_1t/test.mcfunction",
-        "mcfd_test/data/test/functions/schedule_gametime_1t/scheduled.mcfunction"
-    );
-}
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 
