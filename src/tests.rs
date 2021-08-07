@@ -79,151 +79,48 @@ macro_rules! expand_test_templates {
 }
 
 macro_rules! test_before_age_increment {
-    ($namespace:ident, $name:ident, $path:literal $(, $paths:literal)*) => {
+    ($namespace:ident, $name:ident, $($paths:expr),+) => {
         paste! {
             #[tokio::test]
             #[serial]
             async fn [<$namespace _ $name _minecraft>]() -> io::Result<()> {
-                // given:
-                let mut connection = connection();
-
-                let commands = vec![
-                    running_test_cmd(concat!(stringify!($namespace), ":", stringify!($name), "_minecraft")),
-                    concat!("function ", stringify!($namespace), ":", stringify!($name), "/test").to_string(),
-                ];
-
-                expand_test_templates!("mcfd_test/pack.mcmeta", $path $(, $paths)*);
-
-                wait_for_mount().await;
-
-                let mut events = connection.add_listener("test");
-
-                // when:
-                connection.inject_commands(commands)?;
-
-                // then:
-                let event = timeout(TIMEOUT, events.recv())
-                    .await?
-                    .unwrap();
-                assert_eq!(event.message, "Added tag 'success' to test");
-
-                Ok(())
+                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                run_test(stringify!($namespace), stringify!($name), false, false).await
             }
 
             #[tokio::test]
             #[serial]
             async fn [<$namespace _ $name _debug>]() -> io::Result<()> {
-                // given:
-                let mut connection = connection();
-
-                let commands = vec![
-                    running_test_cmd(concat!(stringify!($namespace), ":", stringify!($name), "_minecraft")),
-                    concat!("function debug:", stringify!($namespace), "/", stringify!($name), "/test").to_string(),
-                ];
-
-                expand_test_templates!("mcfd_test/pack.mcmeta", $path $(, $paths)*);
-
-                let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test/");
-                let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug/");
-                generate_debug_datapack(&test_datapack_path, "mcfd", &output_path, false).await?;
-
-                wait_for_mount().await;
-
-                let mut events = connection.add_listener("test");
-
-                // when:
-                connection.inject_commands(commands)?;
-
-                // then:
-                let event = timeout(TIMEOUT, events.recv())
-                    .await?
-                    .unwrap();
-                assert_eq!(event.message, "Added tag 'success' to test");
-
-                Ok(())
+                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                run_test(stringify!($namespace), stringify!($name), false, true).await
             }
         }
     };
 }
 
 macro_rules! test_after_age_increment {
-    ($namespace:ident, $name:ident, $path:literal $(, $paths:literal)*) => {
+    ($namespace:ident, $name:ident, $($paths:expr),+) => {
         paste! {
             #[tokio::test]
             #[serial]
-            async fn [<test_after_age_increment_ $name _minecraft>]() -> io::Result<()> {
-                // given:
-                let mut connection = connection();
-
-                let commands = vec![
-                    running_test_cmd(concat!(stringify!($namespace), ":", stringify!($name), "_minecraft")),
-                    "scoreboard players set tick test_global 1".to_string(),
-                ];
-
-                expand_test_templates!("mcfd_test/pack.mcmeta", $path $(, $paths)*);
-
-                create_tick_datapack(concat!(stringify!($namespace), ":", stringify!($name), "/test")).await?;
-
-                wait_for_mount().await;
-
-                let mut events = connection.add_listener("test");
-
-                // when:
-                connection.inject_commands(commands)?;
-
-                // then:
-                let event = timeout(TIMEOUT, events.recv())
-                    .await?
-                    .unwrap();
-                assert_eq!(event.message, "Added tag 'success' to test");
-
-                Ok(())
+            async fn [<$namespace _ $name _minecraft>]() -> io::Result<()> {
+                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                run_test(stringify!($namespace), stringify!($name), true, false).await
             }
 
             #[tokio::test]
             #[serial]
-            async fn [<test_after_age_increment_ $name _debug>]() -> io::Result<()> {
-                // given:
-                let mut connection = connection();
-
-                let commands = vec![
-                    running_test_cmd(concat!(stringify!($namespace), ":", stringify!($name), "_debug")),
-                    "scoreboard players set tick test_global 1".to_string(),
-                    // Must run before debugger tick.json
-                    r#"datapack disable "file/mcfd_tick""#.to_string(),
-                    r#"datapack enable "file/mcfd_tick" first"#.to_string(),
-                ];
-
-                expand_test_templates!("mcfd_test/pack.mcmeta", $path $(, $paths)*);
-
-                let test_datapack_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
-                let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug");
-                generate_debug_datapack(&test_datapack_path, "mcfd", &output_path, false).await?;
-
-                create_tick_datapack(concat!("debug:", stringify!($namespace), "/", stringify!($name), "/test")).await?;
-
-                wait_for_mount().await;
-
-                let mut events = connection.add_listener("test");
-
-                // when:
-                connection.inject_commands(commands)?;
-
-                // then:
-                let event = timeout(TIMEOUT, events.recv())
-                    .await?
-                    .unwrap();
-                assert_eq!(event.message, "Added tag 'success' to test");
-
-                Ok(())
+            async fn [<$namespace _ $name _debug>]() -> io::Result<()> {
+                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                run_test(stringify!($namespace), stringify!($name), true, true).await
             }
         }
     };
 }
 
 macro_rules! test {
-    ($namespace:ident, $name:ident, $path:literal $(, $paths:literal)*) => {
-        test_before_age_increment!($namespace, $name, $path $(, $paths)*);
+    ($namespace:ident, $name:ident, $($paths:expr),+) => {
+        test_before_age_increment!($namespace, $name, $($paths),+);
     }
 }
 
@@ -231,14 +128,63 @@ include!(concat!(env!("OUT_DIR"), "/tests.rs"));
 
 // Additionally run schedule_gametime_1t after age increment to ensure that all tests are run
 // before the tick.json of the debugger, just as if they were executed by a user.
-test_after_age_increment!(
-    test,
-    schedule_gametime_1t,
-    "mcfd_test/data/test/functions/schedule_gametime_1t/test.mcfunction",
-    "mcfd_test/data/test/functions/schedule_gametime_1t/scheduled.mcfunction"
-);
+// Using a submodule to avoid name conflicts.
+mod schedule_gametime_1t {
+    use super::*;
+
+    test_after_age_increment!(
+        test,
+        schedule_gametime_1t,
+        "mcfd_test/data/test/functions/schedule_gametime_1t/test.mcfunction",
+        "mcfd_test/data/test/functions/schedule_gametime_1t/scheduled.mcfunction"
+    );
+}
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
+
+async fn run_test(
+    namespace: &str,
+    name: &str,
+    after_age_increment: bool,
+    debug: bool,
+) -> io::Result<()> {
+    // given:
+    let test_fn = if !debug {
+        format!("{}:{}/test", namespace, name)
+    } else {
+        create_debug_datapack().await?;
+        format!("debug:{}/{}/test", namespace, name)
+    };
+
+    let mut commands = vec![running_test_cmd(&test_fn)];
+    if !after_age_increment {
+        commands.push(format!("function {}", test_fn));
+    } else {
+        create_tick_datapack(&test_fn).await?;
+        commands.push("scoreboard players set tick test_global 1".to_string());
+        if debug {
+            // Must run before debugger tick.json
+            commands.extend([
+                r#"datapack disable "file/mcfd_tick""#.to_string(),
+                r#"datapack enable "file/mcfd_tick" first"#.to_string(),
+            ]);
+        }
+    }
+
+    wait_for_mount().await;
+
+    let mut connection = connection();
+    let mut events = connection.add_listener("test");
+
+    // when:
+    connection.inject_commands(commands)?;
+
+    // then:
+    let event = timeout(TIMEOUT, events.recv()).await?.unwrap();
+    assert_eq!(event.message, "Added tag 'success' to test");
+
+    Ok(())
+}
 
 fn connection() -> MinecraftConnection {
     MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR).build()
@@ -246,6 +192,12 @@ fn connection() -> MinecraftConnection {
 
 fn running_test_cmd(test_name: &str) -> String {
     format!("tellraw @a {{\"text\": \"Running test {}\"}}", test_name)
+}
+
+async fn create_debug_datapack() -> io::Result<()> {
+    let input_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
+    let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug");
+    generate_debug_datapack(&input_path, "mcfd", &output_path, false).await
 }
 
 async fn create_tick_datapack(function: &str) -> io::Result<()> {
