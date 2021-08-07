@@ -143,11 +143,14 @@ async fn run_test(
         format!("debug:{}/{}/test", namespace, name)
     };
 
+    if after_age_increment || debug {
+        create_tick_datapack(&test_fn).await?;
+    }
+
     let mut commands = vec![running_test_cmd(&test_fn)];
     if !after_age_increment {
         commands.push(format!("function {}", test_fn));
     } else {
-        create_tick_datapack(&test_fn).await?;
         commands.push("scoreboard players set tick test_global 1".to_string());
         if debug {
             // Must run before debugger tick.json
