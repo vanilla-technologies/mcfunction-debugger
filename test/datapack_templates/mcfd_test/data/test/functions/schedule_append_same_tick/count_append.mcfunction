@@ -1,1 +1,1 @@
-scoreboard players add append test 1
+scoreboard players add append test_global 1
