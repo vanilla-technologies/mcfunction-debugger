@@ -202,7 +202,7 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
     }
     create_tick_template!("pack.mcmeta")?;
     create_tick_template!("data/minecraft/tags/functions/tick.json")?;
-    create_tick_template!("data/test/functions/-test_name-/tick.mcfunction")?;
+    create_tick_template!("data/test/functions/tick.mcfunction")?;
     Ok(())
 }
 
