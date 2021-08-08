@@ -205,7 +205,7 @@ async fn create_tick_datapack(function: &str) -> io::Result<()> {
 }
 
 async fn wait_for_mount() {
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_millis(500)).await;
 }
 
 const TIMEOUT: Duration = Duration::from_secs(5);
