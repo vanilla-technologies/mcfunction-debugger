@@ -47,7 +47,7 @@ fn expand_logged_cmds(string: &str) -> String {
     let prefix = "say [";
     let mut expanded_until = 0;
     for (start, _) in string.match_indices(prefix) {
-        if let Some(end) = string[start..].find(']') {
+        if let Some(end) = string[start..].find("]\n") {
             let end = start + end;
             if let Some((executor, command)) = string[start..end]
                 .strip_prefix(prefix)
