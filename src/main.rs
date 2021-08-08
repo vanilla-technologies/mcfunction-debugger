@@ -51,11 +51,11 @@ async fn main() -> io::Result<()> {
                 .value_name("STRING")
                 .takes_value(true)
                 .validator(|namespace| {
-                    if namespace.len() <= 9 {
-                        //max len of identifiers 16 => scoreboard {}_global has 7 characters -> 9 remaining for namespace
+                    if namespace.len() <= 7 {
+                        // max len of identifiers 16 => scoreboard {}_Duration has 9 characters -> 7 remaining for namespace
                         return Ok(());
                     }
-                    Err(String::from("string must have <= 9 characters"))
+                    Err(String::from("string must have <= 7 characters"))
                 }),
         )
         .arg(
@@ -227,12 +227,14 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/id/uninstall.mcfunction"),
         expand!("data/-ns-/functions/decrement_age.mcfunction"),
         expand!("data/-ns-/functions/eval_max_age_tag.mcfunction"),
+        expand!("data/-ns-/functions/freeze_aec.mcfunction"),
         expand!("data/-ns-/functions/install.mcfunction"),
         expand_resume_aec_template(&engine, function_contents, &output_path),
         expand_schedule_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
         expand!("data/-ns-/functions/tick_start.mcfunction"),
         expand!("data/-ns-/functions/tick.mcfunction"),
+        expand!("data/-ns-/functions/unfreeze_aec.mcfunction"),
         expand!("data/-ns-/functions/uninstall.mcfunction"),
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
