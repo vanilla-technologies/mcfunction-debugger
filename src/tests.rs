@@ -144,7 +144,8 @@ async fn run_test(
     };
 
     if after_age_increment || debug {
-        create_tick_datapack(&test_fn).await?;
+        let on_breakpoint_fn = format!("{}:{}/on_breakpoint", namespace, name);
+        create_tick_datapack(&test_fn, &on_breakpoint_fn).await?;
     }
 
     let mut commands = vec![running_test_cmd(&test_fn)];
@@ -190,11 +191,12 @@ async fn create_debug_datapack() -> io::Result<()> {
     generate_debug_datapack(&input_path, "mcfd", &output_path, false).await
 }
 
-async fn create_tick_datapack(function: &str) -> io::Result<()> {
+async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Result<()> {
     macro_rules! create_tick_template {
         ($path:expr) => {
             expand_template!(concat!("mcfd_tick/", $path), |raw: &str| {
-                raw.replace("-fn-", function)
+                raw.replace("-test-", test_fn)
+                    .replace("-on_breakpoint-", on_breakpoint_fn)
             })
         };
     }
@@ -205,7 +207,7 @@ async fn create_tick_datapack(function: &str) -> io::Result<()> {
 }
 
 async fn wait_for_mount() {
-    sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_secs(1)).await;
 }
 
 const TIMEOUT: Duration = Duration::from_secs(5);
