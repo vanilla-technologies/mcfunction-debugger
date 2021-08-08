@@ -1,0 +1,1 @@
+function test:anchored_eyes_nested_function_call/assert
