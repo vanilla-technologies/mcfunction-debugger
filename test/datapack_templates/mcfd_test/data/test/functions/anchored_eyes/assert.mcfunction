@@ -6,6 +6,6 @@ scoreboard players operation diff_y test_global = aec_y test_global
 scoreboard players operation diff_y test_global -= sheep_y test_global
 
 say [@: function minect:enable_logging]
-execute if score diff_y test_global matches 0 run say [test: tag @s add success]
-execute unless score diff_y test_global matches 0 run say [test: scoreboard players add diff_y test_global 0]
+execute unless score diff_y test_global matches 0 run say [test: tag @s add success]
+execute if score diff_y test_global matches 0 run say [test: scoreboard players add diff_y test_global 0]
 say [@: function minect:reset_logging]
