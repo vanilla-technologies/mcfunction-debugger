@@ -226,7 +226,6 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/id/install.mcfunction"),
         expand!("data/-ns-/functions/id/uninstall.mcfunction"),
         expand!("data/-ns-/functions/decrement_age.mcfunction"),
-        expand!("data/-ns-/functions/eval_max_age_tag.mcfunction"),
         expand!("data/-ns-/functions/freeze_aec.mcfunction"),
         expand!("data/-ns-/functions/install.mcfunction"),
         expand_resume_aec_template(&engine, function_contents, &output_path),
