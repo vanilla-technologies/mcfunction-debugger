@@ -1,1 +1,1 @@
-scoreboard players add no_execute test_global 1
+scoreboard players add test_score test_global 1
