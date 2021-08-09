@@ -1,0 +1,4 @@
+scoreboard players set test_score test_global 0
+schedule function test:breakpoint_schedule_same_tick_two_functions_resume_together/scheduled1 1t
+schedule function test:breakpoint_schedule_same_tick_two_functions_resume_together/scheduled2 1t
+schedule function test:breakpoint_schedule_same_tick_two_functions_resume_together/assert 2t
