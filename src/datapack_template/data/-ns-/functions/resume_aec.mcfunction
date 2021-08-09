@@ -1,4 +1,3 @@
-scoreboard players set breakpoint -ns-_global 0
 scoreboard players set resume_success -ns-_global 0
 
 # -resume_cases-
