@@ -1,6 +1,6 @@
 kill @e[type=sheep,tag=test]
-summon sheep ~ ~ ~ {Tags: [test, test_sheep1], NoAI: 1b}
-summon sheep ~4 ~ ~3 {Tags: [test, test_sheep2], NoAI: 1b}
+summon sheep ~ ~ ~ {Tags: [test, test_sheep1], NoAI: true}
+summon sheep ~4 ~ ~3 {Tags: [test, test_sheep2], NoAI: true}
 scoreboard players set @e[type=sheep,tag=test] test_global 0
 execute as @e[type=sheep,tag=test] run function test:execute_as/increase_score
 
