@@ -235,7 +235,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/freeze_aec.mcfunction"),
         expand!("data/-ns-/functions/install.mcfunction"),
         expand!("data/-ns-/functions/load.mcfunction"),
-        expand!("data/-ns-/functions/resume_immediate.mcfunction"),
+        expand!("data/-ns-/functions/resume_immediately.mcfunction"),
         expand_resume_self_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
         expand_schedule_template(&engine, function_contents, &output_path),

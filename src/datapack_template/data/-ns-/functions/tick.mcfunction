@@ -1,4 +1,4 @@
-execute if score tick_resume -ns-_global matches 1 run function -ns-:resume_immediate
+execute if score tick_resume -ns-_global matches 1 run function -ns-:resume_immediately
 scoreboard players reset tick_resume -ns-_global
 
 execute as @e[type=area_effect_cloud,tag=-ns-_schedule] run function -ns-:schedule
