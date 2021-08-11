@@ -1,5 +1,5 @@
 scoreboard players set test_score test_global 0
-function test:function_no_execute/increase_score
+function test:function_call_without_execute/increase_score
 
 say [@: function minect:enable_logging]
 execute if score test_score test_global matches 1 run say [test: tag @s add success]
