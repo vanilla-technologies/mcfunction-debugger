@@ -237,6 +237,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/load.mcfunction"),
         expand_resume_aec_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/resume_immediate.mcfunction"),
+        expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
         expand_schedule_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
         expand!("data/-ns-/functions/tick_start.mcfunction"),
