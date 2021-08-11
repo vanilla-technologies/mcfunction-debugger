@@ -1,7 +1,7 @@
 use const_format::concatcp;
 use log::warn;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, u32, usize};
+use std::{collections::HashMap, fmt::Display, ops::Not, u32, usize};
 
 pub struct CommandParser {
     commands: HashMap<String, Command>,
@@ -190,6 +190,7 @@ pub enum MinecraftEntityAnchor {
     FEET,
 }
 type MinecraftFunction<'l> = NamespacedNameRef<&'l str>;
+type MinecraftRotation = ();
 type MinecraftSwizzle = ();
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinecraftTime {
@@ -221,13 +222,17 @@ impl MinecraftTimeUnit {
     }
 }
 
+type MinecraftVec3 = ();
+
 pub enum Argument<'l> {
     BrigadierString(String),
     MinecraftEntity(MinecraftEntity),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
     MinecraftFunction(MinecraftFunction<'l>),
+    MinecraftRotation(MinecraftRotation),
     MinecraftSwizzle(MinecraftSwizzle),
     MinecraftTime(MinecraftTime),
+    MinecraftVec3(MinecraftVec3),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -380,6 +385,10 @@ impl ArgumentParser {
                 let (function, suffix) = ArgumentParser::parse_minecraft_function(string)?;
                 Ok((Argument::MinecraftFunction(function), suffix))
             }
+            ArgumentParser::MinecraftRotation => {
+                let (string, suffix) = ArgumentParser::parse_minecraft_rotation(string)?;
+                Ok((Argument::MinecraftRotation(string), suffix))
+            }
             ArgumentParser::MinecraftSwizzle => {
                 let (swizzle, suffix) = ArgumentParser::parse_minecraft_swizzle(string)?;
                 Ok((Argument::MinecraftSwizzle(swizzle), suffix))
@@ -388,7 +397,24 @@ impl ArgumentParser {
                 let (time, suffix) = ArgumentParser::parse_minecraft_time(string)?;
                 Ok((Argument::MinecraftTime(time), suffix))
             }
+            ArgumentParser::MinecraftVec3 => {
+                let (vec3, suffix) = ArgumentParser::parse_minecraft_vec3(string)?;
+                Ok((Argument::MinecraftVec3(vec3), suffix))
+            }
             _ => Err("Unknown argument".to_string()),
+        }
+    }
+
+    fn parse_brigadier_double(string: &str) -> Result<(f64, &str), String> {
+        let end = string
+            .find(|c| (c < '0' || c > '9') && c != '.' && c != '-')
+            .unwrap_or(string.len());
+        if end == 0 {
+            Ok((0.0, string))
+        } else {
+            let (f, suffix) = string.split_at(end);
+            let f = f.parse::<f64>().map_err(|e| e.to_string())?;
+            Ok((f, suffix))
         }
     }
 
@@ -465,6 +491,18 @@ impl ArgumentParser {
         Ok((name, rest))
     }
 
+    fn parse_minecraft_rotation(string: &str) -> Result<(MinecraftRotation, &str), String> {
+        const INCOMPLETE: &str = "Incomplete (expected 3 coordinates)";
+        let suffix = string.strip_prefix('~').unwrap_or(string);
+        let (_x, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+        let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
+        check_non_local(suffix)?;
+        let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
+        let (_y, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+
+        Ok(((), suffix))
+    }
+
     fn parse_minecraft_swizzle(string: &str) -> Result<(MinecraftSwizzle, &str), String> {
         let end = string
             .find(' ')
@@ -496,6 +534,43 @@ impl ArgumentParser {
 
         Ok((MinecraftTime { time, unit }, suffix))
     }
+
+    fn parse_minecraft_vec3(string: &str) -> Result<(MinecraftVec3, &str), String> {
+        const INCOMPLETE: &str = "Incomplete (expected 3 coordinates)";
+        let suffix = if let Some(suffix) = string.strip_prefix('^') {
+            let (_x, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
+            let suffix = suffix.strip_prefix('^').ok_or(CANNOT_MIX.to_string())?;
+            let (_y, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
+            let suffix = suffix.strip_prefix('^').ok_or(CANNOT_MIX.to_string())?;
+            let (_z, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            suffix
+        } else {
+            let suffix = string.strip_prefix('~').unwrap_or(string);
+            let (_x, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
+            check_non_local(suffix)?;
+            let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
+            let (_y, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
+            check_non_local(suffix)?;
+            let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
+            let (_z, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            suffix
+        };
+        Ok(((), suffix))
+    }
+}
+
+const CANNOT_MIX: &str =
+    "Cannot mix world & local coordinates (everyhing must either use ^ or not)";
+fn check_non_local(string: &str) -> Result<(), String> {
+    string
+        .starts_with('^')
+        .not()
+        .then(|| ())
+        .ok_or(CANNOT_MIX.to_string())
 }
 
 const NAMESPACE_CHARS: &str = "0123456789abcdefghijklmnopqrstuvwxyz_-.";

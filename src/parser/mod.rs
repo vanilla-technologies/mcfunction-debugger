@@ -140,9 +140,8 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::commands::MinecraftTimeUnit;
-
     use super::*;
+    use crate::parser::commands::MinecraftTimeUnit;
 
     #[test]
     fn test_breakpoint() {
@@ -315,6 +314,106 @@ mod tests {
         // given:
         let parser = CommandParser::default().unwrap();
         let line = "execute at @e[type=area_effect_cloud] run function test:func";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_positioned_absolute() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "execute positioned -1 0 1 run function test:func";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_positioned_local() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "execute positioned ^-1 ^.3 ^-4.5 run function test:func";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_positioned_relative() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "execute positioned ~-1 ~.3 ~-4.5 run function test:func";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_rotated_absolute() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "execute rotated 1 -5 run function test:func";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_rotated_relative() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "execute rotated ~ ~-.5 run function test:func";
 
         // when:
         let actual = parse_line(&parser, line);
