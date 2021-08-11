@@ -4,6 +4,8 @@ summon sheep ~ ~ ~ {Tags: [test, test_sheep1], NoAI: true}
 summon sheep ~10 ~ ~ {Tags: [test, test_sheep2], NoAI: true}
 execute at @e[type=sheep,tag=test] run function test:execute_at_entity_context/summon_aec
 
+# Reset is necessary in server context
+scoreboard players reset entity_context test_global
 scoreboard players operation entity_context test_global = @s test_global
 scoreboard players set position_sheep1 test_global 0
 scoreboard players set position_sheep2 test_global 0
