@@ -235,8 +235,8 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/freeze_aec.mcfunction"),
         expand!("data/-ns-/functions/install.mcfunction"),
         expand!("data/-ns-/functions/load.mcfunction"),
-        expand_resume_aec_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/resume_immediate.mcfunction"),
+        expand_resume_self_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
         expand_schedule_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
@@ -255,7 +255,7 @@ async fn expand_global_templates(
     Ok(())
 }
 
-async fn expand_resume_aec_template<P: AsRef<Path>>(
+async fn expand_resume_self_template<P: AsRef<Path>>(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
     output_path: P,
@@ -287,7 +287,7 @@ async fn expand_resume_aec_template<P: AsRef<Path>>(
         .join("\n");
 
     #[rustfmt::skip]
-    macro_rules! PATH { () => { "data/-ns-/functions/resume_aec.mcfunction" }; }
+    macro_rules! PATH { () => { "data/-ns-/functions/resume_self.mcfunction" }; }
 
     let content = engine
         .expand(include_str!(concat!("datapack_template/", PATH!())))
