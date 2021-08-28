@@ -128,7 +128,27 @@ impl<'l> TemplateEngine<'l> {
                 }
                 engine.expand(template)
             }
-            Line::OtherCommand => line.to_owned(),
+            Line::OtherCommand { selectors } => {
+                let mut remaining_line = line.as_str();
+                let mut result = String::new();
+                for selector in selectors {
+                    const MIN_SELECTOR_LEN: usize = "@e".len();
+                    let (prefix, suffix) = remaining_line.split_at(selector + MIN_SELECTOR_LEN);
+                    remaining_line = suffix;
+                    result.push_str(prefix);
+
+                    let trivial_selector = !remaining_line.starts_with('[');
+                    remaining_line = remaining_line.strip_prefix('[').unwrap_or(remaining_line);
+                    result.push_str("[tag=!-ns-");
+                    if trivial_selector {
+                        result.push(']');
+                    } else {
+                        result.push(',');
+                    }
+                }
+                result.push_str(remaining_line);
+                self.expand(&result)
+            }
         }
     }
 }

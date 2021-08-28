@@ -1,7 +1,11 @@
 use const_format::concatcp;
-use log::warn;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display, ops::Not, u32, usize};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Write},
+    ops::Not,
+    u32, usize,
+};
 
 pub struct CommandParser {
     commands: HashMap<String, Command>,
@@ -20,7 +24,10 @@ impl CommandParser {
         })
     }
 
-    pub fn parse<'l>(&'l self, mut string: &'l str) -> Result<Vec<ParsedNode<'l>>, String> {
+    pub fn parse<'l>(
+        &'l self,
+        mut string: &'l str,
+    ) -> Result<Vec<ParsedNode<'l>>, CommandParserError<'l>> {
         let mut vec = Vec::new();
         let mut commands = &self.commands;
 
@@ -33,25 +40,37 @@ impl CommandParser {
                 if command.executable() {
                     return Ok(vec);
                 } else {
-                    // TODO error handling
-                    return Err(
-                        "Incomplete command, see below for error\n...hored eyes<--[HERE]"
-                            .to_string(),
-                    );
+                    let message = "Incomplete command, see below for error\n...hored eyes<--[HERE]"
+                        .to_string();
+                    return Err(CommandParserError {
+                        message,
+                        command: string, // TODO command should not be suffix
+                        index,
+                    });
                 }
             } else {
                 index += string.len();
-                string = suffix.strip_prefix(' ').ok_or(
-                    "Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string()
-                )?;
+                let message = "Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string();
+                string = suffix.strip_prefix(' ').ok_or(CommandParserError {
+                    message,
+                    command: string, // TODO command should not be suffix
+                    index,
+                })?;
                 index -= string.len();
 
                 commands = command.children();
-                if let Some(redirect) = command.redirect()? {
-                    let command = self
-                        .commands
-                        .get(redirect)
-                        .ok_or(format!("Failed to resolve redirect {}", redirect))?;
+                if let Some(redirect) =
+                    command.redirect().map_err(|message| CommandParserError {
+                        message,
+                        command: string, // TODO command should not be suffix
+                        index,
+                    })?
+                {
+                    let command = self.commands.get(redirect).ok_or(CommandParserError {
+                        message: format!("Failed to resolve redirect {}", redirect),
+                        command: string, // TODO command should not be suffix
+                        index,
+                    })?;
                     vec.push(ParsedNode::Redirect(redirect));
                     commands = command.children();
                 } else if commands.is_empty() {
@@ -59,10 +78,14 @@ impl CommandParser {
                         // Special case for execute run which has no redirect to root for some reason
                         commands = &self.commands;
                     } else {
-                        return Err(
+                        let message =
                             "Incorrect argument for command at position 13: ...me set day<--[HERE]"
-                                .to_string(),
-                        );
+                                .to_string();
+                        return Err(CommandParserError {
+                            message,
+                            command: string, // TODO command should not be suffix
+                            index,
+                        });
                     }
                 }
             }
@@ -73,14 +96,67 @@ impl CommandParser {
         string: &'s str,
         index: usize,
         commands: &'c HashMap<String, Command>,
-    ) -> Result<(&'c Command, ParsedNode<'s>, &'s str), String> {
-        for (name, command) in commands {
-            if let Some((parsed, suffix)) = command.parse(name, string, index) {
-                return Ok((command, parsed, suffix));
-            }
+    ) -> Result<(&'c Command, ParsedNode<'s>, &'s str), CommandParserError<'s>> {
+        // Try to parse as literal
+        let end = string.find(' ').unwrap_or(string.len());
+        let (literal, suffix) = string.split_at(end);
+        let command = commands
+            .iter()
+            .find(|(name, command)| {
+                name.as_str() == literal && matches!(command, Command::Literal { .. })
+            })
+            .map(|(_name, command)| command);
+        if let Some(command) = command {
+            Ok((command, ParsedNode::Literal { literal, index }, suffix))
+        } else {
+            // try to parse as argument
+            let mut parsed_arguments = commands
+                .iter()
+                .filter_map(|(_name, command)| match command {
+                    Command::Literal { .. } => None,
+                    Command::Argument { parser, .. } => Some((command, parser)),
+                })
+                .map(|(command, parser)| (command, parser.parse(string)))
+                .collect::<Vec<_>>();
+            // Prefer longest successful parsed
+            parsed_arguments.sort_by_key(|(_command, r)| match r {
+                Ok((_argument, suffix)) => suffix.len(),
+                Err(_) => usize::MAX,
+            });
+            let (command, result) =
+                parsed_arguments
+                    .into_iter()
+                    .next()
+                    .ok_or(CommandParserError {
+                        message: "Unknown command, see below for error\nabcd<--[HERE]".to_string(),
+                        command: string, // TODO command should not be suffix
+                        index,
+                    })?;
+            let (argument, suffix) = result.map_err(|message| CommandParserError {
+                message,
+                command: string, // TODO command should not be suffix
+                index,
+            })?;
+            let parsed = ParsedNode::Argument { argument, index };
+            Ok((command, parsed, suffix))
         }
-        // TODO error handling
-        Err("Unknown command, see below for error\nabcd<--[HERE]".to_string())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandParserError<'l> {
+    message: String,
+    command: &'l str,
+    index: usize,
+}
+
+impl Display for CommandParserError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:\n{}\n", self.message, self.command)?;
+        for _ in 0..self.index {
+            f.write_char(' ')?;
+        }
+        f.write_char('^')
     }
 }
 
@@ -115,34 +191,6 @@ pub enum Command {
         #[serde(flatten)]
         parser: ArgumentParser,
     },
-}
-
-impl Command {
-    fn parse<'l>(
-        &self,
-        name: &str,
-        string: &'l str,
-        index: usize,
-    ) -> Option<(ParsedNode<'l>, &'l str)> {
-        match self {
-            Command::Literal { .. } => {
-                let end = string.find(' ').unwrap_or(string.len());
-                let (literal, suffix) = string.split_at(end);
-                if literal == name {
-                    Some((ParsedNode::Literal { literal, index }, suffix))
-                } else {
-                    None
-                }
-            }
-            Command::Argument { parser, .. } => {
-                let (argument, suffix) = parser
-                    .parse(string)
-                    .map_err(|e| warn!("Failed to parse argument {} due to: {}", name, e))
-                    .ok()?;
-                Some((ParsedNode::Argument { argument, index }, suffix))
-            }
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -233,6 +281,7 @@ pub enum Argument<'l> {
     MinecraftSwizzle(MinecraftSwizzle),
     MinecraftTime(MinecraftTime),
     MinecraftVec3(MinecraftVec3),
+    Unknown(&'l str),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -329,6 +378,8 @@ pub enum ArgumentParser {
     MinecraftVec2,
     #[serde(rename = "minecraft:vec3")]
     MinecraftVec3,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -366,6 +417,11 @@ pub enum MinecraftAmount {
 }
 
 impl ArgumentParser {
+    fn name(&self) -> Option<String> {
+        let a = serde_json::to_value(self).ok()?;
+        a.as_object()?.get("parser")?.as_str().map(String::from)
+    }
+
     pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, &'l str), String> {
         match self {
             ArgumentParser::BrigadierString { type_ } => {
@@ -401,7 +457,14 @@ impl ArgumentParser {
                 let (vec3, suffix) = ArgumentParser::parse_minecraft_vec3(string)?;
                 Ok((Argument::MinecraftVec3(vec3), suffix))
             }
-            _ => Err("Unknown argument".to_string()),
+            ArgumentParser::Unknown => {
+                let (unknown, suffix) = ArgumentParser::parse_unknown(string)?;
+                Ok((Argument::Unknown(unknown), suffix))
+            }
+            _ => Err(format!(
+                "Unsupported argument type: {}",
+                self.name().unwrap_or_default()
+            )),
         }
     }
 
@@ -560,6 +623,12 @@ impl ArgumentParser {
             suffix
         };
         Ok(((), suffix))
+    }
+
+    fn parse_unknown(string: &str) -> Result<(&str, &str), String> {
+        // Best effort
+        let end = string.find(' ').unwrap_or(string.len());
+        Ok(string.split_at(end))
     }
 }
 

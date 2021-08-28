@@ -1,11 +1,11 @@
 pub mod commands;
 
-use std::usize;
-
 use self::commands::{
-    Argument, CommandParser, MinecraftEntityAnchor, MinecraftTime, NamespacedName,
-    NamespacedNameRef, ParsedNode,
+    Argument, CommandParser, CommandParserError, MinecraftEntityAnchor, MinecraftTime,
+    NamespacedName, NamespacedNameRef, ParsedNode,
 };
+use log::warn;
+use std::usize;
 
 #[derive(Debug, PartialEq)]
 pub enum Line {
@@ -21,30 +21,50 @@ pub enum Line {
         time: Option<MinecraftTime>,
         category: Option<String>,
     },
-    OtherCommand,
+    OtherCommand {
+        selectors: Vec<usize>,
+    },
 }
 
 pub fn parse_line(parser: &CommandParser, line: &str) -> Line {
+    parse_line_internal(parser, line)
+        .map_err(|e| warn!("Failed to parse command {} due to: {}", line, e))
+        .unwrap_or(Line::OtherCommand {
+            selectors: Vec::new(),
+        })
+}
+
+fn parse_line_internal<'l>(
+    parser: &'l CommandParser,
+    line: &'l str,
+) -> Result<Line, CommandParserError<'l>> {
     let line = line.trim();
     if line == "# breakpoint" {
-        Line::Breakpoint
+        Ok(Line::Breakpoint)
     } else {
-        parse_command(parser, line).unwrap_or(Line::OtherCommand)
+        parse_command(parser, line)
     }
 }
 
-fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
-    // TODO error handling
-    let vec = parser.parse(string).ok()?;
+fn parse_command<'l>(
+    parser: &'l CommandParser,
+    string: &'l str,
+) -> Result<Line, CommandParserError<'l>> {
+    let vec = parser.parse(string)?;
     let mut nodes = vec.as_slice();
-
+    let mut selectors = Vec::new();
     let mut maybe_anchor: Option<MinecraftEntityAnchor> = None;
-    let mut maybe_function = None;
     let mut execute_as = false;
 
     while let Some((head, tail)) = nodes.split_first() {
         nodes = tail;
         match head {
+            ParsedNode::Argument {
+                argument: Argument::MinecraftEntity(_entity),
+                index,
+            } => {
+                selectors.push(*index);
+            }
             ParsedNode::Literal {
                 literal: "execute", ..
             }
@@ -79,7 +99,11 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
                     ..
                 }) = tail.first()
                 {
-                    maybe_function = Some(function);
+                    return Ok(Line::FunctionCall {
+                        name: function.to_owned(),
+                        anchor: maybe_anchor,
+                        execute_as,
+                    });
                 }
             }
             ParsedNode::Literal {
@@ -110,7 +134,7 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
                             tail,
                         )) = tail.split_first()
                         {
-                            return Some(Line::Schedule {
+                            return Ok(Line::Schedule {
                                 schedule_start: *index,
                                 function: function.to_owned(),
                                 time: Some(time.clone()),
@@ -141,7 +165,7 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
                     {
                         // TODO Handle invalid characters in NamespacedName
                         if let Some(function) = NamespacedNameRef::from(string) {
-                            return Some(Line::Schedule {
+                            return Ok(Line::Schedule {
                                 schedule_start: *index,
                                 function: function.to_owned(),
                                 time: None,
@@ -154,14 +178,7 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
             _ => {}
         }
     }
-
-    let function = maybe_function?;
-
-    Some(Line::FunctionCall {
-        name: function.to_owned(),
-        anchor: maybe_anchor,
-        execute_as,
-    })
+    Ok(Line::OtherCommand { selectors })
 }
 
 #[cfg(test)]
@@ -176,7 +193,7 @@ mod tests {
         let line = "# breakpoint";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(actual, Line::Breakpoint);
@@ -189,10 +206,64 @@ mod tests {
         let line = "say execute run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
-        assert_eq!(actual, Line::OtherCommand);
+        assert_eq!(
+            actual,
+            Line::OtherCommand {
+                selectors: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn test_tellraw() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = r#"tellraw @a {"text":"HelloWorld!"}"#;
+
+        // when:
+        let actual = parse_line_internal(&parser, line).unwrap();
+
+        // then:
+        assert_eq!(actual, Line::OtherCommand { selectors: vec![8] });
+    }
+
+    #[test]
+    fn test_scoreboard_operation_selectors() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "scoreboard players operation @s test = @e[tag=test] test";
+
+        // when:
+        let actual = parse_line_internal(&parser, line).unwrap();
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::OtherCommand {
+                selectors: vec![29, 39]
+            }
+        );
+    }
+
+    #[test]
+    fn test_scoreboard_operation_names() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "scoreboard players operation var1 test = var2 test";
+
+        // when:
+        let actual = parse_line_internal(&parser, line).unwrap();
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::OtherCommand {
+                selectors: Vec::new()
+            }
+        );
     }
 
     #[test]
@@ -202,7 +273,7 @@ mod tests {
         let line = "execute run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -222,7 +293,7 @@ mod tests {
         let line = "execute align xyz run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -242,7 +313,7 @@ mod tests {
         let line = "execute anchored eyes run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -262,7 +333,7 @@ mod tests {
         let line = "execute anchored feet anchored eyes run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -282,7 +353,7 @@ mod tests {
         let line = "execute anchored feet run execute anchored eyes run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -302,7 +373,7 @@ mod tests {
         let line = "execute anchored eyes run execute as @s run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -322,7 +393,7 @@ mod tests {
         let line = "execute as @e[type=area_effect_cloud] run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -342,7 +413,7 @@ mod tests {
         let line = "execute at @e[type=area_effect_cloud] run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -362,7 +433,7 @@ mod tests {
         let line = "execute positioned -1 0 1 run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -382,7 +453,7 @@ mod tests {
         let line = "execute positioned ^-1 ^.3 ^-4.5 run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -402,7 +473,7 @@ mod tests {
         let line = "execute positioned ~-1 ~.3 ~-4.5 run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -422,7 +493,7 @@ mod tests {
         let line = "execute rotated 1 -5 run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -442,7 +513,7 @@ mod tests {
         let line = "execute rotated ~ ~-.5 run function test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -462,7 +533,7 @@ mod tests {
         let line = "schedule function test:func 1t";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -486,7 +557,7 @@ mod tests {
         let line = "schedule function test:func 1t append";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -531,7 +602,7 @@ mod tests {
         let line = "schedule function test:func 1t replace";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(
@@ -555,7 +626,7 @@ mod tests {
         let line = "execute at @e[type=area_effect_cloud] run schedule function test:func 1t";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line).unwrap();
 
         // then:
         assert_eq!(

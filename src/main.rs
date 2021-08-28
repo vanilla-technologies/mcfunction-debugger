@@ -116,7 +116,13 @@ async fn generate_debug_datapack(
                 .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
 
             // TODO dirty hack for when the last line in a file is a function call or breakpoint
-            lines.push((lines.len() + 1, "".to_string(), Line::OtherCommand));
+            lines.push((
+                lines.len() + 1,
+                "".to_string(),
+                Line::OtherCommand {
+                    selectors: Vec::new(),
+                },
+            ));
             Ok((name, lines))
         })
         .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
