@@ -3,7 +3,8 @@ pub mod commands;
 use std::usize;
 
 use self::commands::{
-    Argument, CommandParser, MinecraftEntityAnchor, MinecraftTime, NamespacedName, ParsedNode,
+    Argument, CommandParser, MinecraftEntityAnchor, MinecraftTime, NamespacedName,
+    NamespacedNameRef, ParsedNode,
 };
 
 #[derive(Debug, PartialEq)]
@@ -15,11 +16,10 @@ pub enum Line {
         execute_as: bool,
     },
     Schedule {
-        // TODO clear
         schedule_start: usize,
         function: NamespacedName,
-        time: MinecraftTime,
-        append: bool,
+        time: Option<MinecraftTime>,
+        category: Option<String>,
     },
     OtherCommand,
 }
@@ -113,14 +113,39 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
                             return Some(Line::Schedule {
                                 schedule_start: *index,
                                 function: function.to_owned(),
-                                time: time.clone(),
-                                append: matches!(
-                                    tail.first(),
-                                    Some(ParsedNode::Literal {
-                                        literal: "append",
-                                        ..
-                                    })
-                                ),
+                                time: Some(time.clone()),
+                                category: if let Some(ParsedNode::Literal {
+                                    literal: category,
+                                    ..
+                                }) = tail.first()
+                                {
+                                    Some(category.to_string())
+                                } else {
+                                    None
+                                },
+                            });
+                        }
+                    }
+                }
+                if let Some((
+                    ParsedNode::Literal {
+                        literal: "clear", ..
+                    },
+                    tail,
+                )) = tail.split_first()
+                {
+                    if let Some(ParsedNode::Argument {
+                        argument: Argument::BrigadierString(string),
+                        ..
+                    }) = tail.first()
+                    {
+                        // TODO Handle invalid characters in NamespacedName
+                        if let Some(function) = NamespacedNameRef::from(string) {
+                            return Some(Line::Schedule {
+                                schedule_start: *index,
+                                function: function.to_owned(),
+                                time: None,
+                                category: Some("clear".to_string()),
                             });
                         }
                     }
@@ -131,6 +156,7 @@ fn parse_command(parser: &CommandParser, string: &str) -> Option<Line> {
     }
 
     let function = maybe_function?;
+
     Some(Line::FunctionCall {
         name: function.to_owned(),
         anchor: maybe_anchor,
@@ -444,35 +470,11 @@ mod tests {
             Line::Schedule {
                 schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: MinecraftTime {
+                time: Some(MinecraftTime {
                     time: 1f32,
                     unit: MinecraftTimeUnit::Tick
-                },
-                append: false,
-            }
-        );
-    }
-
-    #[test]
-    fn test_schedule_replace() {
-        // given:
-        let parser = CommandParser::default().unwrap();
-        let line = "schedule function test:func 1t replace";
-
-        // when:
-        let actual = parse_line(&parser, line);
-
-        // then:
-        assert_eq!(
-            actual,
-            Line::Schedule {
-                schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                },
-                append: false,
+                }),
+                category: None,
             }
         );
     }
@@ -492,11 +494,56 @@ mod tests {
             Line::Schedule {
                 schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: MinecraftTime {
+                time: Some(MinecraftTime {
                     time: 1f32,
                     unit: MinecraftTimeUnit::Tick
-                },
-                append: true,
+                }),
+                category: Some("append".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_schedule_clear() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "schedule clear test:func";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::Schedule {
+                schedule_start: 0,
+                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                time: None,
+                category: Some("clear".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_schedule_replace() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "schedule function test:func 1t replace";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::Schedule {
+                schedule_start: 0,
+                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                time: Some(MinecraftTime {
+                    time: 1f32,
+                    unit: MinecraftTimeUnit::Tick
+                }),
+                category: Some("replace".to_string()),
             }
         );
     }
@@ -516,11 +563,32 @@ mod tests {
             Line::Schedule {
                 schedule_start: 42,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: MinecraftTime {
+                time: Some(MinecraftTime {
                     time: 1f32,
                     unit: MinecraftTimeUnit::Tick
-                },
-                append: false,
+                }),
+                category: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_execute_schedule_clear() {
+        // given:
+        let parser = CommandParser::default().unwrap();
+        let line = "execute at @e[type=area_effect_cloud] run schedule clear test:func";
+
+        // when:
+        let actual = parse_line(&parser, line);
+
+        // then:
+        assert_eq!(
+            actual,
+            Line::Schedule {
+                schedule_start: 42,
+                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                time: None,
+                category: Some("clear".to_string()),
             }
         );
     }

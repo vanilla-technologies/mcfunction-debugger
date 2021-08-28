@@ -97,25 +97,35 @@ impl<'l> TemplateEngine<'l> {
                 schedule_start,
                 function,
                 time,
-                append,
+                category,
             } => {
-                let template = if *append {
+                let template = if *category == Some("append".to_string()) {
                     include_str!(
                         "datapack_template/data/template/functions/schedule_append.mcfunction"
                     )
                 } else {
-                    include_str!(
-                        "datapack_template/data/template/functions/schedule_replace.mcfunction"
-                    )
+                    if *category == Some("clear".to_string()) {
+                        include_str!(
+                            "datapack_template/data/template/functions/schedule_clear.mcfunction"
+                        )
+                    } else {
+                        include_str!(
+                            "datapack_template/data/template/functions/schedule_replace.mcfunction"
+                        )
+                    }
                 };
                 let schedule_fn = function.name().replace('/', "_");
-                let ticks = time.as_ticks().to_string();
-                let engine = self.extend([
+                let mut engine = self.extend([
                     ("-schedule_ns-", function.namespace()),
                     ("-schedule_fn-", &schedule_fn),
-                    ("-ticks-", &ticks),
                     ("execute run ", &line[..*schedule_start]),
                 ]);
+
+                let ticks;
+                if let Some(time) = time {
+                    ticks = time.as_ticks().to_string();
+                    engine = engine.extend([("-ticks-", ticks.as_str())]);
+                }
                 engine.expand(template)
             }
             Line::OtherCommand => line.to_owned(),
