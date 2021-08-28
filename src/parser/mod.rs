@@ -210,7 +210,7 @@ mod tests {
     fn test_say() {
         // given:
         let parser = CommandParser::default().unwrap();
-        let line = "say execute run function test:func";
+        let line = "say execute as @e run function test:func";
 
         // when:
         let actual = parse_line_internal(&parser, line).unwrap();
@@ -219,7 +219,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::OtherCommand {
-                selectors: Vec::new()
+                selectors: vec![15]
             }
         );
     }
