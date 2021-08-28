@@ -1,8 +1,8 @@
 pub mod commands;
 
 use self::commands::{
-    Argument, CommandParser, CommandParserError, MinecraftEntityAnchor, MinecraftTime,
-    NamespacedName, NamespacedNameRef, ParsedNode,
+    Argument, CommandParser, CommandParserError, MinecraftEntityAnchor, MinecraftScoreHolder,
+    MinecraftTime, NamespacedName, NamespacedNameRef, ParsedNode,
 };
 use log::warn;
 use std::usize;
@@ -60,7 +60,9 @@ fn parse_command<'l>(
         nodes = tail;
         match head {
             ParsedNode::Argument {
-                argument: Argument::MinecraftEntity(_entity),
+                argument:
+                    Argument::MinecraftEntity(..)
+                    | Argument::MinecraftScoreHolder(MinecraftScoreHolder::Selector(..)),
                 index,
             } => {
                 selectors.push(*index);
