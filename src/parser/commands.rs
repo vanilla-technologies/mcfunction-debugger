@@ -240,14 +240,43 @@ impl Command {
 }
 
 type MinecraftEntity = ();
-#[derive(Clone, Copy, Debug, PartialEq)]
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MinecraftEntityAnchor {
     EYES,
     FEET,
 }
+
 type MinecraftFunction<'l> = NamespacedNameRef<&'l str>;
+
+type MinecraftObjective<'l> = &'l str;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MinecraftOperation {
+    Assignment,     // =
+    Addition,       // +=
+    Subtraction,    // -=
+    Multiplication, // *=
+    Division,       // /=
+    Modulus,        // %=
+    Swapping,       // ><
+    Minimum,        // <
+    Maximum,        // >
+}
+
 type MinecraftRotation = ();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MinecraftScoreHolder<'l> {
+    Selector(MinecraftSelector),
+    Wildcard,
+    String(&'l str),
+}
+
+type MinecraftSelector = ();
+
 type MinecraftSwizzle = ();
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinecraftTime {
     pub time: f32,
@@ -281,11 +310,14 @@ impl MinecraftTimeUnit {
 type MinecraftVec3 = ();
 
 pub enum Argument<'l> {
-    BrigadierString(String),
+    BrigadierString(&'l str),
     MinecraftEntity(MinecraftEntity),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
     MinecraftFunction(MinecraftFunction<'l>),
+    MinecraftObjective(MinecraftObjective<'l>),
+    MinecraftOperation(MinecraftOperation),
     MinecraftRotation(MinecraftRotation),
+    MinecraftScoreHolder(MinecraftScoreHolder<'l>),
     MinecraftSwizzle(MinecraftSwizzle),
     MinecraftTime(MinecraftTime),
     MinecraftVec3(MinecraftVec3),
@@ -402,7 +434,7 @@ pub struct BrigadierIntegerProperties {
     pub max: Option<i32>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BrigadierStringType {
     Greedy,
@@ -433,7 +465,7 @@ impl ArgumentParser {
     pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, usize), String> {
         match self {
             ArgumentParser::BrigadierString { type_ } => {
-                let (string, len) = ArgumentParser::parse_brigadier_string(string, type_)?;
+                let (string, len) = ArgumentParser::parse_brigadier_string(string, *type_)?;
                 Ok((Argument::BrigadierString(string), len))
             }
             ArgumentParser::MinecraftEntity { .. } => {
@@ -448,9 +480,21 @@ impl ArgumentParser {
                 let (function, len) = ArgumentParser::parse_minecraft_function(string)?;
                 Ok((Argument::MinecraftFunction(function), len))
             }
+            ArgumentParser::MinecraftObjective => {
+                let (objective, len) = ArgumentParser::parse_minecraft_objective(string)?;
+                Ok((Argument::MinecraftObjective(objective), len))
+            }
+            ArgumentParser::MinecraftOperation => {
+                let (operation, len) = ArgumentParser::parse_minecraft_operation(string)?;
+                Ok((Argument::MinecraftOperation(operation), len))
+            }
             ArgumentParser::MinecraftRotation => {
-                let (string, len) = ArgumentParser::parse_minecraft_rotation(string)?;
-                Ok((Argument::MinecraftRotation(string), len))
+                let (rotation, len) = ArgumentParser::parse_minecraft_rotation(string)?;
+                Ok((Argument::MinecraftRotation(rotation), len))
+            }
+            ArgumentParser::MinecraftScoreHolder { .. } => {
+                let (score_holder, len) = ArgumentParser::parse_minecraft_score_holder(string)?;
+                Ok((Argument::MinecraftScoreHolder(score_holder), len))
             }
             ArgumentParser::MinecraftSwizzle => {
                 let (swizzle, len) = ArgumentParser::parse_minecraft_swizzle(string)?;
@@ -490,45 +534,20 @@ impl ArgumentParser {
 
     fn parse_brigadier_string(
         string: &str,
-        type_: &BrigadierStringType,
-    ) -> Result<(String, usize), String> {
+        type_: BrigadierStringType,
+    ) -> Result<(&str, usize), String> {
         match type_ {
-            BrigadierStringType::Greedy => Ok((string.to_string(), string.len())),
+            BrigadierStringType::Greedy => Ok((string, string.len())),
             BrigadierStringType::Phrase => {
                 Err("Unsupported type 'phrase' for argument parser brigadier:string".to_string())
             }
-            BrigadierStringType::Word => {
-                Err("Unsupported type 'word' for argument parser brigadier:string".to_string())
-            }
+            BrigadierStringType::Word => parse_unquoted_string(string),
         }
     }
 
-    // TODO support ] in strings and NBT
     // TODO support for player name and UUID
-    // TODO add support for limits on amount and type
     fn parse_minecraft_entity(string: &str) -> Result<(MinecraftEntity, usize), String> {
-        let mut suffix = string
-            .strip_prefix('@')
-            .ok_or(format!("Invalid entity {}", string))?;
-
-        if suffix.is_empty() {
-            return Err("Missing selector type".to_string());
-        }
-
-        suffix = suffix
-            .strip_prefix(&['a', 'e', 'r', 's'][..])
-            .ok_or(format!(
-                "Unknown selector type '{}'",
-                suffix.chars().next().unwrap()
-            ))?;
-
-        suffix = if let Some(suffix) = suffix.strip_prefix('[') {
-            let end = suffix.find(']').ok_or(format!("Expected end of options"))?;
-            &suffix[1 + end..]
-        } else {
-            &suffix
-        };
-        Ok(((), string.len() - suffix.len()))
+        parse_minecraft_selector(string)
     }
 
     fn parse_minecraft_entity_anchor(
@@ -562,6 +581,26 @@ impl ArgumentParser {
         Ok((name, len))
     }
 
+    fn parse_minecraft_objective(string: &str) -> Result<(MinecraftObjective, usize), String> {
+        parse_unquoted_string(string)
+    }
+
+    fn parse_minecraft_operation(string: &str) -> Result<(MinecraftOperation, usize), String> {
+        let len = string.find(' ').unwrap_or(string.len());
+        match &string[..len] {
+            "=" => Ok((MinecraftOperation::Assignment, len)),
+            "+=" => Ok((MinecraftOperation::Addition, len)),
+            "-=" => Ok((MinecraftOperation::Subtraction, len)),
+            "*=" => Ok((MinecraftOperation::Multiplication, len)),
+            "/=" => Ok((MinecraftOperation::Division, len)),
+            "%=" => Ok((MinecraftOperation::Modulus, len)),
+            ">< " => Ok((MinecraftOperation::Swapping, len)),
+            "<" => Ok((MinecraftOperation::Minimum, len)),
+            ">" => Ok((MinecraftOperation::Maximum, len)),
+            _ => Err("Invalid operation".to_string()),
+        }
+    }
+
     fn parse_minecraft_rotation(string: &str) -> Result<(MinecraftRotation, usize), String> {
         const INCOMPLETE: &str = "Incomplete (expected 3 coordinates)";
         let suffix = string.strip_prefix('~').unwrap_or(string);
@@ -573,6 +612,22 @@ impl ArgumentParser {
         let (_y, len) = ArgumentParser::parse_brigadier_double(suffix)?;
 
         Ok(((), string.len() - &suffix[len..].len()))
+    }
+
+    fn parse_minecraft_score_holder(string: &str) -> Result<(MinecraftScoreHolder, usize), String> {
+        if string.starts_with('@') {
+            let (selector, len) = parse_minecraft_selector(string)?;
+            Ok((MinecraftScoreHolder::Selector(selector), len))
+        } else {
+            let len = string.find(' ').unwrap_or(string.len());
+            let parsed = &string[..len];
+            let parsed = if parsed == "*" {
+                MinecraftScoreHolder::Wildcard
+            } else {
+                MinecraftScoreHolder::String(parsed)
+            };
+            Ok((parsed, len))
+        }
     }
 
     fn parse_minecraft_swizzle(string: &str) -> Result<(MinecraftSwizzle, usize), String> {
@@ -645,6 +700,49 @@ impl ArgumentParser {
         let len = string.find(' ').unwrap_or(string.len());
         Ok((&string[..len], len))
     }
+}
+
+fn is_allowed_in_unquoted_string(c: char) -> bool {
+    return c >= '0' && c <= '9'
+        || c >= 'A' && c <= 'Z'
+        || c >= 'a' && c <= 'z'
+        || c == '_'
+        || c == '-'
+        || c == '.'
+        || c == '+';
+}
+
+fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
+    let len = string
+        .find(|c| !is_allowed_in_unquoted_string(c))
+        .unwrap_or(string.len());
+    Ok((&string[..len], len))
+}
+
+// TODO support ] in strings and NBT
+fn parse_minecraft_selector(string: &str) -> Result<(MinecraftSelector, usize), String> {
+    let mut suffix = string
+        .strip_prefix('@')
+        .ok_or(format!("Invalid entity {}", string))?;
+
+    if suffix.is_empty() {
+        return Err("Missing selector type".to_string());
+    }
+
+    suffix = suffix
+        .strip_prefix(&['a', 'e', 'r', 's'][..])
+        .ok_or(format!(
+            "Unknown selector type '{}'",
+            suffix.chars().next().unwrap()
+        ))?;
+
+    suffix = if let Some(suffix) = suffix.strip_prefix('[') {
+        let end = suffix.find(']').ok_or(format!("Expected end of options"))?;
+        &suffix[1 + end..]
+    } else {
+        &suffix
+    };
+    Ok(((), string.len() - suffix.len()))
 }
 
 const CANNOT_MIX: &str =
