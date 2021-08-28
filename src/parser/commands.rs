@@ -26,55 +26,62 @@ impl CommandParser {
 
     pub fn parse<'l>(
         &'l self,
-        mut string: &'l str,
+        command: &'l str,
     ) -> Result<Vec<ParsedNode<'l>>, CommandParserError<'l>> {
         let mut vec = Vec::new();
         let mut commands = &self.commands;
 
         let mut index = 0;
         loop {
-            let (command, parsed, suffix) = CommandParser::parse_prefix(string, index, commands)?;
+            let (command_spec, parsed, parsed_len) =
+                CommandParser::parse_from(command, index, commands)?;
             vec.push(parsed);
+            index += parsed_len;
 
-            if suffix == "" {
-                if command.executable() {
+            if index >= command.len() {
+                if command_spec.executable() {
                     return Ok(vec);
                 } else {
                     let message = "Incomplete command, see below for error\n...hored eyes<--[HERE]"
                         .to_string();
                     return Err(CommandParserError {
                         message,
-                        command: string, // TODO command should not be suffix
+                        command,
                         index,
                     });
                 }
             } else {
-                index += string.len();
                 let message = "Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string();
-                string = suffix.strip_prefix(' ').ok_or(CommandParserError {
-                    message,
-                    command: string, // TODO command should not be suffix
-                    index,
-                })?;
-                index -= string.len();
-
-                commands = command.children();
-                if let Some(redirect) =
-                    command.redirect().map_err(|message| CommandParserError {
+                const SPACE: char = ' ';
+                command[index..]
+                    .starts_with(SPACE)
+                    .then(|| ())
+                    .ok_or(CommandParserError {
                         message,
-                        command: string, // TODO command should not be suffix
+                        command,
                         index,
-                    })?
+                    })?;
+                index += SPACE.len_utf8();
+
+                commands = command_spec.children();
+                if let Some(redirect) =
+                    command_spec
+                        .redirect()
+                        .map_err(|message| CommandParserError {
+                            message,
+                            command,
+                            index,
+                        })?
                 {
                     let command = self.commands.get(redirect).ok_or(CommandParserError {
                         message: format!("Failed to resolve redirect {}", redirect),
-                        command: string, // TODO command should not be suffix
+                        command,
                         index,
                     })?;
                     vec.push(ParsedNode::Redirect(redirect));
                     commands = command.children();
                 } else if commands.is_empty() {
-                    if !command.executable() {
+                    if !command_spec.executable() {
                         // Special case for execute run which has no redirect to root for some reason
                         commands = &self.commands;
                     } else {
@@ -83,7 +90,7 @@ impl CommandParser {
                                 .to_string();
                         return Err(CommandParserError {
                             message,
-                            command: string, // TODO command should not be suffix
+                            command,
                             index,
                         });
                     }
@@ -92,22 +99,23 @@ impl CommandParser {
         }
     }
 
-    fn parse_prefix<'c, 's>(
-        string: &'s str,
+    fn parse_from<'c, 's>(
+        command: &'s str,
         index: usize,
         commands: &'c HashMap<String, Command>,
-    ) -> Result<(&'c Command, ParsedNode<'s>, &'s str), CommandParserError<'s>> {
+    ) -> Result<(&'c Command, ParsedNode<'s>, usize), CommandParserError<'s>> {
         // Try to parse as literal
-        let end = string.find(' ').unwrap_or(string.len());
-        let (literal, suffix) = string.split_at(end);
-        let command = commands
+        let string = &command[index..];
+        let len = string.find(' ').unwrap_or(string.len());
+        let literal = &string[..len];
+        let command_spec = commands
             .iter()
             .find(|(name, command)| {
                 name.as_str() == literal && matches!(command, Command::Literal { .. })
             })
             .map(|(_name, command)| command);
-        if let Some(command) = command {
-            Ok((command, ParsedNode::Literal { literal, index }, suffix))
+        if let Some(command) = command_spec {
+            Ok((command, ParsedNode::Literal { literal, index }, len))
         } else {
             // try to parse as argument
             let mut parsed_arguments = commands
@@ -120,25 +128,25 @@ impl CommandParser {
                 .collect::<Vec<_>>();
             // Prefer longest successful parsed
             parsed_arguments.sort_by_key(|(_command, r)| match r {
-                Ok((_argument, suffix)) => suffix.len(),
-                Err(_) => usize::MAX,
+                Ok((_argument, len)) => -(*len as isize),
+                Err(_) => 1,
             });
-            let (command, result) =
+            let (command_spec, result) =
                 parsed_arguments
                     .into_iter()
                     .next()
                     .ok_or(CommandParserError {
                         message: "Unknown command, see below for error\nabcd<--[HERE]".to_string(),
-                        command: string, // TODO command should not be suffix
+                        command,
                         index,
                     })?;
             let (argument, suffix) = result.map_err(|message| CommandParserError {
                 message,
-                command: string, // TODO command should not be suffix
+                command,
                 index,
             })?;
             let parsed = ParsedNode::Argument { argument, index };
-            Ok((command, parsed, suffix))
+            Ok((command_spec, parsed, suffix))
         }
     }
 }
@@ -422,44 +430,43 @@ impl ArgumentParser {
         a.as_object()?.get("parser")?.as_str().map(String::from)
     }
 
-    pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, &'l str), String> {
+    pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, usize), String> {
         match self {
             ArgumentParser::BrigadierString { type_ } => {
-                let (string, suffix) = ArgumentParser::parse_brigadier_string(string, type_)?;
-                Ok((Argument::BrigadierString(string), suffix))
+                let (string, len) = ArgumentParser::parse_brigadier_string(string, type_)?;
+                Ok((Argument::BrigadierString(string), len))
             }
             ArgumentParser::MinecraftEntity { .. } => {
-                let (entity, suffix) = ArgumentParser::parse_minecraft_entity(string)?;
-                Ok((Argument::MinecraftEntity(entity), suffix))
+                let (entity, len) = ArgumentParser::parse_minecraft_entity(string)?;
+                Ok((Argument::MinecraftEntity(entity), len))
             }
             ArgumentParser::MinecraftEntityAnchor => {
-                let (entity_anchor, suffix) =
-                    ArgumentParser::parse_minecraft_entity_anchor(string)?;
-                Ok((Argument::MinecraftEntityAnchor(entity_anchor), suffix))
+                let (entity_anchor, len) = ArgumentParser::parse_minecraft_entity_anchor(string)?;
+                Ok((Argument::MinecraftEntityAnchor(entity_anchor), len))
             }
             ArgumentParser::MinecraftFunction => {
-                let (function, suffix) = ArgumentParser::parse_minecraft_function(string)?;
-                Ok((Argument::MinecraftFunction(function), suffix))
+                let (function, len) = ArgumentParser::parse_minecraft_function(string)?;
+                Ok((Argument::MinecraftFunction(function), len))
             }
             ArgumentParser::MinecraftRotation => {
-                let (string, suffix) = ArgumentParser::parse_minecraft_rotation(string)?;
-                Ok((Argument::MinecraftRotation(string), suffix))
+                let (string, len) = ArgumentParser::parse_minecraft_rotation(string)?;
+                Ok((Argument::MinecraftRotation(string), len))
             }
             ArgumentParser::MinecraftSwizzle => {
-                let (swizzle, suffix) = ArgumentParser::parse_minecraft_swizzle(string)?;
-                Ok((Argument::MinecraftSwizzle(swizzle), suffix))
+                let (swizzle, len) = ArgumentParser::parse_minecraft_swizzle(string)?;
+                Ok((Argument::MinecraftSwizzle(swizzle), len))
             }
             ArgumentParser::MinecraftTime => {
-                let (time, suffix) = ArgumentParser::parse_minecraft_time(string)?;
-                Ok((Argument::MinecraftTime(time), suffix))
+                let (time, len) = ArgumentParser::parse_minecraft_time(string)?;
+                Ok((Argument::MinecraftTime(time), len))
             }
             ArgumentParser::MinecraftVec3 => {
-                let (vec3, suffix) = ArgumentParser::parse_minecraft_vec3(string)?;
-                Ok((Argument::MinecraftVec3(vec3), suffix))
+                let (vec3, len) = ArgumentParser::parse_minecraft_vec3(string)?;
+                Ok((Argument::MinecraftVec3(vec3), len))
             }
             ArgumentParser::Unknown => {
-                let (unknown, suffix) = ArgumentParser::parse_unknown(string)?;
-                Ok((Argument::Unknown(unknown), suffix))
+                let (unknown, len) = ArgumentParser::parse_unknown(string)?;
+                Ok((Argument::Unknown(unknown), len))
             }
             _ => Err(format!(
                 "Unsupported argument type: {}",
@@ -468,25 +475,25 @@ impl ArgumentParser {
         }
     }
 
-    fn parse_brigadier_double(string: &str) -> Result<(f64, &str), String> {
-        let end = string
+    fn parse_brigadier_double(string: &str) -> Result<(f64, usize), String> {
+        let len = string
             .find(|c| (c < '0' || c > '9') && c != '.' && c != '-')
             .unwrap_or(string.len());
-        if end == 0 {
-            Ok((0.0, string))
+        if len == 0 {
+            Ok((0.0, len))
         } else {
-            let (f, suffix) = string.split_at(end);
+            let f = &string[..len];
             let f = f.parse::<f64>().map_err(|e| e.to_string())?;
-            Ok((f, suffix))
+            Ok((f, len))
         }
     }
 
-    fn parse_brigadier_string<'l>(
-        string: &'l str,
+    fn parse_brigadier_string(
+        string: &str,
         type_: &BrigadierStringType,
-    ) -> Result<(String, &'l str), String> {
+    ) -> Result<(String, usize), String> {
         match type_ {
-            BrigadierStringType::Greedy => Ok((string.to_string(), "")),
+            BrigadierStringType::Greedy => Ok((string.to_string(), string.len())),
             BrigadierStringType::Phrase => {
                 Err("Unsupported type 'phrase' for argument parser brigadier:string".to_string())
             }
@@ -499,19 +506,21 @@ impl ArgumentParser {
     // TODO support ] in strings and NBT
     // TODO support for player name and UUID
     // TODO add support for limits on amount and type
-    fn parse_minecraft_entity(string: &str) -> Result<(MinecraftEntity, &str), String> {
+    fn parse_minecraft_entity(string: &str) -> Result<(MinecraftEntity, usize), String> {
         let mut suffix = string
             .strip_prefix('@')
             .ok_or(format!("Invalid entity {}", string))?;
 
         if suffix.is_empty() {
-            // TODO error handling
             return Err("Missing selector type".to_string());
         }
 
         suffix = suffix
             .strip_prefix(&['a', 'e', 'r', 's'][..])
-            .ok_or(format!("Unknown selector type '{}'", &string[..2]))?;
+            .ok_or(format!(
+                "Unknown selector type '{}'",
+                suffix.chars().next().unwrap()
+            ))?;
 
         suffix = if let Some(suffix) = suffix.strip_prefix('[') {
             let end = suffix.find(']').ok_or(format!("Expected end of options"))?;
@@ -519,24 +528,24 @@ impl ArgumentParser {
         } else {
             &suffix
         };
-        Ok(((), suffix))
+        Ok(((), string.len() - suffix.len()))
     }
 
     fn parse_minecraft_entity_anchor(
         string: &str,
-    ) -> Result<(MinecraftEntityAnchor, &str), String> {
+    ) -> Result<(MinecraftEntityAnchor, usize), String> {
         let eyes = "eyes";
         let feet = "feet";
         if string.starts_with(eyes) {
-            Ok((MinecraftEntityAnchor::EYES, &string[eyes.len()..]))
+            Ok((MinecraftEntityAnchor::EYES, eyes.len()))
         } else if string.starts_with(feet) {
-            Ok((MinecraftEntityAnchor::FEET, &string[feet.len()..]))
+            Ok((MinecraftEntityAnchor::FEET, feet.len()))
         } else {
-            Err(format!("Invalid entity anchor {}", string))
+            Err("Invalid entity anchor".to_string())
         }
     }
 
-    fn parse_minecraft_function(string: &str) -> Result<(MinecraftFunction, &str), String> {
+    fn parse_minecraft_function(string: &str) -> Result<(MinecraftFunction, usize), String> {
         let namespace_end = string
             .find(|c| !NAMESPACE_CHARS.contains(c))
             .ok_or(format!("Invalid ID: '{}'", string))?;
@@ -546,35 +555,35 @@ impl ArgumentParser {
             .ok_or(format!("Invalid ID: '{}'", string))?;
         let name_end = rest.find(|c| !NAME_CHARS.contains(c)).unwrap_or(rest.len());
         let len = namespace_end + 1 + name_end;
-        let (string, rest) = string.split_at(len);
         let name = NamespacedNameRef {
-            string,
+            string: &string[..len],
             namespace_len: namespace_end,
         };
-        Ok((name, rest))
+        Ok((name, len))
     }
 
-    fn parse_minecraft_rotation(string: &str) -> Result<(MinecraftRotation, &str), String> {
+    fn parse_minecraft_rotation(string: &str) -> Result<(MinecraftRotation, usize), String> {
         const INCOMPLETE: &str = "Incomplete (expected 3 coordinates)";
         let suffix = string.strip_prefix('~').unwrap_or(string);
-        let (_x, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+        let (_x, len) = ArgumentParser::parse_brigadier_double(suffix)?;
+        let suffix = &suffix[len..];
         let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
         check_non_local(suffix)?;
         let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
-        let (_y, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+        let (_y, len) = ArgumentParser::parse_brigadier_double(suffix)?;
 
-        Ok(((), suffix))
+        Ok(((), string.len() - &suffix[len..].len()))
     }
 
-    fn parse_minecraft_swizzle(string: &str) -> Result<(MinecraftSwizzle, &str), String> {
-        let end = string
+    fn parse_minecraft_swizzle(string: &str) -> Result<(MinecraftSwizzle, usize), String> {
+        let len = string
             .find(' ')
             .ok_or("Failed to parse swizzle".to_string())?;
         let swizzle = ();
-        Ok((swizzle, &string[end..]))
+        Ok((swizzle, len))
     }
 
-    fn parse_minecraft_time(string: &str) -> Result<(MinecraftTime, &str), String> {
+    fn parse_minecraft_time(string: &str) -> Result<(MinecraftTime, usize), String> {
         let float_len = string
             .find(|c| c < '0' || c > '9' && c != '.' && c != '-')
             .unwrap_or(string.len());
@@ -582,7 +591,7 @@ impl ArgumentParser {
         let time = float_sting
             .parse()
             .map_err(|_| format!("Expected float but got '{}'", &float_sting))?;
-        let (unit, suffix) = match string[float_len..].chars().next() {
+        let (unit, len) = match string[float_len..].chars().next() {
             Some(unit) if unit != ' ' => {
                 let unit = match unit {
                     't' => MinecraftTimeUnit::Tick,
@@ -590,45 +599,51 @@ impl ArgumentParser {
                     'd' => MinecraftTimeUnit::Day,
                     unit => return Err(format!("Unknown unit '{}'", unit)),
                 };
-                (unit, &string[float_len + 1..])
+                (unit, float_len + 1)
             }
-            _ => (MinecraftTimeUnit::Tick, &string[float_len..]),
+            _ => (MinecraftTimeUnit::Tick, float_len),
         };
 
-        Ok((MinecraftTime { time, unit }, suffix))
+        Ok((MinecraftTime { time, unit }, len))
     }
 
-    fn parse_minecraft_vec3(string: &str) -> Result<(MinecraftVec3, &str), String> {
+    fn parse_minecraft_vec3(string: &str) -> Result<(MinecraftVec3, usize), String> {
         const INCOMPLETE: &str = "Incomplete (expected 3 coordinates)";
         let suffix = if let Some(suffix) = string.strip_prefix('^') {
-            let (_x, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let (_x, len) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = &suffix[len..];
             let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
             let suffix = suffix.strip_prefix('^').ok_or(CANNOT_MIX.to_string())?;
-            let (_y, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let (_y, len) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = &suffix[len..];
             let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
             let suffix = suffix.strip_prefix('^').ok_or(CANNOT_MIX.to_string())?;
-            let (_z, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let (_z, len) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = &suffix[len..];
             suffix
         } else {
             let suffix = string.strip_prefix('~').unwrap_or(string);
-            let (_x, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let (_x, len) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = &suffix[len..];
             let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
             check_non_local(suffix)?;
             let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
-            let (_y, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let (_y, len) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = &suffix[len..];
             let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
             check_non_local(suffix)?;
             let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
-            let (_z, suffix) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let (_z, len) = ArgumentParser::parse_brigadier_double(suffix)?;
+            let suffix = &suffix[len..];
             suffix
         };
-        Ok(((), suffix))
+        Ok(((), string.len() - suffix.len()))
     }
 
-    fn parse_unknown(string: &str) -> Result<(&str, &str), String> {
+    fn parse_unknown(string: &str) -> Result<(&str, usize), String> {
         // Best effort
-        let end = string.find(' ').unwrap_or(string.len());
-        Ok(string.split_at(end))
+        let len = string.find(' ').unwrap_or(string.len());
+        Ok((&string[..len], len))
     }
 }
 

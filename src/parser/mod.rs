@@ -48,9 +48,9 @@ fn parse_line_internal<'l>(
 
 fn parse_command<'l>(
     parser: &'l CommandParser,
-    string: &'l str,
+    command: &'l str,
 ) -> Result<Line, CommandParserError<'l>> {
-    let vec = parser.parse(string)?;
+    let vec = parser.parse(command)?;
     let mut nodes = vec.as_slice();
     let mut selectors = Vec::new();
     let mut maybe_anchor: Option<MinecraftEntityAnchor> = None;
