@@ -14,12 +14,14 @@ pub enum Line {
         name: NamespacedName,
         anchor: Option<MinecraftEntityAnchor>,
         execute_as: bool,
+        selectors: Vec<usize>,
     },
     Schedule {
         schedule_start: usize,
         function: NamespacedName,
         time: Option<MinecraftTime>,
         category: Option<String>,
+        selectors: Vec<usize>,
     },
     OtherCommand {
         selectors: Vec<usize>,
@@ -105,6 +107,7 @@ fn parse_command<'l>(
                         name: function.to_owned(),
                         anchor: maybe_anchor,
                         execute_as,
+                        selectors,
                     });
                 }
             }
@@ -149,6 +152,7 @@ fn parse_command<'l>(
                                 } else {
                                     None
                                 },
+                                selectors,
                             });
                         }
                     }
@@ -172,6 +176,7 @@ fn parse_command<'l>(
                                 function: function.to_owned(),
                                 time: None,
                                 category: Some("clear".to_string()),
+                                selectors,
                             });
                         }
                     }
@@ -245,7 +250,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::OtherCommand {
-                selectors: vec![29, 39]
+                selectors: vec![29, 39],
             }
         );
     }
@@ -263,7 +268,7 @@ mod tests {
         assert_eq!(
             actual,
             Line::OtherCommand {
-                selectors: Vec::new()
+                selectors: Vec::new(),
             }
         );
     }
@@ -283,7 +288,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -303,7 +309,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -323,7 +330,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -343,7 +351,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -363,7 +372,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -383,7 +393,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: true
+                execute_as: true,
+                selectors: vec![37],
             }
         );
     }
@@ -404,6 +415,7 @@ mod tests {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: true,
+                selectors: vec![11],
             }
         );
     }
@@ -423,7 +435,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: vec![11],
             }
         );
     }
@@ -443,7 +456,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -463,7 +477,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -483,7 +498,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -503,7 +519,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -523,7 +540,8 @@ mod tests {
             Line::FunctionCall {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
-                execute_as: false
+                execute_as: false,
+                selectors: Vec::new(),
             }
         );
     }
@@ -548,6 +566,7 @@ mod tests {
                     unit: MinecraftTimeUnit::Tick
                 }),
                 category: None,
+                selectors: Vec::new(),
             }
         );
     }
@@ -572,6 +591,7 @@ mod tests {
                     unit: MinecraftTimeUnit::Tick
                 }),
                 category: Some("append".to_string()),
+                selectors: Vec::new(),
             }
         );
     }
@@ -593,6 +613,7 @@ mod tests {
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
                 time: None,
                 category: Some("clear".to_string()),
+                selectors: Vec::new(),
             }
         );
     }
@@ -617,6 +638,7 @@ mod tests {
                     unit: MinecraftTimeUnit::Tick
                 }),
                 category: Some("replace".to_string()),
+                selectors: Vec::new(),
             }
         );
     }
@@ -641,6 +663,7 @@ mod tests {
                     unit: MinecraftTimeUnit::Tick
                 }),
                 category: None,
+                selectors: Vec::new(),
             }
         );
     }
@@ -662,6 +685,7 @@ mod tests {
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
                 time: None,
                 category: Some("clear".to_string()),
+                selectors: Vec::new(),
             }
         );
     }

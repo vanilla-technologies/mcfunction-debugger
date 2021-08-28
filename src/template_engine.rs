@@ -66,10 +66,9 @@ impl<'l> TemplateEngine<'l> {
                 name,
                 anchor,
                 execute_as,
+                selectors,
             } => {
-                let template = include_str!(
-                    "datapack_template/data/template/functions/call_function.mcfunction"
-                );
+                let line = exclude_internal_entites_from_selectors(line, selectors);
                 let function_call = format!("function {}", name);
                 let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
                 let debug_anchor = anchor.map_or("".to_string(), |anchor| {
@@ -85,6 +84,9 @@ impl<'l> TemplateEngine<'l> {
                 let iterate_as = execute_as
                     .then(|| "iterate")
                     .unwrap_or("iterate_same_executor");
+                let template = include_str!(
+                    "datapack_template/data/template/functions/call_function.mcfunction"
+                );
                 let template = template
                     .replace("-call_ns-", name.namespace())
                     .replace("-call/fn-", name.name())
@@ -98,7 +100,22 @@ impl<'l> TemplateEngine<'l> {
                 function,
                 time,
                 category,
+                selectors,
             } => {
+                let schedule_fn = function.name().replace('/', "_");
+                let execute =
+                    exclude_internal_entites_from_selectors(&line[..*schedule_start], selectors);
+                let mut engine = self.extend([
+                    ("-schedule_ns-", function.namespace()),
+                    ("-schedule_fn-", &schedule_fn),
+                    ("execute run ", &execute),
+                ]);
+
+                let ticks;
+                if let Some(time) = time {
+                    ticks = time.as_ticks().to_string();
+                    engine = engine.extend([("-ticks-", ticks.as_str())]);
+                }
                 let template = if *category == Some("append".to_string()) {
                     include_str!(
                         "datapack_template/data/template/functions/schedule_append.mcfunction"
@@ -114,41 +131,34 @@ impl<'l> TemplateEngine<'l> {
                         )
                     }
                 };
-                let schedule_fn = function.name().replace('/', "_");
-                let mut engine = self.extend([
-                    ("-schedule_ns-", function.namespace()),
-                    ("-schedule_fn-", &schedule_fn),
-                    ("execute run ", &line[..*schedule_start]),
-                ]);
-
-                let ticks;
-                if let Some(time) = time {
-                    ticks = time.as_ticks().to_string();
-                    engine = engine.extend([("-ticks-", ticks.as_str())]);
-                }
                 engine.expand(template)
             }
             Line::OtherCommand { selectors } => {
-                let mut remaining_line = line.as_str();
-                let mut result = String::new();
-                for selector in selectors {
-                    const MIN_SELECTOR_LEN: usize = "@e".len();
-                    let (prefix, suffix) = remaining_line.split_at(selector + MIN_SELECTOR_LEN);
-                    remaining_line = suffix;
-                    result.push_str(prefix);
-
-                    let trivial_selector = !remaining_line.starts_with('[');
-                    remaining_line = remaining_line.strip_prefix('[').unwrap_or(remaining_line);
-                    result.push_str("[tag=!-ns-");
-                    if trivial_selector {
-                        result.push(']');
-                    } else {
-                        result.push(',');
-                    }
-                }
-                result.push_str(remaining_line);
-                self.expand(&result)
+                let line = exclude_internal_entites_from_selectors(line, selectors);
+                self.expand(&line)
             }
         }
     }
+}
+
+fn exclude_internal_entites_from_selectors(line: &str, selectors: &[usize]) -> String {
+    let mut remaining_line = line;
+    let mut result = String::new();
+    for selector in selectors {
+        const MIN_SELECTOR_LEN: usize = "@e".len();
+        let (prefix, suffix) = remaining_line.split_at(selector + MIN_SELECTOR_LEN);
+        remaining_line = suffix;
+        result.push_str(prefix);
+
+        let trivial_selector = !remaining_line.starts_with('[');
+        remaining_line = remaining_line.strip_prefix('[').unwrap_or(remaining_line);
+        result.push_str("[tag=!-ns-");
+        if trivial_selector {
+            result.push(']');
+        } else {
+            result.push(',');
+        }
+    }
+    result.push_str(remaining_line);
+    result
 }
