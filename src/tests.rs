@@ -149,17 +149,22 @@ async fn run_test(
     }
 
     let mut commands = vec![running_test_cmd(&test_fn)];
-    if !after_age_increment {
-        commands.push(format!("function {}", test_fn));
-    } else {
-        commands.push("scoreboard players set tick test_global 1".to_string());
-        if debug {
+    if debug {
+        commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
+        if after_age_increment {
             // Must run before debugger tick.json
             commands.extend([
                 r#"datapack disable "file/mcfd_tick""#.to_string(),
                 r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#.to_string(),
             ]);
         }
+    } else {
+        commands.push(r#"datapack disable "file/mcfd_test_debug""#.to_string());
+    }
+    if after_age_increment {
+        commands.push("scoreboard players set tick test_global 1".to_string());
+    } else {
+        commands.push(format!("function {}", test_fn));
     }
 
     wait_for_mount().await;
