@@ -42,22 +42,20 @@ impl CommandParser {
                 if command_spec.executable() {
                     return Ok(vec);
                 } else {
-                    let message = "Incomplete command, see below for error\n...hored eyes<--[HERE]"
-                        .to_string();
                     return Err(CommandParserError {
-                        message,
+                        message: "Incomplete command".to_string(),
                         command,
                         index,
                     });
                 }
             } else {
-                let message = "Expected whitespace to end one argument, but found trailing data at position 22: ...hored eyes#<--[HERE]".to_string();
                 const SPACE: char = ' ';
                 command[index..]
                     .starts_with(SPACE)
                     .then(|| ())
                     .ok_or(CommandParserError {
-                        message,
+                        message: "Expected whitespace to end one argument, but found trailing data"
+                            .to_string(),
                         command,
                         index,
                     })?;
@@ -85,11 +83,8 @@ impl CommandParser {
                         // Special case for execute run which has no redirect to root for some reason
                         commands = &self.commands;
                     } else {
-                        let message =
-                            "Incorrect argument for command at position 13: ...me set day<--[HERE]"
-                                .to_string();
                         return Err(CommandParserError {
-                            message,
+                            message: "Incorrect argument for command".to_string(),
                             command,
                             index,
                         });
@@ -136,7 +131,7 @@ impl CommandParser {
                     .into_iter()
                     .next()
                     .ok_or(CommandParserError {
-                        message: "Unknown command, see below for error\nabcd<--[HERE]".to_string(),
+                        message: "Unknown command".to_string(),
                         command,
                         index,
                     })?;
