@@ -228,6 +228,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/decrement_age.mcfunction"),
         expand!("data/-ns-/functions/freeze_aec.mcfunction"),
         expand!("data/-ns-/functions/install.mcfunction"),
+        expand!("data/-ns-/functions/load.mcfunction"),
         expand_resume_aec_template(&engine, function_contents, &output_path),
         expand_schedule_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
@@ -238,6 +239,7 @@ async fn expand_global_templates(
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
         expand!("data/debug/functions/uninstall.mcfunction"),
+        expand!("data/minecraft/tags/functions/load.json"),
         expand!("data/minecraft/tags/functions/tick.json"),
         expand!("pack.mcmeta"),
     )?;

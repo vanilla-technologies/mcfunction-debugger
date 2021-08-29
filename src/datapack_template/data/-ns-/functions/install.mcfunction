@@ -5,4 +5,5 @@ scoreboard objectives add -ns-_anchor dummy
 scoreboard objectives add -ns-_depth dummy
 scoreboard objectives add -ns-_global dummy
 scoreboard objectives add -ns-_tmp dummy
+scoreboard players set version -ns-_global 1
 function -ns-:id/install
