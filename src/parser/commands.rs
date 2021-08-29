@@ -249,6 +249,12 @@ pub enum MinecraftEntityAnchor {
 
 type MinecraftFunction<'l> = NamespacedNameRef<&'l str>;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MinecraftMessage<'l> {
+    pub message: &'l str,
+    pub selectors: Vec<(MinecraftSelector, usize, usize)>,
+}
+
 type MinecraftObjective<'l> = &'l str;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -266,7 +272,7 @@ pub enum MinecraftOperation {
 
 type MinecraftRotation = ();
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MinecraftScoreHolder<'l> {
     Selector(MinecraftSelector),
     Wildcard,
@@ -290,7 +296,7 @@ impl MinecraftTime {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MinecraftTimeUnit {
     Tick,
     Second,
@@ -309,11 +315,13 @@ impl MinecraftTimeUnit {
 
 type MinecraftVec3 = ();
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Argument<'l> {
     BrigadierString(&'l str),
     MinecraftEntity(MinecraftEntity),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
     MinecraftFunction(MinecraftFunction<'l>),
+    MinecraftMessage(MinecraftMessage<'l>),
     MinecraftObjective(MinecraftObjective<'l>),
     MinecraftOperation(MinecraftOperation),
     MinecraftRotation(MinecraftRotation),
@@ -480,6 +488,10 @@ impl ArgumentParser {
                 let (function, len) = ArgumentParser::parse_minecraft_function(string)?;
                 Ok((Argument::MinecraftFunction(function), len))
             }
+            ArgumentParser::MinecraftMessage => {
+                let (message, len) = ArgumentParser::parse_minecraft_message(string)?;
+                Ok((Argument::MinecraftMessage(message), len))
+            }
             ArgumentParser::MinecraftObjective => {
                 let (objective, len) = ArgumentParser::parse_minecraft_objective(string)?;
                 Ok((Argument::MinecraftObjective(objective), len))
@@ -547,7 +559,7 @@ impl ArgumentParser {
 
     // TODO support for player name and UUID
     fn parse_minecraft_entity(string: &str) -> Result<(MinecraftEntity, usize), String> {
-        parse_minecraft_selector(string)
+        parse_minecraft_selector(string).map_err(Into::into)
     }
 
     fn parse_minecraft_entity_anchor(
@@ -579,6 +591,29 @@ impl ArgumentParser {
             namespace_len: namespace_end,
         };
         Ok((name, len))
+    }
+
+    fn parse_minecraft_message(message: &str) -> Result<(MinecraftMessage, usize), String> {
+        let mut index = 0;
+        let mut selectors = Vec::new();
+        while let Some(i) = &message[index..].find('@') {
+            index += i;
+            match parse_minecraft_selector(&message[index..]) {
+                Ok((selector, len)) => {
+                    selectors.push((selector, index, index + len));
+                    index += len;
+                }
+                Err(
+                    MinecraftSelectorParserError::MissingSelectorType
+                    | MinecraftSelectorParserError::UnknownSelectorType(..),
+                ) => {
+                    index += 1;
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+
+        Ok((MinecraftMessage { message, selectors }, message.len()))
     }
 
     fn parse_minecraft_objective(string: &str) -> Result<(MinecraftObjective, usize), String> {
@@ -706,10 +741,10 @@ fn is_allowed_in_unquoted_string(c: char) -> bool {
     return c >= '0' && c <= '9'
         || c >= 'A' && c <= 'Z'
         || c >= 'a' && c <= 'z'
-        || c == '_'
+        || c == '+'
         || c == '-'
         || c == '.'
-        || c == '+';
+        || c == '_';
 }
 
 fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
@@ -719,25 +754,55 @@ fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
     Ok((&string[..len], len))
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum MinecraftSelectorParserError {
+    MissingSelectorType,
+    UnknownSelectorType(char),
+    Other(String),
+}
+
+impl Display for MinecraftSelectorParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingSelectorType => f.write_str("Missing selector type"),
+            Self::UnknownSelectorType(selector_type) => {
+                write!(f, "Unknown selector type '{}'", selector_type)
+            }
+            Self::Other(message) => f.write_str(&message),
+        }
+    }
+}
+
+impl From<MinecraftSelectorParserError> for String {
+    fn from(e: MinecraftSelectorParserError) -> Self {
+        e.to_string()
+    }
+}
+
 // TODO support ] in strings and NBT
-fn parse_minecraft_selector(string: &str) -> Result<(MinecraftSelector, usize), String> {
+fn parse_minecraft_selector(
+    string: &str,
+) -> Result<(MinecraftSelector, usize), MinecraftSelectorParserError> {
+    type Error = MinecraftSelectorParserError;
+
     let mut suffix = string
         .strip_prefix('@')
-        .ok_or(format!("Invalid entity {}", string))?;
+        .ok_or(Error::Other(format!("Invalid entity {}", string)))?;
 
     if suffix.is_empty() {
-        return Err("Missing selector type".to_string());
+        return Err(Error::MissingSelectorType);
     }
 
+    const SELECTOR_TYPES: &[char] = &['a', 'e', 'p', 'r', 's'];
+
     suffix = suffix
-        .strip_prefix(&['a', 'e', 'r', 's'][..])
-        .ok_or(format!(
-            "Unknown selector type '{}'",
-            suffix.chars().next().unwrap()
-        ))?;
+        .strip_prefix(SELECTOR_TYPES)
+        .ok_or(Error::UnknownSelectorType(suffix.chars().next().unwrap()))?;
 
     suffix = if let Some(suffix) = suffix.strip_prefix('[') {
-        let end = suffix.find(']').ok_or(format!("Expected end of options"))?;
+        let end = suffix
+            .find(']')
+            .ok_or(Error::Other(format!("Expected end of options")))?;
         &suffix[1 + end..]
     } else {
         &suffix
@@ -760,7 +825,7 @@ const NAME_CHARS: &str = concatcp!(NAMESPACE_CHARS, "/");
 
 pub type NamespacedName = NamespacedNameRef<String>;
 
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct NamespacedNameRef<S: AsRef<str>> {
     string: S,
     namespace_len: usize,

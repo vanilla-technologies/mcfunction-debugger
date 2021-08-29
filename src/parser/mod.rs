@@ -1,8 +1,8 @@
 pub mod commands;
 
 use self::commands::{
-    Argument, CommandParser, CommandParserError, MinecraftEntityAnchor, MinecraftScoreHolder,
-    MinecraftTime, NamespacedName, NamespacedNameRef, ParsedNode,
+    Argument, CommandParser, CommandParserError, MinecraftEntityAnchor, MinecraftMessage,
+    MinecraftScoreHolder, MinecraftTime, NamespacedName, NamespacedNameRef, ParsedNode,
 };
 use log::warn;
 use std::usize;
@@ -68,6 +68,20 @@ fn parse_command<'l>(
                 index,
             } => {
                 selectors.push(*index);
+            }
+            ParsedNode::Argument {
+                argument:
+                    Argument::MinecraftMessage(MinecraftMessage {
+                        selectors: message_selectors,
+                        ..
+                    }),
+                index,
+            } => {
+                selectors.extend(
+                    message_selectors
+                        .iter()
+                        .map(|(_selector, start, _end)| index + start),
+                );
             }
             ParsedNode::Literal {
                 literal: "execute", ..
