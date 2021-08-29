@@ -164,7 +164,7 @@ async fn run_test(
     if after_age_increment {
         commands.push("scoreboard players set tick test_global 1".to_string());
     } else {
-        commands.push(format!("function {}", test_fn));
+        commands.push(format!("schedule function {} 1", test_fn));
     }
 
     wait_for_mount().await;
