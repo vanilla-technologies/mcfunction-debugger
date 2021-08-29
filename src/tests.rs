@@ -215,4 +215,4 @@ async fn wait_for_mount() {
     sleep(Duration::from_secs(1)).await;
 }
 
-const TIMEOUT: Duration = Duration::from_secs(5);
+const TIMEOUT: Duration = Duration::from_secs(10);
