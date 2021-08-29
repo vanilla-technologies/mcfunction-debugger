@@ -24,70 +24,102 @@ impl CommandParser {
         })
     }
 
-    pub fn parse<'l>(
-        &'l self,
-        command: &'l str,
-    ) -> Result<Vec<ParsedNode<'l>>, CommandParserError<'l>> {
-        let mut vec = Vec::new();
+    pub fn parse<'l>(&'l self, command: &'l str) -> CommandParserResult<'l> {
+        let mut parsed_nodes = Vec::new();
         let mut commands = &self.commands;
 
         let mut index = 0;
         loop {
-            let (command_spec, parsed, parsed_len) =
-                CommandParser::parse_from(command, index, commands)?;
-            vec.push(parsed);
+            let (command_spec, parsed_node, parsed_len) =
+                match CommandParser::parse_from(command, index, commands) {
+                    Ok(ok) => ok,
+                    Err(message) => {
+                        return CommandParserResult {
+                            parsed_nodes,
+                            error: Some(CommandParserError {
+                                message,
+                                command,
+                                index,
+                            }),
+                        }
+                    }
+                };
+            parsed_nodes.push(parsed_node);
             index += parsed_len;
 
             if index >= command.len() {
                 if command_spec.executable() {
-                    return Ok(vec);
+                    return CommandParserResult {
+                        parsed_nodes,
+                        error: None,
+                    };
                 } else {
-                    return Err(CommandParserError {
-                        message: "Incomplete command".to_string(),
-                        command,
-                        index,
-                    });
+                    return CommandParserResult {
+                        parsed_nodes,
+                        error: Some(CommandParserError {
+                            message: "Incomplete command".to_string(),
+                            command,
+                            index,
+                        }),
+                    };
                 }
             } else {
                 const SPACE: char = ' ';
-                command[index..]
-                    .starts_with(SPACE)
-                    .then(|| ())
-                    .ok_or(CommandParserError {
-                        message: "Expected whitespace to end one argument, but found trailing data"
-                            .to_string(),
-                        command,
-                        index,
-                    })?;
+                if !command[index..].starts_with(SPACE) {
+                    return CommandParserResult {
+                        parsed_nodes,
+                        error: Some(CommandParserError {
+                            message:
+                                "Expected whitespace to end one argument, but found trailing data"
+                                    .to_string(),
+                            command,
+                            index,
+                        }),
+                    };
+                }
                 index += SPACE.len_utf8();
 
                 commands = command_spec.children();
-                if let Some(redirect) =
-                    command_spec
-                        .redirect()
-                        .map_err(|message| CommandParserError {
-                            message,
-                            command,
-                            index,
-                        })?
-                {
-                    let command = self.commands.get(redirect).ok_or(CommandParserError {
-                        message: format!("Failed to resolve redirect {}", redirect),
-                        command,
-                        index,
-                    })?;
-                    vec.push(ParsedNode::Redirect(redirect));
-                    commands = command.children();
+                let redirect = match command_spec.redirect() {
+                    Ok(ok) => ok,
+                    Err(message) => {
+                        return CommandParserResult {
+                            parsed_nodes,
+                            error: Some(CommandParserError {
+                                message,
+                                command,
+                                index,
+                            }),
+                        }
+                    }
+                };
+                if let Some(redirect) = redirect {
+                    if let Some(command) = self.commands.get(redirect) {
+                        parsed_nodes.push(ParsedNode::Redirect(redirect));
+                        commands = command.children();
+                    } else {
+                        return CommandParserResult {
+                            parsed_nodes,
+                            error: Some(CommandParserError {
+                                message: format!("Failed to resolve redirect {}", redirect),
+                                command,
+                                index,
+                            }),
+                        };
+                    }
                 } else if commands.is_empty() {
                     if !command_spec.executable() {
                         // Special case for execute run which has no redirect to root for some reason
                         commands = &self.commands;
                     } else {
-                        return Err(CommandParserError {
-                            message: "Incorrect argument for command".to_string(),
-                            command,
-                            index,
-                        });
+                        return CommandParserResult {
+                            parsed_nodes,
+                            error: Some(CommandParserError {
+                                message: "Incorrect argument for command".to_string(),
+                                command,
+                                index,
+                            }),
+                        };
                     }
                 }
             }
@@ -98,7 +130,7 @@ impl CommandParser {
         command: &'s str,
         index: usize,
         commands: &'c HashMap<String, Command>,
-    ) -> Result<(&'c Command, ParsedNode<'s>, usize), CommandParserError<'s>> {
+    ) -> Result<(&'c Command, ParsedNode<'s>, usize), String> {
         // Try to parse as literal
         let string = &command[index..];
         let len = string.find(' ').unwrap_or(string.len());
@@ -126,27 +158,24 @@ impl CommandParser {
                 Ok((_argument, len)) => -(*len as isize),
                 Err(_) => 1,
             });
-            let (command_spec, result) =
-                parsed_arguments
-                    .into_iter()
-                    .next()
-                    .ok_or(CommandParserError {
-                        message: "Unknown command".to_string(),
-                        command,
-                        index,
-                    })?;
-            let (argument, suffix) = result.map_err(|message| CommandParserError {
-                message,
-                command,
-                index,
-            })?;
+            let (command_spec, result) = parsed_arguments
+                .into_iter()
+                .next()
+                .ok_or("Unknown command".to_string())?;
+            let (argument, suffix) = result?;
             let parsed = ParsedNode::Argument { argument, index };
             Ok((command_spec, parsed, suffix))
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandParserResult<'l> {
+    pub parsed_nodes: Vec<ParsedNode<'l>>,
+    pub error: Option<CommandParserError<'l>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct CommandParserError<'l> {
     message: String,
     command: &'l str,
@@ -163,6 +192,7 @@ impl Display for CommandParserError<'_> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum ParsedNode<'l> {
     Redirect(&'l str),
     Literal {

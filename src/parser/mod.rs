@@ -1,8 +1,9 @@
 pub mod commands;
 
 use self::commands::{
-    Argument, CommandParser, CommandParserError, MinecraftEntityAnchor, MinecraftMessage,
-    MinecraftScoreHolder, MinecraftTime, NamespacedName, NamespacedNameRef, ParsedNode,
+    Argument, CommandParser, CommandParserError, CommandParserResult, MinecraftEntityAnchor,
+    MinecraftMessage, MinecraftScoreHolder, MinecraftTime, NamespacedName, NamespacedNameRef,
+    ParsedNode,
 };
 use log::warn;
 use std::usize;
@@ -29,20 +30,20 @@ pub enum Line {
 }
 
 pub fn parse_line(parser: &CommandParser, line: &str) -> Line {
-    parse_line_internal(parser, line)
-        .map_err(|e| warn!("Failed to parse command {} due to: {}", line, e))
-        .unwrap_or(Line::OtherCommand {
-            selectors: Vec::new(),
-        })
+    let (line, error) = parse_line_internal(parser, line);
+    if let Some(error) = error {
+        warn!("Failed to parse command. {}", error);
+    }
+    line
 }
 
 fn parse_line_internal<'l>(
     parser: &'l CommandParser,
     line: &'l str,
-) -> Result<Line, CommandParserError<'l>> {
+) -> (Line, Option<CommandParserError<'l>>) {
     let line = line.trim();
     if line == "# breakpoint" {
-        Ok(Line::Breakpoint)
+        (Line::Breakpoint, None)
     } else {
         parse_command(parser, line)
     }
@@ -51,9 +52,12 @@ fn parse_line_internal<'l>(
 fn parse_command<'l>(
     parser: &'l CommandParser,
     command: &'l str,
-) -> Result<Line, CommandParserError<'l>> {
-    let vec = parser.parse(command)?;
-    let mut nodes = vec.as_slice();
+) -> (Line, Option<CommandParserError<'l>>) {
+    let CommandParserResult {
+        parsed_nodes,
+        error,
+    } = parser.parse(command);
+    let mut nodes = parsed_nodes.as_slice();
     let mut selectors = Vec::new();
     let mut maybe_anchor: Option<MinecraftEntityAnchor> = None;
     let mut execute_as = false;
@@ -117,12 +121,15 @@ fn parse_command<'l>(
                     ..
                 }) = tail.first()
                 {
-                    return Ok(Line::FunctionCall {
-                        name: function.to_owned(),
-                        anchor: maybe_anchor,
-                        execute_as,
-                        selectors,
-                    });
+                    return (
+                        Line::FunctionCall {
+                            name: function.to_owned(),
+                            anchor: maybe_anchor,
+                            execute_as,
+                            selectors,
+                        },
+                        error,
+                    );
                 }
             }
             ParsedNode::Literal {
@@ -153,21 +160,24 @@ fn parse_command<'l>(
                             tail,
                         )) = tail.split_first()
                         {
-                            return Ok(Line::Schedule {
-                                schedule_start: *index,
-                                function: function.to_owned(),
-                                time: Some(time.clone()),
-                                category: if let Some(ParsedNode::Literal {
-                                    literal: category,
-                                    ..
-                                }) = tail.first()
-                                {
-                                    Some(category.to_string())
-                                } else {
-                                    None
+                            return (
+                                Line::Schedule {
+                                    schedule_start: *index,
+                                    function: function.to_owned(),
+                                    time: Some(time.clone()),
+                                    category: if let Some(ParsedNode::Literal {
+                                        literal: category,
+                                        ..
+                                    }) = tail.first()
+                                    {
+                                        Some(category.to_string())
+                                    } else {
+                                        None
+                                    },
+                                    selectors,
                                 },
-                                selectors,
-                            });
+                                error,
+                            );
                         }
                     }
                 }
@@ -185,13 +195,16 @@ fn parse_command<'l>(
                     {
                         // TODO Handle invalid characters in NamespacedName
                         if let Some(function) = NamespacedNameRef::from(string) {
-                            return Ok(Line::Schedule {
-                                schedule_start: *index,
-                                function: function.to_owned(),
-                                time: None,
-                                category: Some("clear".to_string()),
-                                selectors,
-                            });
+                            return (
+                                Line::Schedule {
+                                    schedule_start: *index,
+                                    function: function.to_owned(),
+                                    time: None,
+                                    category: Some("clear".to_string()),
+                                    selectors,
+                                },
+                                error,
+                            );
                         }
                     }
                 }
@@ -199,7 +212,7 @@ fn parse_command<'l>(
             _ => {}
         }
     }
-    Ok(Line::OtherCommand { selectors })
+    (Line::OtherCommand { selectors }, error)
 }
 
 #[cfg(test)]
@@ -214,10 +227,10 @@ mod tests {
         let line = "# breakpoint";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
-        assert_eq!(actual, Line::Breakpoint);
+        assert_eq!(actual, (Line::Breakpoint, None));
     }
 
     #[test]
@@ -227,14 +240,17 @@ mod tests {
         let line = "say execute as @e run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::OtherCommand {
-                selectors: vec![15]
-            }
+            (
+                Line::OtherCommand {
+                    selectors: vec![15]
+                },
+                None
+            )
         );
     }
 
@@ -242,13 +258,14 @@ mod tests {
     fn test_tellraw() {
         // given:
         let parser = CommandParser::default().unwrap();
-        let line = r#"tellraw @a {"text":"HelloWorld!"}"#;
+        let line = r#"tellraw @a {"text":"Hello World!"}"#;
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
-        assert_eq!(actual, Line::OtherCommand { selectors: vec![8] });
+        // TODO support argument type: minecraft:component
+        assert_eq!(actual.0, Line::OtherCommand { selectors: vec![8] });
     }
 
     #[test]
@@ -258,14 +275,17 @@ mod tests {
         let line = "scoreboard players operation @s test = @e[tag=test] test";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::OtherCommand {
-                selectors: vec![29, 39],
-            }
+            (
+                Line::OtherCommand {
+                    selectors: vec![29, 39],
+                },
+                None
+            )
         );
     }
 
@@ -276,14 +296,17 @@ mod tests {
         let line = "scoreboard players operation var1 test = var2 test";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::OtherCommand {
-                selectors: Vec::new(),
-            }
+            (
+                Line::OtherCommand {
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -294,17 +317,20 @@ mod tests {
         let line = "execute run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -315,17 +341,20 @@ mod tests {
         let line = "execute align xyz run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -336,17 +365,20 @@ mod tests {
         let line = "execute anchored eyes run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: Some(MinecraftEntityAnchor::EYES),
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -357,17 +389,20 @@ mod tests {
         let line = "execute anchored feet anchored eyes run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: Some(MinecraftEntityAnchor::EYES),
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -378,17 +413,20 @@ mod tests {
         let line = "execute anchored feet run execute anchored eyes run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: Some(MinecraftEntityAnchor::EYES),
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -399,17 +437,20 @@ mod tests {
         let line = "execute anchored eyes run execute as @s run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: true,
-                selectors: vec![37],
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: Some(MinecraftEntityAnchor::EYES),
+                    execute_as: true,
+                    selectors: vec![37],
+                },
+                None
+            )
         );
     }
 
@@ -420,17 +461,20 @@ mod tests {
         let line = "execute as @e[type=area_effect_cloud] run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: true,
-                selectors: vec![11],
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: true,
+                    selectors: vec![11],
+                },
+                None
+            )
         );
     }
 
@@ -441,17 +485,20 @@ mod tests {
         let line = "execute at @e[type=area_effect_cloud] run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: vec![11],
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: vec![11],
+                },
+                None
+            )
         );
     }
 
@@ -462,17 +509,20 @@ mod tests {
         let line = "execute positioned -1 0 1 run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -483,17 +533,20 @@ mod tests {
         let line = "execute positioned ^-1 ^.3 ^-4.5 run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -504,17 +557,20 @@ mod tests {
         let line = "execute positioned ~-1 ~.3 ~-4.5 run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -525,17 +581,20 @@ mod tests {
         let line = "execute rotated 1 -5 run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -546,17 +605,20 @@ mod tests {
         let line = "execute rotated ~ ~-.5 run function test:func";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
-                anchor: None,
-                execute_as: false,
-                selectors: Vec::new(),
-            }
+            (
+                Line::FunctionCall {
+                    name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    anchor: None,
+                    execute_as: false,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -567,21 +629,24 @@ mod tests {
         let line = "schedule function test:func 1t";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::Schedule {
-                schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: None,
-                selectors: Vec::new(),
-            }
+            (
+                Line::Schedule {
+                    schedule_start: 0,
+                    function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    time: Some(MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }),
+                    category: None,
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -592,21 +657,24 @@ mod tests {
         let line = "schedule function test:func 1t append";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::Schedule {
-                schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: Some("append".to_string()),
-                selectors: Vec::new(),
-            }
+            (
+                Line::Schedule {
+                    schedule_start: 0,
+                    function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    time: Some(MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }),
+                    category: Some("append".to_string()),
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -617,18 +685,21 @@ mod tests {
         let line = "schedule clear test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::Schedule {
-                schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: None,
-                category: Some("clear".to_string()),
-                selectors: Vec::new(),
-            }
+            (
+                Line::Schedule {
+                    schedule_start: 0,
+                    function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    time: None,
+                    category: Some("clear".to_string()),
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -639,21 +710,24 @@ mod tests {
         let line = "schedule function test:func 1t replace";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::Schedule {
-                schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: Some("replace".to_string()),
-                selectors: Vec::new(),
-            }
+            (
+                Line::Schedule {
+                    schedule_start: 0,
+                    function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    time: Some(MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }),
+                    category: Some("replace".to_string()),
+                    selectors: Vec::new(),
+                },
+                None
+            )
         );
     }
 
@@ -664,21 +738,24 @@ mod tests {
         let line = "execute at @e[type=area_effect_cloud] run schedule function test:func 1t";
 
         // when:
-        let actual = parse_line_internal(&parser, line).unwrap();
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::Schedule {
-                schedule_start: 42,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: None,
-                selectors: Vec::new(),
-            }
+            (
+                Line::Schedule {
+                    schedule_start: 42,
+                    function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    time: Some(MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }),
+                    category: None,
+                    selectors: vec![11],
+                },
+                None
+            )
         );
     }
 
@@ -689,18 +766,21 @@ mod tests {
         let line = "execute at @e[type=area_effect_cloud] run schedule clear test:func";
 
         // when:
-        let actual = parse_line(&parser, line);
+        let actual = parse_line_internal(&parser, line);
 
         // then:
         assert_eq!(
             actual,
-            Line::Schedule {
-                schedule_start: 42,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: None,
-                category: Some("clear".to_string()),
-                selectors: Vec::new(),
-            }
+            (
+                Line::Schedule {
+                    schedule_start: 42,
+                    function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                    time: None,
+                    category: Some("clear".to_string()),
+                    selectors: vec![11],
+                },
+                None
+            )
         );
     }
 }
