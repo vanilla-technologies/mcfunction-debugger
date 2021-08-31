@@ -9,7 +9,7 @@ macro_rules! include_template {
     ( $path:expr) => {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/test/datapack_templates/",
+            "/src/tests/datapacks/",
             $path
         ))
     };

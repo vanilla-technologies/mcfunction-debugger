@@ -42,8 +42,7 @@ fn set_env() -> io::Result<()> {
 }
 
 fn find_tests() -> io::Result<Vec<TestCase>> {
-    let datapacks_path = Path::new("test/datapack_templates");
-    println!("cargo:rerun-if-changed={}", datapacks_path.display());
+    let datapacks_path = Path::new("src/tests/datapacks");
 
     let mut tests = Vec::new();
     tests.extend(find_test_cases(datapacks_path, "test")?);
@@ -56,13 +55,14 @@ fn find_tests() -> io::Result<Vec<TestCase>> {
 }
 
 fn find_test_cases(datapacks_path: &Path, category: &str) -> io::Result<Vec<TestCase>> {
+    let path = datapacks_path
+        .join("mcfd_test/data")
+        .join(category)
+        .join("functions");
+    println!("cargo:rerun-if-changed={}", path.display());
+
     let mut tests = Vec::new();
-    for test_entry in read_dir(
-        datapacks_path
-            .join("mcfd_test/data")
-            .join(category)
-            .join("functions"),
-    )? {
+    for test_entry in read_dir(path)? {
         let test_entry = test_entry?;
         if test_entry.file_type()?.is_dir() {
             let test_dir = test_entry.path();

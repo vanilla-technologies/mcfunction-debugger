@@ -4,13 +4,13 @@
             "path": "."
         },
         {
-            "path": "src/datapack_template"
+            "path": "src/tests"
         },
         {
-            "path": "test/datapack_templates/mcfd_test"
+            "path": "src/tests/datapacks/mcfd_test"
         },
         {
-            "path": "test/datapack_templates/mcfd_tick"
+            "path": "src/tests/datapacks/mcfd_tick"
         }
     ]
 }
