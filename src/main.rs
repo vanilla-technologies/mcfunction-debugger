@@ -5,7 +5,7 @@ use crate::{
     parser::{parse_line, Line},
     template_engine::TemplateEngine,
 };
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
 use futures::{future::try_join_all, FutureExt};
 use log::LevelFilter;
 use multimap::MultiMap;
@@ -25,11 +25,11 @@ use tokio::{
 };
 use walkdir::WalkDir;
 
-const DATAPACK_ARG: &str = "datapack";
+const INPUT_ARG: &str = "datapack";
 const OUTPUT_ARG: &str = "output";
 const NAMESPACE_ARG: &str = "namespace";
 const SHADOW_ARG: &str = "shadow";
-const LOG_LEVEL: &str = "log-level";
+const LOG_LEVEL_ARG: &str = "log-level";
 
 // Copy of private field log::LOG_LEVEL_NAMES
 const LOG_LEVEL_NAMES: [&str; 6] = ["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
@@ -45,22 +45,59 @@ const LOG_LEVELS: [LevelFilter; 6] = [
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
+        .version(crate_version!())
+        .long_version(concat!(
+            crate_version!(),
+            " (Commit: ",
+            env!("VERGEN_GIT_SHA"),
+            ")"
+        ))
+        .version_short("v")
+        .author("by Vanilla Technologies")
+        .about("Generate debug datapacks that suspend on '# breakpoint' lines")
+        .long_about(
+            "Debug your datapacks in three steps:\n\
+            1. Add '# breakpoint' lines in your *-mcfunction files\n\
+            2. Generate a debug datapack and load it in Minecraft\n\
+            3. Start debugging any of your functions by executing the command \
+            /function debug:<your_namespace>/<your_function>",
+        )
         .arg(
-            Arg::with_name(DATAPACK_ARG)
-                .long("datapack")
-                .value_name("DIRECTORY")
+            Arg::with_name(INPUT_ARG)
+                .help("The input datapack directory.")
+                .long_help(
+                    "The datapack to generate a debug datapack for. \
+                    Must be a directory containing a pack.mcmeta file.",
+                )
+                .long("input")
+                .value_name("DATAPACK")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
             Arg::with_name(OUTPUT_ARG)
+                .help("The output datapack directory.")
+                .long_help(
+                    "The directory that should become the generated debug datapack. On Windows \
+                    this is typically a directory in the datapacks directory of your world, for \
+                    example: \
+                    '%APPDATA%\\.minecraft\\saves\\Your-World\\datapacks\\debug-my-datapack'.",
+                )
                 .long("output")
-                .value_name("DIRECTORY")
+                .value_name("DATAPACK")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
             Arg::with_name(NAMESPACE_ARG)
+                .help("The internal namespace of the generated datapack.")
+                .long_help(
+                    "The namespace is used for all internal functions in the generated datapack \
+                    and as a prefix for all scoreboard objectives and tags. By specifying a \
+                    different namespace you can avoid name clashes. The generated functions in the \
+                    'debug' namespace such as 'debug:install' and 'debug:resume' are unaffected by \
+                    this option.",
+                )
                 .long("namespace")
                 .value_name("STRING")
                 .takes_value(true)
@@ -75,19 +112,32 @@ async fn main() -> io::Result<()> {
         )
         .arg(
             Arg::with_name(SHADOW_ARG)
-                .long("shadow")
-                .value_name("BOOL")
-                .takes_value(true)
-                .default_value("false")
-                .validator(|shadow| {
-                    shadow
-                        .parse::<bool>()
-                        .map(|_| ())
-                        .map_err(|e| e.to_string())
-                }),
+                .help(
+                    "Whether to generate debug functions with the same name as the original \
+            functions.",
+                )
+                .long_help(
+                    "When this is true the generated datapack will additionally contain functions \
+                    with the same name as the functions in the input datapack. These functions \
+                    will simply forward to the appropriate function in the 'debug' namespace. When \
+                    using this make sure to disable the input datapack to avoid name clashes.\n\n\
+                    This can be helpful when executing a function from a command block, because \
+                    you don't have to change the function call to debug the function. Note however \
+                    that calling a debug function inside an execute prevents the debugger to \
+                    suspend the execute. For example if the command 'execute as @e run function \
+                    my_namespace:my_function' hits a breakpoint in my_function if there is more \
+                    than one entity my_function will be called again, resulting in an error like: \
+                    'Cannot start debugging my_namespace:my_function, because a function is \
+                    already suspended at a breakpoint!'",
+                )
+                .long("shadow"),
         )
         .arg(
-            Arg::with_name(LOG_LEVEL)
+            Arg::with_name(LOG_LEVEL_ARG)
+                .long_help(
+                    "The log level can also be configured via the environment variable \
+                    'LOG_LEVEL'.",
+                )
                 .long("log-level")
                 .value_name("LOG_LEVEL")
                 .takes_value(true)
@@ -96,18 +146,18 @@ async fn main() -> io::Result<()> {
                 .default_value(LevelFilter::Info.as_str()),
         )
         .get_matches();
-    let input_datapack_path = Path::new(matches.value_of(DATAPACK_ARG).unwrap());
+    let input_path = Path::new(matches.value_of(INPUT_ARG).unwrap());
     let output_path = Path::new(matches.value_of(OUTPUT_ARG).unwrap());
     let namespace = matches.value_of(NAMESPACE_ARG).unwrap();
-    let shadow = matches.value_of(SHADOW_ARG).unwrap().parse().unwrap();
-    let log_level = parse_log_level(matches.value_of(LOG_LEVEL).unwrap()).unwrap();
+    let shadow = matches.is_present(SHADOW_ARG);
+    let log_level = parse_log_level(matches.value_of(LOG_LEVEL_ARG).unwrap()).unwrap();
 
     SimpleLogger::new().with_level(log_level).init().unwrap();
 
-    let pack_mcmeta_path = input_datapack_path.join("pack.mcmeta");
+    let pack_mcmeta_path = input_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
 
-    generate_debug_datapack(input_datapack_path, namespace, output_path, shadow).await?;
+    generate_debug_datapack(input_path, namespace, output_path, shadow).await?;
 
     Ok(())
 }

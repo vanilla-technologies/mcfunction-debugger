@@ -6,12 +6,15 @@ use std::{
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
 };
+use vergen::{vergen, Config};
 use walkdir::WalkDir;
 
 fn main() -> io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
 
-    set_env()?;
+    vergen(Config::default()).unwrap();
+
+    set_build_env()?;
 
     let path = Path::new(&out_dir).join("tests.rs");
     let mut contents = find_tests()?
@@ -25,7 +28,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn set_env() -> io::Result<()> {
+fn set_build_env() -> io::Result<()> {
     let path = "build.env";
     println!("cargo:rerun-if-changed={}", path);
     if let Ok(file) = File::open(path) {

@@ -24,4 +24,5 @@ paste = "1"
 serial_test = "0.5"
 
 [build-dependencies]
+vergen = "5"
 walkdir = "2"
