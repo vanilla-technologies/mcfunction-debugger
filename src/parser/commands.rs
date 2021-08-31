@@ -602,13 +602,12 @@ impl ArgumentParser {
     }
 
     fn parse_minecraft_function(string: &str) -> Result<(MinecraftFunction, usize), String> {
+        const INVALID_ID: &str = "Invalid ID";
         let namespace_end = string
             .find(|c| !NAMESPACE_CHARS.contains(c))
-            .ok_or(format!("Invalid ID: '{}'", string))?;
+            .ok_or(INVALID_ID.to_string())?;
         let (_namespace, rest) = string.split_at(namespace_end);
-        let rest = rest
-            .strip_prefix(':')
-            .ok_or(format!("Invalid ID: '{}'", string))?;
+        let rest = rest.strip_prefix(':').ok_or(INVALID_ID.to_string())?;
         let name_end = rest.find(|c| !NAME_CHARS.contains(c)).unwrap_or(rest.len());
         let len = namespace_end + 1 + name_end;
         let name = NamespacedNameRef {
