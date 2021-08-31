@@ -5,7 +5,7 @@ use self::commands::{
     MinecraftMessage, MinecraftScoreHolder, MinecraftTime, NamespacedName, NamespacedNameRef,
     ParsedNode,
 };
-use log::warn;
+use log::debug;
 use std::usize;
 
 #[derive(Debug, PartialEq)]
@@ -32,7 +32,7 @@ pub enum Line {
 pub fn parse_line(parser: &CommandParser, line: &str) -> Line {
     let (line, error) = parse_line_internal(parser, line);
     if let Some(error) = error {
-        warn!("Failed to parse command. {}", error);
+        debug!("Failed to parse command. {}", error);
     }
     line
 }
