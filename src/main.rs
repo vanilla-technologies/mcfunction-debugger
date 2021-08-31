@@ -7,8 +7,10 @@ use crate::{
 };
 use clap::{App, Arg};
 use futures::{future::try_join_all, FutureExt};
+use log::LevelFilter;
 use multimap::MultiMap;
 use parser::commands::{CommandParser, NamespacedName};
+use simple_logger::SimpleLogger;
 use std::{
     collections::HashMap,
     fs::File,
@@ -27,6 +29,18 @@ const DATAPACK_ARG: &str = "datapack";
 const OUTPUT_ARG: &str = "output";
 const NAMESPACE_ARG: &str = "namespace";
 const SHADOW_ARG: &str = "shadow";
+const LOG_LEVEL: &str = "log-level";
+
+// Copy of private field log::LOG_LEVEL_NAMES
+const LOG_LEVEL_NAMES: [&str; 6] = ["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
+const LOG_LEVELS: [LevelFilter; 6] = [
+    LevelFilter::Off,
+    LevelFilter::Error,
+    LevelFilter::Warn,
+    LevelFilter::Info,
+    LevelFilter::Debug,
+    LevelFilter::Trace,
+];
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -50,6 +64,7 @@ async fn main() -> io::Result<()> {
                 .long("namespace")
                 .value_name("STRING")
                 .takes_value(true)
+                .default_value("mcfd")
                 .validator(|namespace| {
                     if namespace.len() <= 7 {
                         // max len of identifiers 16 => scoreboard {}_Duration has 9 characters -> 7 remaining for namespace
@@ -63,6 +78,7 @@ async fn main() -> io::Result<()> {
                 .long("shadow")
                 .value_name("BOOL")
                 .takes_value(true)
+                .default_value("false")
                 .validator(|shadow| {
                     shadow
                         .parse::<bool>()
@@ -70,20 +86,35 @@ async fn main() -> io::Result<()> {
                         .map_err(|e| e.to_string())
                 }),
         )
+        .arg(
+            Arg::with_name(LOG_LEVEL)
+                .long("log-level")
+                .value_name("LOG_LEVEL")
+                .takes_value(true)
+                .env("LOG_LEVEL")
+                .possible_values(&LOG_LEVEL_NAMES)
+                .default_value(LevelFilter::Info.as_str()),
+        )
         .get_matches();
     let input_datapack_path = Path::new(matches.value_of(DATAPACK_ARG).unwrap());
+    let output_path = Path::new(matches.value_of(OUTPUT_ARG).unwrap());
+    let namespace = matches.value_of(NAMESPACE_ARG).unwrap();
+    let shadow = matches.value_of(SHADOW_ARG).unwrap().parse().unwrap();
+    let log_level = parse_log_level(matches.value_of(LOG_LEVEL).unwrap()).unwrap();
+
+    SimpleLogger::new().with_level(log_level).init().unwrap();
+
     let pack_mcmeta_path = input_datapack_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
-    let output_path = Path::new(matches.value_of(OUTPUT_ARG).unwrap());
-    let namespace = matches.value_of(NAMESPACE_ARG).unwrap_or("mcfd");
-    let shadow = matches
-        .value_of(SHADOW_ARG)
-        .map(|shadow| shadow.parse().unwrap())
-        .unwrap_or(true);
 
     generate_debug_datapack(input_datapack_path, namespace, output_path, shadow).await?;
 
     Ok(())
+}
+
+fn parse_log_level(log_level: &str) -> Option<LevelFilter> {
+    let index = LOG_LEVEL_NAMES.iter().position(|&it| it == log_level)?;
+    Some(LOG_LEVELS[index])
 }
 
 async fn generate_debug_datapack(
