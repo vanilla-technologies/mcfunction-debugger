@@ -44,7 +44,7 @@ fn parse_line_internal<'l>(
     let line = line.trim();
     if line == "# breakpoint" {
         (Line::Breakpoint, None)
-    } else if line.starts_with('#') {
+    } else if line.is_empty() || line.starts_with('#') {
         (
             Line::OtherCommand {
                 selectors: Vec::new(),
