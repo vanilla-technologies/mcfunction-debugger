@@ -16,6 +16,9 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+#[macro_use]
+mod macros;
+
 mod parser;
 mod template_engine;
 
@@ -315,9 +318,9 @@ async fn generate_output_datapack(
 }
 
 macro_rules! expand_template {
-    ($e:ident, $o:ident, $p:literal) => {{
+    ($e:expr, $o:expr, $p:expr) => {{
         let path = $o.join($e.expand($p));
-        let content = $e.expand(include_str!(concat!("datapack_template/", $p)));
+        let content = $e.expand(include_template!($p));
         write(path, content)
     }};
 }
@@ -401,15 +404,9 @@ async fn expand_resume_self_template<P: AsRef<Path>>(
         .collect::<Vec<_>>()
         .join("\n");
 
-    #[rustfmt::skip]
-    macro_rules! PATH { () => { "data/-ns-/functions/resume_self.mcfunction" }; }
-
-    let content = engine
-        .expand(include_str!(concat!("datapack_template/", PATH!())))
-        .replace("# -resume_cases-", &resume_cases);
-
-    let path = output_path.as_ref().join(engine.expand(PATH!()));
-    write(&path, &content).await
+    let engine = engine.extend([("# -resume_cases-", resume_cases.as_str())]);
+    let path = output_path.as_ref();
+    expand_template!(engine, path, "data/-ns-/functions/resume_self.mcfunction").await
 }
 
 async fn expand_schedule_template<P: AsRef<Path>>(
@@ -424,7 +421,7 @@ async fn expand_schedule_template<P: AsRef<Path>>(
         .keys()
         .map(|name| {
             let engine = engine.extend_orig_name(name);
-            engine.expand(include_str!(concat!("datapack_template/", PATH!())))
+            engine.expand(include_template!(PATH!()))
         })
         .collect::<Vec<_>>()
         .join("");
@@ -526,13 +523,12 @@ async fn expand_function_templates(
         } else {
             let file_name = format!("{}_continue.mcfunction", start_line);
             let path = fn_dir.join(file_name);
-            let mut template = include_str!(
-                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/continue.mcfunction"
-            )
-            .to_string();
+            let mut template =
+                include_template!("data/-ns-/functions/-orig_ns-/-orig/fn-/continue.mcfunction")
+                    .to_string();
             if let Some(_callers) = call_tree.get_vec(fn_name) {
-                template.push_str(include_str!(
-                    "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/continue_return.mcfunction"
+                template.push_str(include_template!(
+                    "data/-ns-/functions/-orig_ns-/-orig/fn-/continue_return.mcfunction"
                 ));
             }
             write(&path, &engine.expand(&template)).await?;
@@ -540,26 +536,25 @@ async fn expand_function_templates(
         start_line = end_line;
 
         // -line_numbers-.mcfunction
-        let file_name = format!("{}.mcfunction", &line_numbers);
-        let path = fn_dir.join(file_name);
         let content = partition
             .iter()
             .map(|line| engine.expand_line(line))
             .collect::<Vec<_>>()
             .join("\n");
-        let template = include_str!(
-            "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-.mcfunction"
-        );
-        let template = template.replace("# -content-", &content);
-        write(&path, &engine.expand(&template)).await?;
+        expand_template!(
+            engine.extend([("# -content-", content.as_str())]),
+            output_path,
+            "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-.mcfunction"
+        )
+        .await?;
 
         // -line_numbers-_with_context.mcfunction
-        let file_name = format!("{}_with_context.mcfunction", &line_numbers);
-        let path = fn_dir.join(file_name);
-        let template  = include_str!(
-            "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-_with_context.mcfunction"
-        );
-        write(&path, &engine.expand(template)).await?;
+        expand_template!(
+            engine,
+            output_path,
+            "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-_with_context.mcfunction"
+        )
+        .await?;
     }
 
     if let Some(callers) = call_tree.get_vec(fn_name) {
@@ -578,14 +573,12 @@ async fn expand_function_templates(
             .collect::<Vec<_>>()
             .join("\n");
 
-        let content = engine
-            .expand(include_str!(
-                "datapack_template/data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"
-            ))
-            .replace("# -return_cases-", &return_cases);
-
-        let path = fn_dir.join("return.mcfunction");
-        write(&path, &content).await?;
+        expand_template!(
+            engine.extend([("# -return_cases-", return_cases.as_str())]),
+            output_path,
+            "data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"
+        )
+        .await?;
     }
 
     Ok(())

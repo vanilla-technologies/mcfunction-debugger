@@ -74,9 +74,8 @@ impl<'l> TemplateEngine<'l> {
     pub fn expand_line(&self, (line_number, line, command): &(usize, String, Line)) -> String {
         match command {
             Line::Breakpoint => {
-                let template = include_str!(
-                    "datapack_template/data/template/functions/set_breakpoint.mcfunction"
-                );
+                let template =
+                    include_template!("data/template/functions/set_breakpoint.mcfunction");
                 let template = template.replace("-line_number-", &line_number.to_string());
                 self.expand(&template)
             }
@@ -102,9 +101,8 @@ impl<'l> TemplateEngine<'l> {
                 let iterate_as = execute_as
                     .then(|| "iterate")
                     .unwrap_or("iterate_same_executor");
-                let template = include_str!(
-                    "datapack_template/data/template/functions/call_function.mcfunction"
-                );
+                let template =
+                    include_template!("data/template/functions/call_function.mcfunction");
                 let template = template
                     .replace("-call_ns-", name.namespace())
                     .replace("-call/fn-", name.name())
@@ -137,15 +135,15 @@ impl<'l> TemplateEngine<'l> {
                 }
 
                 let template = match operation {
-                    ScheduleOperation::APPEND { .. } => include_str!(
-                        "datapack_template/data/template/functions/schedule_append.mcfunction"
-                    ),
-                    ScheduleOperation::CLEAR => include_str!(
-                        "datapack_template/data/template/functions/schedule_clear.mcfunction"
-                    ),
-                    ScheduleOperation::REPLACE { .. } => include_str!(
-                        "datapack_template/data/template/functions/schedule_replace.mcfunction"
-                    ),
+                    ScheduleOperation::APPEND { .. } => {
+                        include_template!("data/template/functions/schedule_append.mcfunction")
+                    }
+                    ScheduleOperation::CLEAR => {
+                        include_template!("data/template/functions/schedule_clear.mcfunction")
+                    }
+                    ScheduleOperation::REPLACE { .. } => {
+                        include_template!("data/template/functions/schedule_replace.mcfunction")
+                    }
                 };
 
                 engine.expand(template)
