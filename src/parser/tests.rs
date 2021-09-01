@@ -419,11 +419,12 @@ fn test_schedule() {
             Line::Schedule {
                 schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: None,
+                operation: ScheduleOperation::REPLACE {
+                    time: MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }
+                },
                 selectors: Vec::new(),
             },
             None
@@ -447,11 +448,12 @@ fn test_schedule_append() {
             Line::Schedule {
                 schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: Some("append".to_string()),
+                operation: ScheduleOperation::APPEND {
+                    time: MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }
+                },
                 selectors: Vec::new(),
             },
             None
@@ -475,8 +477,7 @@ fn test_schedule_clear() {
             Line::Schedule {
                 schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: None,
-                category: Some("clear".to_string()),
+                operation: ScheduleOperation::CLEAR,
                 selectors: Vec::new(),
             },
             None
@@ -500,11 +501,12 @@ fn test_schedule_replace() {
             Line::Schedule {
                 schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: Some("replace".to_string()),
+                operation: ScheduleOperation::REPLACE {
+                    time: MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }
+                },
                 selectors: Vec::new(),
             },
             None
@@ -528,11 +530,12 @@ fn test_execute_schedule() {
             Line::Schedule {
                 schedule_start: 42,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: Some(MinecraftTime {
-                    time: 1f32,
-                    unit: MinecraftTimeUnit::Tick
-                }),
-                category: None,
+                operation: ScheduleOperation::REPLACE {
+                    time: MinecraftTime {
+                        time: 1f32,
+                        unit: MinecraftTimeUnit::Tick
+                    }
+                },
                 selectors: vec![11],
             },
             None
@@ -556,8 +559,7 @@ fn test_execute_schedule_clear() {
             Line::Schedule {
                 schedule_start: 42,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
-                time: None,
-                category: Some("clear".to_string()),
+                operation: ScheduleOperation::CLEAR,
                 selectors: vec![11],
             },
             None

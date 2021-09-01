@@ -177,9 +177,9 @@ pub struct CommandParserResult<'l> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommandParserError<'l> {
-    message: String,
-    command: &'l str,
-    index: usize,
+    pub message: String,
+    pub command: &'l str,
+    pub index: usize,
 }
 
 impl Display for CommandParserError<'_> {
@@ -321,7 +321,7 @@ impl MinecraftTime {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum MinecraftTimeUnit {
     Tick,
     Second,

@@ -20,13 +20,19 @@ pub enum Line {
     Schedule {
         schedule_start: usize,
         function: NamespacedName,
-        time: Option<MinecraftTime>,
-        category: Option<String>,
+        operation: ScheduleOperation,
         selectors: Vec<usize>,
     },
     OtherCommand {
         selectors: Vec<usize>,
     },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ScheduleOperation {
+    APPEND { time: MinecraftTime },
+    CLEAR,
+    REPLACE { time: MinecraftTime },
 }
 
 pub fn parse_line(parser: &CommandParser, line: &str) -> Line {
@@ -167,20 +173,22 @@ fn parse_command<'l>(
                             tail,
                         )) = tail.split_first()
                         {
+                            let operation = match tail.first() {
+                                Some(ParsedNode::Literal {
+                                    literal: "append", ..
+                                }) => ScheduleOperation::APPEND { time: time.clone() },
+                                None
+                                | Some(ParsedNode::Literal {
+                                    literal: "replace", ..
+                                }) => ScheduleOperation::REPLACE { time: time.clone() },
+                                _ => return (Line::OtherCommand { selectors }, None),
+                            };
+
                             return (
                                 Line::Schedule {
                                     schedule_start: *index,
                                     function: function.to_owned(),
-                                    time: Some(time.clone()),
-                                    category: if let Some(ParsedNode::Literal {
-                                        literal: category,
-                                        ..
-                                    }) = tail.first()
-                                    {
-                                        Some(category.to_string())
-                                    } else {
-                                        None
-                                    },
+                                    operation,
                                     selectors,
                                 },
                                 error,
@@ -206,8 +214,7 @@ fn parse_command<'l>(
                                 Line::Schedule {
                                     schedule_start: *index,
                                     function: function.to_owned(),
-                                    time: None,
-                                    category: Some("clear".to_string()),
+                                    operation: ScheduleOperation::CLEAR,
                                     selectors,
                                 },
                                 error,

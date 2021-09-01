@@ -1,6 +1,6 @@
 use crate::parser::{
     commands::{MinecraftEntityAnchor, NamespacedNameRef},
-    Line,
+    Line, ScheduleOperation,
 };
 use std::{collections::HashMap, iter::FromIterator};
 
@@ -98,8 +98,7 @@ impl<'l> TemplateEngine<'l> {
             Line::Schedule {
                 schedule_start,
                 function,
-                time,
-                category,
+                operation,
                 selectors,
             } => {
                 let schedule_fn = function.name().replace('/', "_");
@@ -112,25 +111,25 @@ impl<'l> TemplateEngine<'l> {
                 ]);
 
                 let ticks;
-                if let Some(time) = time {
+                if let ScheduleOperation::APPEND { time } | ScheduleOperation::REPLACE { time } =
+                    operation
+                {
                     ticks = time.as_ticks().to_string();
                     engine = engine.extend([("-ticks-", ticks.as_str())]);
                 }
-                let template = if *category == Some("append".to_string()) {
-                    include_str!(
+
+                let template = match operation {
+                    ScheduleOperation::APPEND { .. } => include_str!(
                         "datapack_template/data/template/functions/schedule_append.mcfunction"
-                    )
-                } else {
-                    if *category == Some("clear".to_string()) {
-                        include_str!(
-                            "datapack_template/data/template/functions/schedule_clear.mcfunction"
-                        )
-                    } else {
-                        include_str!(
-                            "datapack_template/data/template/functions/schedule_replace.mcfunction"
-                        )
-                    }
+                    ),
+                    ScheduleOperation::CLEAR => include_str!(
+                        "datapack_template/data/template/functions/schedule_clear.mcfunction"
+                    ),
+                    ScheduleOperation::REPLACE { .. } => include_str!(
+                        "datapack_template/data/template/functions/schedule_replace.mcfunction"
+                    ),
                 };
+
                 engine.expand(template)
             }
             Line::OtherCommand { selectors } => {
