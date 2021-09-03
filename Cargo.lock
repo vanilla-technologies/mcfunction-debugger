@@ -1071,6 +1071,7 @@ dependencies = [
  "bytes",
  "memchr",
  "num_cpus",
+ "parking_lot",
  "pin-project-lite",
  "tokio-macros",
 ]

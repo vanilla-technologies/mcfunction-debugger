@@ -1,8 +1,14 @@
 use super::*;
 use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
 use serial_test::serial;
-use std::time::Duration;
-use tokio::time::{sleep, timeout};
+use std::{
+    sync::atomic::{AtomicBool, AtomicI8, Ordering},
+    time::Duration,
+};
+use tokio::{
+    sync::OnceCell,
+    time::{sleep, timeout},
+};
 
 macro_rules! include_template {
     ( $path:expr) => {
@@ -17,14 +23,17 @@ macro_rules! include_template {
 macro_rules! expand_template {
     ($path:expr, $expand:expr) => {{
         let expand = $expand;
-        create_file(
+        create_file_owned(
             Path::new(TEST_WORLD_DIR)
                 .join("datapacks")
                 .join(expand($path)),
-            &expand(include_template!($path)),
+            expand(include_template!($path)),
         )
-        .await
     }};
+}
+
+async fn create_file_owned(path: impl AsRef<Path>, contents: String) -> io::Result<()> {
+    create_file(path, &contents).await
 }
 
 async fn create_file(path: impl AsRef<Path>, contents: &str) -> io::Result<()> {
@@ -69,14 +78,6 @@ fn log_command(command: &str, name: &str) -> String {
         .to_string()
 }
 
-macro_rules! expand_test_templates {
-    () => {};
-    ($path:expr $(, $paths:expr)*) => {{
-        expand_test_template!($path)?;
-        expand_test_templates!($($paths),*);
-    }};
-}
-
 macro_rules! include_test_category {
     ($category:expr) => {
         include!(concat!(env!("OUT_DIR"), "/tests/", $category, ".rs"));
@@ -90,11 +91,10 @@ mod minecraft {
         use super::*;
 
         macro_rules! test {
-            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+            ($namespace:ident, $name:ident) => {
                 #[tokio::test]
                 #[serial]
                 async fn $name() -> io::Result<()> {
-                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                     run_test(stringify!($namespace), stringify!($name), false, false).await
                 }
             };
@@ -108,11 +108,10 @@ mod minecraft {
         use super::*;
 
         macro_rules! test {
-            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+            ($namespace:ident, $name:ident) => {
                 #[tokio::test]
                 #[serial]
                 async fn $name() -> io::Result<()> {
-                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                     run_test(stringify!($namespace), stringify!($name), true, false).await
                 }
             };
@@ -130,11 +129,10 @@ mod debugger {
         use super::*;
 
         macro_rules! test {
-            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+            ($namespace:ident, $name:ident) => {
                 #[tokio::test]
                 #[serial]
                 async fn $name() -> io::Result<()> {
-                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                     run_test(stringify!($namespace), stringify!($name), false, true).await
                 }
             };
@@ -147,11 +145,10 @@ mod debugger {
         use super::*;
 
         macro_rules! test {
-            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+            ($namespace:ident, $name:ident) => {
                 #[tokio::test]
                 #[serial]
                 async fn $name() -> io::Result<()> {
-                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
                     run_test(stringify!($namespace), stringify!($name), true, true).await
                 }
             };
@@ -170,6 +167,8 @@ async fn run_test(
     debug: bool,
 ) -> io::Result<()> {
     // given:
+    expand_test_templates().await?;
+
     let test_fn = if !debug {
         format!("{}:{}/test", namespace, name)
     } else {
@@ -183,25 +182,12 @@ async fn run_test(
     }
 
     let mut commands = vec![running_test_cmd(&test_fn)];
-    if debug {
-        commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
-        if after_age_increment {
-            // Must run before debugger tick.json
-            commands.extend([
-                r#"datapack disable "file/mcfd_tick""#.to_string(),
-                r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#.to_string(),
-            ]);
-        }
-    } else {
-        commands.push(r#"datapack disable "file/mcfd_test_debug""#.to_string());
-    }
+    enable_appropriate_datapacks(&mut commands, after_age_increment, debug);
     if after_age_increment {
         commands.push("scoreboard players set tick test_global 1".to_string());
     } else {
         commands.push(format!("schedule function {} 1", test_fn));
     }
-
-    wait_for_mount().await;
 
     let mut connection = connection();
     let mut events = connection.add_listener("test");
@@ -216,6 +202,49 @@ async fn run_test(
     Ok(())
 }
 
+fn enable_appropriate_datapacks(
+    commands: &mut Vec<String>,
+    after_age_increment: bool,
+    debug: bool,
+) {
+    const UNKNOWN: i8 = -1;
+    const FALSE: i8 = 0;
+    const TRUE: i8 = 1;
+    static DEBUG_DATAPACK_ENABLED: AtomicI8 = AtomicI8::new(UNKNOWN);
+    static TICK_DATAPACK_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    if debug {
+        if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::SeqCst) != TRUE {
+            commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
+        }
+        if after_age_increment {
+            if TICK_DATAPACK_INITIALIZED.swap(true, Ordering::SeqCst) != true {
+                // Must run before debugger tick.json
+                commands.extend([
+                    r#"datapack disable "file/mcfd_tick""#.to_string(),
+                    r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#.to_string(),
+                ]);
+            }
+        }
+    } else {
+        if DEBUG_DATAPACK_ENABLED.swap(FALSE, Ordering::SeqCst) != FALSE {
+            commands.push(r#"datapack disable "file/mcfd_test_debug""#.to_string());
+        }
+    }
+}
+
+async fn expand_test_templates() -> io::Result<()> {
+    static START: OnceCell<()> = OnceCell::const_new();
+    START.get_or_try_init(do_expand_test_templates).await?;
+    Ok(())
+}
+
+async fn do_expand_test_templates() -> io::Result<()> {
+    include!(concat!(env!("OUT_DIR"), "/tests/expand_test_templates.rs"));
+    wait_for_mount().await;
+    Ok(())
+}
+
 fn connection() -> MinecraftConnection {
     MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR).build()
 }
@@ -225,9 +254,17 @@ fn running_test_cmd(test_name: &str) -> String {
 }
 
 async fn create_debug_datapack() -> io::Result<()> {
+    static START: OnceCell<()> = OnceCell::const_new();
+    START.get_or_try_init(do_create_debug_datapack).await?;
+    Ok(())
+}
+
+async fn do_create_debug_datapack() -> io::Result<()> {
     let input_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
     let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug");
-    generate_debug_datapack(&input_path, "mcfd", &output_path, false).await
+    generate_debug_datapack(&input_path, "mcfd", &output_path, false).await?;
+    wait_for_mount().await;
+    Ok(())
 }
 
 async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Result<()> {
@@ -239,9 +276,12 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
             })
         };
     }
-    create_tick_template!("pack.mcmeta")?;
-    create_tick_template!("data/minecraft/tags/functions/tick.json")?;
-    create_tick_template!("data/test/functions/tick.mcfunction")?;
+    try_join!(
+        create_tick_template!("pack.mcmeta"),
+        create_tick_template!("data/minecraft/tags/functions/tick.json"),
+        create_tick_template!("data/test/functions/tick.mcfunction"),
+    )?;
+    wait_for_mount().await;
     Ok(())
 }
 

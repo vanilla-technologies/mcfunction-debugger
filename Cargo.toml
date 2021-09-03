@@ -15,7 +15,7 @@ multimap = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 simple_logger = "1"
-tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["fs", "macros", "parking_lot", "rt-multi-thread"] }
 walkdir = "2"
 
 [dev-dependencies]
