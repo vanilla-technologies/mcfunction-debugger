@@ -1,6 +1,5 @@
 use super::*;
 use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
-use paste::paste;
 use serial_test::serial;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
@@ -78,54 +77,89 @@ macro_rules! expand_test_templates {
     }};
 }
 
-macro_rules! test_before_age_increment {
-    ($namespace:ident, $name:ident, $($paths:expr),+) => {
-        paste! {
-            #[tokio::test]
-            #[serial]
-            async fn [<test_before_age_increment_ $name _minecraft>]() -> io::Result<()> {
-                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
-                run_test(stringify!($namespace), stringify!($name), false, false).await
-            }
-
-            #[tokio::test]
-            #[serial]
-            async fn [<test_before_age_increment_ $name _debug>]() -> io::Result<()> {
-                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
-                run_test(stringify!($namespace), stringify!($name), false, true).await
-            }
-        }
+macro_rules! include_test_category {
+    ($category:expr) => {
+        include!(concat!(env!("OUT_DIR"), "/tests/", $category, ".rs"));
     };
 }
 
-macro_rules! test_after_age_increment {
-    ($namespace:ident, $name:ident, $($paths:expr),+) => {
-        paste! {
-            #[tokio::test]
-            #[serial]
-            async fn [<test_after_age_increment_ $name _minecraft>]() -> io::Result<()> {
-                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
-                run_test(stringify!($namespace), stringify!($name), true, false).await
-            }
+mod minecraft {
+    use super::*;
 
-            #[tokio::test]
-            #[serial]
-            async fn [<test_after_age_increment_ $name _debug>]() -> io::Result<()> {
-                expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
-                run_test(stringify!($namespace), stringify!($name), true, true).await
-            }
+    mod before_age_increment {
+        use super::*;
+
+        macro_rules! test {
+            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+                #[tokio::test]
+                #[serial]
+                async fn $name() -> io::Result<()> {
+                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                    run_test(stringify!($namespace), stringify!($name), false, false).await
+                }
+            };
         }
-    };
-}
 
-macro_rules! test {
-    ($namespace:ident, $name:ident, $($paths:expr),+) => {
-        test_before_age_increment!($namespace, $name, $($paths),+);
-        test_after_age_increment!($namespace, $name, $($paths),+);
+        include_test_category!("test");
+        include_test_category!("test_before_age_increment");
+    }
+
+    mod after_age_increment {
+        use super::*;
+
+        macro_rules! test {
+            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+                #[tokio::test]
+                #[serial]
+                async fn $name() -> io::Result<()> {
+                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                    run_test(stringify!($namespace), stringify!($name), true, false).await
+                }
+            };
+        }
+
+        include_test_category!("test");
+        include_test_category!("test_after_age_increment");
     }
 }
 
-include!(concat!(env!("OUT_DIR"), "/tests.rs"));
+mod debugger {
+    use super::*;
+
+    mod before_age_increment {
+        use super::*;
+
+        macro_rules! test {
+            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+                #[tokio::test]
+                #[serial]
+                async fn $name() -> io::Result<()> {
+                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                    run_test(stringify!($namespace), stringify!($name), false, true).await
+                }
+            };
+        }
+        include_test_category!("test");
+        include_test_category!("test_before_age_increment");
+    }
+
+    mod after_age_increment {
+        use super::*;
+
+        macro_rules! test {
+            ($namespace:ident, $name:ident, $($paths:expr),+) => {
+                #[tokio::test]
+                #[serial]
+                async fn $name() -> io::Result<()> {
+                    expand_test_templates!("mcfd_test/pack.mcmeta", $($paths),+);
+                    run_test(stringify!($namespace), stringify!($name), true, true).await
+                }
+            };
+        }
+        include_test_category!("test");
+        include_test_category!("test_after_age_increment");
+    }
+}
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 

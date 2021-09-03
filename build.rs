@@ -2,7 +2,7 @@ use std::{
     env,
     ffi::OsStr,
     fmt::Display,
-    fs::{copy, create_dir_all, read_dir, write, File},
+    fs::{copy, create_dir, create_dir_all, read_dir, write, File},
     io::{self, BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
 };
@@ -18,14 +18,7 @@ fn main() -> io::Result<()> {
 
     remove_license_header_from_templates(&out_dir);
 
-    let path = Path::new(&out_dir).join("tests.rs");
-    let mut contents = find_tests()?
-        .iter()
-        .map(|test| test.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    contents.push('\n');
-    write(&path, contents).unwrap();
+    generate_tests(out_dir)?;
 
     Ok(())
 }
@@ -78,21 +71,32 @@ fn remove_license_header_from_templates(out_dir: impl AsRef<Path>) {
     }
 }
 
-fn find_tests() -> io::Result<Vec<TestCase>> {
-    let datapacks_path = Path::new("src/tests/datapacks");
+const DATAPACKS_PATH: &str = "src/tests/datapacks";
 
-    let mut tests = Vec::new();
-    tests.extend(find_test_cases(datapacks_path, "test")?);
-    tests.extend(find_test_cases(
-        datapacks_path,
-        "test_before_age_increment",
-    )?);
-    tests.extend(find_test_cases(datapacks_path, "test_after_age_increment")?);
-    Ok(tests)
+fn generate_tests(out_dir: impl AsRef<Path>) -> io::Result<()> {
+    let out_dir = out_dir.as_ref().join("tests");
+    create_dir(&out_dir)?;
+    generate_tests_for_category("test", &out_dir)?;
+    generate_tests_for_category("test_before_age_increment", &out_dir)?;
+    generate_tests_for_category("test_after_age_increment", &out_dir)?;
+    Ok(())
 }
 
-fn find_test_cases(datapacks_path: &Path, category: &str) -> io::Result<Vec<TestCase>> {
+fn generate_tests_for_category(category: &str, out_dir: impl AsRef<Path>) -> io::Result<()> {
+    let path = out_dir.as_ref().join(category).with_extension("rs");
+    let mut contents = find_test_cases(DATAPACKS_PATH, category)?
+        .iter()
+        .map(|test| test.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    contents.push('\n');
+    write(&path, contents).unwrap();
+    Ok(())
+}
+
+fn find_test_cases(datapacks_path: impl AsRef<Path>, category: &str) -> io::Result<Vec<TestCase>> {
     let path = datapacks_path
+        .as_ref()
         .join("mcfd_test/data")
         .join(category)
         .join("functions");
@@ -115,7 +119,7 @@ fn find_test_cases(datapacks_path: &Path, category: &str) -> io::Result<Vec<Test
                     {
                         util_files.push(
                             util_file
-                                .strip_prefix(datapacks_path)
+                                .strip_prefix(&datapacks_path)
                                 .unwrap()
                                 .to_path_buf(),
                         );
@@ -126,7 +130,7 @@ fn find_test_cases(datapacks_path: &Path, category: &str) -> io::Result<Vec<Test
                         category: category.to_string(),
                         name: name.to_string(),
                         test_file: test_file
-                            .strip_prefix(datapacks_path)
+                            .strip_prefix(&datapacks_path)
                             .unwrap()
                             .to_path_buf(),
                         util_files,
@@ -149,8 +153,7 @@ impl Display for TestCase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}!({}, {}, \"{}\"",
-            self.category,
+            "test!({}, {}, \"{}\"",
             self.category,
             self.name,
             self.test_file.display()

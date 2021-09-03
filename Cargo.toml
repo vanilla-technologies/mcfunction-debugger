@@ -20,7 +20,6 @@ walkdir = "2"
 
 [dev-dependencies]
 minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
-paste = "1"
 serial_test = "0.5"
 
 [build-dependencies]
