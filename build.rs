@@ -3,40 +3,38 @@ use std::{
     ffi::OsStr,
     fmt::Display,
     fs::{copy, create_dir, create_dir_all, read_dir, write, File},
-    io::{self, BufRead, BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
 };
 use vergen::{vergen, Config};
 use walkdir::WalkDir;
 
-fn main() -> io::Result<()> {
+fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
 
     vergen(Config::default()).unwrap();
 
-    set_build_env()?;
+    set_build_env();
 
     remove_license_header_from_templates(&out_dir);
 
-    generate_tests(out_dir)?;
-
-    Ok(())
+    generate_tests(out_dir);
 }
 
-fn set_build_env() -> io::Result<()> {
+fn set_build_env() {
     let path = "build.env";
     println!("cargo:rerun-if-changed={}", path);
     if let Ok(file) = File::open(path) {
         for (key, value) in BufReader::new(file)
             .lines()
-            .collect::<Result<Vec<_>, _>>()?
+            .map(|line| line.unwrap())
+            .collect::<Vec<_>>()
             .iter()
             .flat_map(|line| line.split_once('='))
         {
             println!("cargo:rustc-env={}={}", key, value);
         }
     }
-    Ok(())
 }
 
 fn remove_license_header_from_templates(out_dir: impl AsRef<Path>) {
@@ -73,28 +71,26 @@ fn remove_license_header_from_templates(out_dir: impl AsRef<Path>) {
 
 const DATAPACKS_PATH: &str = "src/tests/datapacks";
 
-fn generate_tests(out_dir: impl AsRef<Path>) -> io::Result<()> {
+fn generate_tests(out_dir: impl AsRef<Path>) {
     let out_dir = out_dir.as_ref().join("tests");
-    create_dir(&out_dir)?;
-    generate_tests_for_category("test", &out_dir)?;
-    generate_tests_for_category("test_before_age_increment", &out_dir)?;
-    generate_tests_for_category("test_after_age_increment", &out_dir)?;
-    Ok(())
+    create_dir(&out_dir).unwrap();
+    generate_tests_for_category("test", &out_dir);
+    generate_tests_for_category("test_before_age_increment", &out_dir);
+    generate_tests_for_category("test_after_age_increment", &out_dir);
 }
 
-fn generate_tests_for_category(category: &str, out_dir: impl AsRef<Path>) -> io::Result<()> {
+fn generate_tests_for_category(category: &str, out_dir: impl AsRef<Path>) {
     let path = out_dir.as_ref().join(category).with_extension("rs");
-    let mut contents = find_test_cases(DATAPACKS_PATH, category)?
+    let mut contents = find_test_cases(DATAPACKS_PATH, category)
         .iter()
         .map(|test| test.to_string())
         .collect::<Vec<_>>()
         .join("\n");
     contents.push('\n');
     write(&path, contents).unwrap();
-    Ok(())
 }
 
-fn find_test_cases(datapacks_path: impl AsRef<Path>, category: &str) -> io::Result<Vec<TestCase>> {
+fn find_test_cases(datapacks_path: impl AsRef<Path>, category: &str) -> Vec<TestCase> {
     let path = datapacks_path
         .as_ref()
         .join("mcfd_test/data")
@@ -103,15 +99,15 @@ fn find_test_cases(datapacks_path: impl AsRef<Path>, category: &str) -> io::Resu
     println!("cargo:rerun-if-changed={}", path.display());
 
     let mut tests = Vec::new();
-    for test_entry in read_dir(path)? {
-        let test_entry = test_entry?;
-        if test_entry.file_type()?.is_dir() {
+    for test_entry in read_dir(path).unwrap() {
+        let test_entry = test_entry.unwrap();
+        if test_entry.file_type().unwrap().is_dir() {
             let test_dir = test_entry.path();
             let test_file = test_dir.join("test.mcfunction");
             if test_file.is_file() {
                 let mut util_files = Vec::new();
                 for util_entry in WalkDir::new(&test_dir) {
-                    let util_entry = util_entry?;
+                    let util_entry = util_entry.unwrap();
                     let util_file = util_entry.path();
                     if util_file != test_file
                         && util_file.extension() == Some(OsStr::new("mcfunction"))
@@ -139,7 +135,7 @@ fn find_test_cases(datapacks_path: impl AsRef<Path>, category: &str) -> io::Resu
             }
         }
     }
-    Ok(tests)
+    tests
 }
 
 struct TestCase {
