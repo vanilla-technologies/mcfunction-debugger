@@ -16,4 +16,5 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute unless score version -ns-_global matches 1.. run function -ns-:install
+scoreboard objectives add -ns-_version dummy
+execute unless score version -ns-_version matches 1.. run function -ns-:install

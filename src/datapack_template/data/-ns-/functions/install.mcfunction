@@ -16,6 +16,7 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
+scoreboard players set version -ns-_version 1
 scoreboard objectives add -ns-_Age dummy
 scoreboard objectives add -ns-_Duration dummy
 scoreboard objectives add -ns-_WaitTime dummy
@@ -23,5 +24,4 @@ scoreboard objectives add -ns-_anchor dummy
 scoreboard objectives add -ns-_depth dummy
 scoreboard objectives add -ns-_global dummy
 scoreboard objectives add -ns-_tmp dummy
-scoreboard players set version -ns-_global 1
 function -ns-:id/install
