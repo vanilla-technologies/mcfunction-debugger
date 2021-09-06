@@ -94,7 +94,7 @@ See the GNU General Public License for more details.
         .about("Generate debug datapacks that suspend on '# breakpoint' lines")
         .long_about(
             "Debug your datapacks in three steps:\n\
-            1. Add '# breakpoint' lines in your *-mcfunction files\n\
+            1. Add '# breakpoint' lines in your *.mcfunction files\n\
             2. Generate a debug datapack and load it in Minecraft\n\
             3. Start debugging any of your functions by executing the command \
             /function debug:<your_namespace>/<your_function>",
@@ -131,9 +131,9 @@ See the GNU General Public License for more details.
                 .long_help(
                     "The namespace is used for all internal functions in the generated datapack \
                     and as a prefix for all scoreboard objectives and tags. By specifying a \
-                    different namespace you can avoid name clashes. The generated functions in the \
-                    'debug' namespace such as 'debug:install' and 'debug:resume' are unaffected by \
-                    this option.",
+                    different namespace with max. 7 characters you can avoid name clashes. The \
+                    generated functions in the 'debug' namespace such as 'debug:install' and \
+                    'debug:resume' are unaffected by this option.",
                 )
                 .long("namespace")
                 .value_name("STRING")
