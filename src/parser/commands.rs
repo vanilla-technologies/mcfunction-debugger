@@ -295,6 +295,12 @@ pub enum MinecraftEntityAnchor {
 type MinecraftFunction<'l> = NamespacedNameRef<&'l str>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MinecraftIntRange {
+    pub min: Option<i32>,
+    pub max: Option<i32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MinecraftMessage<'l> {
     pub message: &'l str,
     pub selectors: Vec<(MinecraftSelector, usize, usize)>,
@@ -369,6 +375,7 @@ pub enum Argument<'l> {
     MinecraftEntity(MinecraftEntity),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
     MinecraftFunction(MinecraftFunction<'l>),
+    MinecraftIntRange(MinecraftIntRange),
     MinecraftMessage(MinecraftMessage<'l>),
     MinecraftObjective(MinecraftObjective<'l>),
     MinecraftOperation(MinecraftOperation),
@@ -541,6 +548,10 @@ impl ArgumentParser {
                 let (function, len) = ArgumentParser::parse_minecraft_function(string)?;
                 Ok((Argument::MinecraftFunction(function), len))
             }
+            ArgumentParser::MinecraftIntRange => {
+                let (int_range, len) = ArgumentParser::parse_minecraft_int_range(string)?;
+                Ok((Argument::MinecraftIntRange(int_range), len))
+            }
             ArgumentParser::MinecraftMessage => {
                 let (message, len) = ArgumentParser::parse_minecraft_message(string)?;
                 Ok((Argument::MinecraftMessage(message), len))
@@ -640,6 +651,60 @@ impl ArgumentParser {
 
     fn parse_minecraft_function(string: &str) -> Result<(MinecraftFunction, usize), String> {
         ArgumentParser::parse_minecraft_resource_location(string)
+    }
+
+    fn parse_minecraft_int_range(string: &str) -> Result<(MinecraftIntRange, usize), String> {
+        const EMPTY: &str = "Expected value or range of values";
+        const SEPERATOR: &str = "..";
+
+        fn is_allowed_number(c: char) -> bool {
+            c >= '0' && c <= '9' || c == '-'
+        }
+
+        fn number_len(string: &str) -> usize {
+            let mut index = 0;
+            loop {
+                let suffix = &string[index..];
+                index += suffix
+                    .find(|c| !is_allowed_number(c))
+                    .unwrap_or(suffix.len());
+                let suffix = &string[index..];
+                if suffix.starts_with('.') && !suffix.starts_with(SEPERATOR) {
+                    index += '.'.len_utf8();
+                } else {
+                    break index;
+                }
+            }
+        }
+
+        fn parse_i32(string: &str) -> Result<Option<i32>, String> {
+            if string.is_empty() {
+                Ok(None)
+            } else {
+                string
+                    .parse()
+                    .map(Some)
+                    .map_err(|_| format!("Invalid integer '{}'", string))
+            }
+        }
+
+        let min_len = number_len(string);
+        let (min, suffix) = string.split_at(min_len);
+        let min = parse_i32(min)?;
+
+        let (max, len) = if let Some(suffix) = suffix.strip_prefix(SEPERATOR) {
+            let max_len = number_len(suffix);
+            let max = parse_i32(&suffix[..max_len])?;
+            (max, min_len + SEPERATOR.len() + max_len)
+        } else {
+            (min, min_len)
+        };
+
+        if min.is_none() && max.is_none() {
+            Err(EMPTY.to_string())
+        } else {
+            Ok((MinecraftIntRange { min, max }, len))
+        }
     }
 
     fn parse_minecraft_message(message: &str) -> Result<(MinecraftMessage, usize), String> {
