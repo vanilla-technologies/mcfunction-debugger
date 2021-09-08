@@ -80,15 +80,7 @@ fn test_scoreboard_operation_names() {
     let actual = parse_line_internal(&parser, line);
 
     // then:
-    assert_eq!(
-        actual,
-        (
-            Line::OtherCommand {
-                selectors: Vec::new(),
-            },
-            None
-        )
-    );
+    assert_eq!(actual, (Line::OtherCommand { selectors: vec![] }, None));
 }
 
 #[test]
@@ -108,7 +100,7 @@ fn test_execute() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -132,7 +124,7 @@ fn test_execute_align() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -156,7 +148,7 @@ fn test_execute_anchored() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -180,7 +172,7 @@ fn test_execute_multiple_anchored() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -204,7 +196,7 @@ fn test_multiple_execute_anchored() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -284,6 +276,102 @@ fn test_execute_at() {
 }
 
 #[test]
+fn test_execute_facing_pos() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "execute facing 1 ~2 -3 run function test:func";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_facing_entity() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "execute facing entity @e[type=area_effect_cloud] eyes run function test:func";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![22],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_in() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "execute in the_nether run function test:func";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_in_qualified() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "execute in minecraft:the_end run function test:func";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
 fn test_execute_positioned_absolute() {
     // given:
     let parser = CommandParser::default().unwrap();
@@ -300,7 +388,7 @@ fn test_execute_positioned_absolute() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -324,7 +412,7 @@ fn test_execute_positioned_local() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -348,7 +436,31 @@ fn test_execute_positioned_relative() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_positioned_as() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "execute positioned as @e[type=area_effect_cloud] run function test:func";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![22],
             },
             None
         )
@@ -372,7 +484,7 @@ fn test_execute_rotated_absolute() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -396,7 +508,393 @@ fn test_execute_rotated_relative() {
                 name: NamespacedName::from("test:func".to_owned()).unwrap(),
                 anchor: None,
                 execute_as: false,
-                selectors: Vec::new(),
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_rotated_as() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "execute rotated as @e[type=area_effect_cloud] run function test:func";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![19],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_block() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if block ^1 ^.25 ^-.75 chest[facing=east]{Items:[{id:"minecraft:apple",Slot:13b,Count:1b}]} run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_block_tag() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line =
+        r#"execute if block ^1 ^.25 ^-.75 #minecraft:stairs[facing=east] run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_blocks() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line =
+        r#"execute if block -0 ~-.3 ~5 ^1 ^.25 ^-.75 ~-1 .5 -.75 all run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_data_block() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if data block 1 2 3 Items[{Slot:13b}] run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_data_entity() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if data entity @p Inventory[0].tag.BlockEntityTag.Command run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![23],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_data_storage() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if data storage test foo.bar[0][0].baz run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_entity() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if entity @e[type=area_effect_cloud] run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![18],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_predicate() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if predicate mcfd:test_pred run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_score() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if score max test_global >= #min test_global run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_if_score_matches() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute if score * test_global matches 0.. run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_store_block() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute store success block 1 2 3 Items[0].Count byte 10 run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_store_bossbar() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute store result bossbar test value run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_store_entity() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute store success entity @e[type=minecraft:chest_minecart,sort=nearest,limit=1] Items[{id:"minecraft:apple"}].Count byte 10 run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![29],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_store_score() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute store success score @s test_global run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![28],
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_execute_store_storage() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = r#"execute store result storage :test my_result long -.5 run function test:func"#;
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::FunctionCall {
+                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                anchor: None,
+                execute_as: false,
+                selectors: vec![],
             },
             None
         )
@@ -425,7 +923,7 @@ fn test_schedule() {
                         unit: MinecraftTimeUnit::Tick
                     }
                 },
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -454,7 +952,7 @@ fn test_schedule_append() {
                         unit: MinecraftTimeUnit::Tick
                     }
                 },
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -478,7 +976,7 @@ fn test_schedule_clear() {
                 schedule_start: 0,
                 function: NamespacedName::from("test:func".to_owned()).unwrap(),
                 operation: ScheduleOperation::CLEAR,
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
@@ -507,7 +1005,7 @@ fn test_schedule_replace() {
                         unit: MinecraftTimeUnit::Tick
                     }
                 },
-                selectors: Vec::new(),
+                selectors: vec![],
             },
             None
         )
