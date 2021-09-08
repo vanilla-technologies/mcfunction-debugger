@@ -97,7 +97,7 @@ fn test_execute() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -121,7 +121,7 @@ fn test_execute_align() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -145,7 +145,7 @@ fn test_execute_anchored() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 execute_as: false,
                 selectors: vec![],
@@ -169,7 +169,7 @@ fn test_execute_multiple_anchored() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 execute_as: false,
                 selectors: vec![],
@@ -193,7 +193,7 @@ fn test_multiple_execute_anchored() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 execute_as: false,
                 selectors: vec![],
@@ -217,7 +217,7 @@ fn test_multiple_execute_some_anchored() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 execute_as: true,
                 selectors: vec![37],
@@ -241,7 +241,7 @@ fn test_execute_as() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: true,
                 selectors: vec![11],
@@ -265,7 +265,7 @@ fn test_execute_at() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![11],
@@ -289,7 +289,7 @@ fn test_execute_facing_pos() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -313,7 +313,7 @@ fn test_execute_facing_entity() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![22],
@@ -337,7 +337,7 @@ fn test_execute_in() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -361,7 +361,7 @@ fn test_execute_in_qualified() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -385,7 +385,7 @@ fn test_execute_positioned_absolute() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -409,7 +409,7 @@ fn test_execute_positioned_local() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -433,7 +433,7 @@ fn test_execute_positioned_relative() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -457,7 +457,7 @@ fn test_execute_positioned_as() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![22],
@@ -481,7 +481,7 @@ fn test_execute_rotated_absolute() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -505,7 +505,7 @@ fn test_execute_rotated_relative() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -529,7 +529,7 @@ fn test_execute_rotated_as() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![19],
@@ -553,7 +553,7 @@ fn test_execute_if_block() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -578,7 +578,7 @@ fn test_execute_if_block_tag() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -603,7 +603,7 @@ fn test_execute_if_blocks() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -627,7 +627,7 @@ fn test_execute_if_data_block() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -651,7 +651,7 @@ fn test_execute_if_data_entity() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![23],
@@ -675,7 +675,7 @@ fn test_execute_if_data_storage() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -699,7 +699,7 @@ fn test_execute_if_entity() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![18],
@@ -723,7 +723,7 @@ fn test_execute_if_predicate() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -747,7 +747,7 @@ fn test_execute_if_score() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -771,7 +771,7 @@ fn test_execute_if_score_matches() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -795,7 +795,7 @@ fn test_execute_store_block() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -819,7 +819,7 @@ fn test_execute_store_bossbar() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -843,7 +843,7 @@ fn test_execute_store_entity() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![29],
@@ -867,7 +867,7 @@ fn test_execute_store_score() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![28],
@@ -891,7 +891,7 @@ fn test_execute_store_storage() {
         actual,
         (
             Line::FunctionCall {
-                name: NamespacedName::from("test:func".to_owned()).unwrap(),
+                name: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 anchor: None,
                 execute_as: false,
                 selectors: vec![],
@@ -916,7 +916,7 @@ fn test_schedule() {
         (
             Line::Schedule {
                 schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                function: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 operation: ScheduleOperation::REPLACE {
                     time: MinecraftTime {
                         time: 1f32,
@@ -945,7 +945,7 @@ fn test_schedule_append() {
         (
             Line::Schedule {
                 schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                function: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 operation: ScheduleOperation::APPEND {
                     time: MinecraftTime {
                         time: 1f32,
@@ -974,7 +974,7 @@ fn test_schedule_clear() {
         (
             Line::Schedule {
                 schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                function: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 operation: ScheduleOperation::CLEAR,
                 selectors: vec![],
             },
@@ -998,7 +998,7 @@ fn test_schedule_replace() {
         (
             Line::Schedule {
                 schedule_start: 0,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                function: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 operation: ScheduleOperation::REPLACE {
                     time: MinecraftTime {
                         time: 1f32,
@@ -1027,7 +1027,7 @@ fn test_execute_schedule() {
         (
             Line::Schedule {
                 schedule_start: 42,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                function: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 operation: ScheduleOperation::REPLACE {
                     time: MinecraftTime {
                         time: 1f32,
@@ -1056,7 +1056,7 @@ fn test_execute_schedule_clear() {
         (
             Line::Schedule {
                 schedule_start: 42,
-                function: NamespacedName::from("test:func".to_owned()).unwrap(),
+                function: NamespacedNameRef::try_from("test:func").unwrap().to_owned(),
                 operation: ScheduleOperation::CLEAR,
                 selectors: vec![11],
             },

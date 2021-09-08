@@ -24,7 +24,7 @@ use self::commands::{
     ParsedNode,
 };
 use log::debug;
-use std::usize;
+use std::{convert::TryFrom, usize};
 
 #[derive(Debug, PartialEq)]
 pub enum Line {
@@ -227,7 +227,7 @@ fn parse_command<'l>(
                     }) = tail.first()
                     {
                         // TODO Handle invalid characters in NamespacedName
-                        if let Some(function) = NamespacedNameRef::from(string) {
+                        if let Ok(function) = NamespacedNameRef::try_from(*string) {
                             return (
                                 Line::Schedule {
                                     schedule_start: *index,

@@ -16,10 +16,10 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use const_format::concatcp;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     fmt::{Display, Write},
     ops::Not,
     u32, usize,
@@ -282,6 +282,8 @@ impl Command {
     }
 }
 
+type MinecraftDimension<'l> = NamespacedNameRef<&'l str>;
+
 type MinecraftEntity = ();
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -312,6 +314,8 @@ pub enum MinecraftOperation {
     Minimum,        // <
     Maximum,        // >
 }
+
+type MinecraftResourceLocation<'l> = NamespacedNameRef<&'l str>;
 
 type MinecraftRotation = ();
 
@@ -361,12 +365,14 @@ type MinecraftVec3 = ();
 #[derive(Clone, Debug, PartialEq)]
 pub enum Argument<'l> {
     BrigadierString(&'l str),
+    MinecraftDimension(MinecraftDimension<'l>),
     MinecraftEntity(MinecraftEntity),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
     MinecraftFunction(MinecraftFunction<'l>),
     MinecraftMessage(MinecraftMessage<'l>),
     MinecraftObjective(MinecraftObjective<'l>),
     MinecraftOperation(MinecraftOperation),
+    MinecraftResourceLocation(MinecraftResourceLocation<'l>),
     MinecraftRotation(MinecraftRotation),
     MinecraftScoreHolder(MinecraftScoreHolder<'l>),
     MinecraftSwizzle(MinecraftSwizzle),
@@ -519,6 +525,10 @@ impl ArgumentParser {
                 let (string, len) = ArgumentParser::parse_brigadier_string(string, *type_)?;
                 Ok((Argument::BrigadierString(string), len))
             }
+            ArgumentParser::MinecraftDimension => {
+                let (dimension, len) = ArgumentParser::parse_minecraft_dimension(string)?;
+                Ok((Argument::MinecraftDimension(dimension), len))
+            }
             ArgumentParser::MinecraftEntity { .. } => {
                 let (entity, len) = ArgumentParser::parse_minecraft_entity(string)?;
                 Ok((Argument::MinecraftEntity(entity), len))
@@ -542,6 +552,11 @@ impl ArgumentParser {
             ArgumentParser::MinecraftOperation => {
                 let (operation, len) = ArgumentParser::parse_minecraft_operation(string)?;
                 Ok((Argument::MinecraftOperation(operation), len))
+            }
+            ArgumentParser::MinecraftResourceLocation => {
+                let (resource_location, len) =
+                    ArgumentParser::parse_minecraft_resource_location(string)?;
+                Ok((Argument::MinecraftResourceLocation(resource_location), len))
             }
             ArgumentParser::MinecraftRotation => {
                 let (rotation, len) = ArgumentParser::parse_minecraft_rotation(string)?;
@@ -600,6 +615,10 @@ impl ArgumentParser {
         }
     }
 
+    fn parse_minecraft_dimension(string: &str) -> Result<(MinecraftDimension, usize), String> {
+        ArgumentParser::parse_minecraft_resource_location(string)
+    }
+
     // TODO support for player name and UUID
     fn parse_minecraft_entity(string: &str) -> Result<(MinecraftEntity, usize), String> {
         parse_minecraft_selector(string).map_err(Into::into)
@@ -620,19 +639,7 @@ impl ArgumentParser {
     }
 
     fn parse_minecraft_function(string: &str) -> Result<(MinecraftFunction, usize), String> {
-        const INVALID_ID: &str = "Invalid ID";
-        let namespace_end = string
-            .find(|c| !NAMESPACE_CHARS.contains(c))
-            .ok_or(INVALID_ID.to_string())?;
-        let (_namespace, rest) = string.split_at(namespace_end);
-        let rest = rest.strip_prefix(':').ok_or(INVALID_ID.to_string())?;
-        let name_end = rest.find(|c| !NAME_CHARS.contains(c)).unwrap_or(rest.len());
-        let len = namespace_end + 1 + name_end;
-        let name = NamespacedNameRef {
-            string: &string[..len],
-            namespace_len: namespace_end,
-        };
-        Ok((name, len))
+        ArgumentParser::parse_minecraft_resource_location(string)
     }
 
     fn parse_minecraft_message(message: &str) -> Result<(MinecraftMessage, usize), String> {
@@ -676,6 +683,21 @@ impl ArgumentParser {
             ">" => Ok((MinecraftOperation::Maximum, len)),
             _ => Err("Invalid operation".to_string()),
         }
+    }
+
+    fn parse_minecraft_resource_location(
+        string: &str,
+    ) -> Result<(MinecraftResourceLocation, usize), String> {
+        const INVALID_ID: &str = "Invalid ID";
+
+        let len = string
+            .find(|c| !is_allowed_in_resource_location(c))
+            .unwrap_or(string.len());
+        let resource_location = &string[..len];
+
+        let resource_location =
+            NamespacedNameRef::try_from(resource_location).map_err(|_| INVALID_ID.to_string())?;
+        Ok((resource_location, len))
     }
 
     fn parse_minecraft_rotation(string: &str) -> Result<(MinecraftRotation, usize), String> {
@@ -779,6 +801,13 @@ impl ArgumentParser {
     }
 }
 
+fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
+    let len = string
+        .find(|c| !is_allowed_in_unquoted_string(c))
+        .unwrap_or(string.len());
+    Ok((&string[..len], len))
+}
+
 fn is_allowed_in_unquoted_string(c: char) -> bool {
     return c >= '0' && c <= '9'
         || c >= 'A' && c <= 'Z'
@@ -789,11 +818,14 @@ fn is_allowed_in_unquoted_string(c: char) -> bool {
         || c == '_';
 }
 
-fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
-    let len = string
-        .find(|c| !is_allowed_in_unquoted_string(c))
-        .unwrap_or(string.len());
-    Ok((&string[..len], len))
+fn is_allowed_in_resource_location(c: char) -> bool {
+    return c >= '0' && c <= '9'
+        || c >= 'a' && c <= 'z'
+        || c == '-'
+        || c == '.'
+        || c == '/'
+        || c == ':'
+        || c == '_';
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -862,9 +894,6 @@ fn check_non_local(string: &str) -> Result<(), String> {
         .ok_or(CANNOT_MIX.to_string())
 }
 
-const NAMESPACE_CHARS: &str = "0123456789abcdefghijklmnopqrstuvwxyz_-.";
-const NAME_CHARS: &str = concatcp!(NAMESPACE_CHARS, "/");
-
 pub type NamespacedName = NamespacedNameRef<String>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -873,20 +902,45 @@ pub struct NamespacedNameRef<S: AsRef<str>> {
     namespace_len: usize,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InvalidResourceLocation {
+    InvalidNamespace,
+    InvalidPath,
+}
+
+impl<'l> TryFrom<&'l str> for NamespacedNameRef<&'l str> {
+    type Error = InvalidResourceLocation;
+
+    fn try_from(string: &'l str) -> Result<Self, Self::Error> {
+        let (namespace, path) = string.split_once(':').unwrap_or(("minecraft", string));
+
+        if !namespace.chars().all(is_valid_namespace_char) {
+            Err(InvalidResourceLocation::InvalidNamespace)
+        } else if !path.chars().all(is_valid_path_char) {
+            Err(InvalidResourceLocation::InvalidPath)
+        } else {
+            Ok(NamespacedNameRef {
+                string,
+                namespace_len: namespace.len(),
+            })
+        }
+    }
+}
+
+fn is_valid_namespace_char(c: char) -> bool {
+    c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c == '-' || c == '.' || c == '_'
+}
+
+fn is_valid_path_char(c: char) -> bool {
+    c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c == '-' || c == '.' || c == '/' || c == '_'
+}
+
 impl<S: AsRef<str>> NamespacedNameRef<S> {
     pub fn new(namespace: &str, name: &str) -> NamespacedName {
         NamespacedNameRef {
             string: format!("{}:{}", namespace, name),
             namespace_len: namespace.len(),
         }
-    }
-
-    pub fn from(string: S) -> Option<NamespacedNameRef<S>> {
-        let namespace_len = string.as_ref().find(':')?;
-        Some(NamespacedNameRef {
-            string,
-            namespace_len,
-        })
     }
 
     pub fn namespace(&self) -> &str {
