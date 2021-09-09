@@ -1,5 +1,5 @@
 use super::*;
-use crate::parser::command::MinecraftTimeUnit;
+use crate::parser::command::argument::MinecraftTimeUnit;
 
 #[test]
 fn test_breakpoint() {

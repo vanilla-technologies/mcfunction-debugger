@@ -19,9 +19,11 @@
 pub mod command;
 
 use self::command::{
+    argument::{
+        Argument, MinecraftEntityAnchor, MinecraftMessage, MinecraftScoreHolder, MinecraftTime,
+    },
     resource_location::{ResourceLocation, ResourceLocationRef},
-    Argument, CommandParser, CommandParserError, CommandParserResult, MinecraftEntityAnchor,
-    MinecraftMessage, MinecraftScoreHolder, MinecraftTime, ParsedNode,
+    CommandParser, CommandParserError, CommandParserResult, ParsedNode,
 };
 use log::debug;
 use std::{convert::TryFrom, usize};

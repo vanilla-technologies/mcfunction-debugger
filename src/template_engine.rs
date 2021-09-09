@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::parser::{
-    command::{resource_location::ResourceLocationRef, MinecraftEntityAnchor},
+    command::{argument::MinecraftEntityAnchor, resource_location::ResourceLocationRef},
     Line, ScheduleOperation,
 };
 use std::{collections::HashMap, iter::FromIterator};
