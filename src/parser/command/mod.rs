@@ -16,6 +16,9 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+pub mod resource_location;
+
+use crate::parser::command::resource_location::ResourceLocationRef;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -282,7 +285,7 @@ impl Command {
     }
 }
 
-type MinecraftDimension<'l> = NamespacedNameRef<&'l str>;
+type MinecraftDimension<'l> = ResourceLocationRef<&'l str>;
 
 type MinecraftEntity = ();
 
@@ -292,7 +295,7 @@ pub enum MinecraftEntityAnchor {
     FEET,
 }
 
-type MinecraftFunction<'l> = NamespacedNameRef<&'l str>;
+type MinecraftFunction<'l> = ResourceLocationRef<&'l str>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MinecraftIntRange {
@@ -321,7 +324,7 @@ pub enum MinecraftOperation {
     Maximum,        // >
 }
 
-type MinecraftResourceLocation<'l> = NamespacedNameRef<&'l str>;
+type MinecraftResourceLocation<'l> = ResourceLocationRef<&'l str>;
 
 type MinecraftRotation = ();
 
@@ -761,7 +764,7 @@ impl ArgumentParser {
         let resource_location = &string[..len];
 
         let resource_location =
-            NamespacedNameRef::try_from(resource_location).map_err(|_| INVALID_ID.to_string())?;
+            ResourceLocationRef::try_from(resource_location).map_err(|_| INVALID_ID.to_string())?;
         Ok((resource_location, len))
     }
 
@@ -957,77 +960,6 @@ fn check_non_local(string: &str) -> Result<(), String> {
         .not()
         .then(|| ())
         .ok_or(CANNOT_MIX.to_string())
-}
-
-pub type NamespacedName = NamespacedNameRef<String>;
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct NamespacedNameRef<S: AsRef<str>> {
-    string: S,
-    namespace_len: usize,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InvalidResourceLocation {
-    InvalidNamespace,
-    InvalidPath,
-}
-
-impl<'l> TryFrom<&'l str> for NamespacedNameRef<&'l str> {
-    type Error = InvalidResourceLocation;
-
-    fn try_from(string: &'l str) -> Result<Self, Self::Error> {
-        let (namespace, path) = string.split_once(':').unwrap_or(("minecraft", string));
-
-        if !namespace.chars().all(is_valid_namespace_char) {
-            Err(InvalidResourceLocation::InvalidNamespace)
-        } else if !path.chars().all(is_valid_path_char) {
-            Err(InvalidResourceLocation::InvalidPath)
-        } else {
-            Ok(NamespacedNameRef {
-                string,
-                namespace_len: namespace.len(),
-            })
-        }
-    }
-}
-
-fn is_valid_namespace_char(c: char) -> bool {
-    c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c == '-' || c == '.' || c == '_'
-}
-
-fn is_valid_path_char(c: char) -> bool {
-    c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c == '-' || c == '.' || c == '/' || c == '_'
-}
-
-impl<S: AsRef<str>> NamespacedNameRef<S> {
-    pub fn new(namespace: &str, name: &str) -> NamespacedName {
-        NamespacedNameRef {
-            string: format!("{}:{}", namespace, name),
-            namespace_len: namespace.len(),
-        }
-    }
-
-    pub fn namespace(&self) -> &str {
-        &self.string.as_ref()[..self.namespace_len]
-    }
-
-    pub fn name(&self) -> &str {
-        &self.string.as_ref()[self.namespace_len + 1..]
-    }
-
-    pub fn to_owned(&self) -> NamespacedName {
-        NamespacedName {
-            string: self.string.as_ref().to_owned(),
-            namespace_len: self.namespace_len,
-        }
-    }
-}
-
-impl<S: AsRef<str>> Display for NamespacedNameRef<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.string.as_ref().fmt(f)
-    }
 }
 
 #[cfg(test)]

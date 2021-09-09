@@ -30,7 +30,7 @@ use clap::{crate_authors, crate_version, App, Arg};
 use futures::{future::try_join_all, FutureExt};
 use log::LevelFilter;
 use multimap::MultiMap;
-use parser::commands::{CommandParser, NamespacedName};
+use parser::command::{resource_location::ResourceLocation, CommandParser};
 use simple_logger::SimpleLogger;
 use std::{
     collections::HashMap,
@@ -243,7 +243,7 @@ async fn generate_debug_datapack(
             ));
             Ok((name, lines))
         })
-        .collect::<Result<HashMap<&NamespacedName, Vec<(usize, String, Line)>>, io::Error>>()?;
+        .collect::<Result<HashMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error>>()?;
 
     generate_output_datapack(&function_contents, namespace, &config).await
 }
@@ -255,7 +255,7 @@ struct Config<'l> {
 
 async fn find_function_files(
     datapack_path: &Path,
-) -> Result<HashMap<NamespacedName, PathBuf>, io::Error> {
+) -> Result<HashMap<ResourceLocation, PathBuf>, io::Error> {
     let data_path = datapack_path.join("data");
     let threads = data_path
         .read_dir()?
@@ -267,12 +267,12 @@ async fn find_function_files(
         .await?
         .into_iter()
         .flat_map(|it| it)
-        .collect::<HashMap<NamespacedName, PathBuf>>())
+        .collect::<HashMap<ResourceLocation, PathBuf>>())
 }
 
 fn get_functions(
     entry: std::fs::DirEntry,
-) -> JoinHandle<Result<Vec<(NamespacedName, PathBuf)>, io::Error>> {
+) -> JoinHandle<Result<Vec<(ResourceLocation, PathBuf)>, io::Error>> {
     tokio::spawn(async move {
         let mut functions = Vec::new();
         if entry.file_type()?.is_dir() {
@@ -288,7 +288,7 @@ fn get_functions(
                         if let Some(extension) = path.extension() {
                             if extension == "mcfunction" {
                                 let relative_path = path.strip_prefix(&functions_path).unwrap();
-                                let name = NamespacedName::new(
+                                let name = ResourceLocation::new(
                                     namespace.to_string_lossy().as_ref(),
                                     &relative_path.with_extension("").display().to_string(),
                                 );
@@ -305,7 +305,7 @@ fn get_functions(
 }
 
 async fn generate_output_datapack(
-    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     namespace: &str,
     config: &Config<'_>,
 ) -> io::Result<()> {
@@ -327,7 +327,7 @@ macro_rules! expand_template {
 
 async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     config: &Config<'_>,
 ) -> io::Result<()> {
     let output_path = config.output_path;
@@ -377,7 +377,7 @@ async fn expand_global_templates(
 
 async fn expand_resume_self_template<P: AsRef<Path>>(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: P,
 ) -> io::Result<()> {
     let resume_cases = function_contents
@@ -397,8 +397,8 @@ async fn expand_resume_self_template<P: AsRef<Path>>(
                   if entity @s[tag=-ns-_{original_namespace}_{original_function_tag}_{line_number}] \
                   run function -ns-:{original_namespace}/{original_function}/{line_number_1}_continue",
                 original_namespace = name.namespace(),
-                original_function = name.name(),
-                original_function_tag = name.name().replace("/", "_"),
+                original_function = name.path(),
+                original_function_tag = name.path().replace("/", "_"),
                 line_number = line_number ,
                 line_number_1 = line_number + 1
             ))
@@ -413,7 +413,7 @@ async fn expand_resume_self_template<P: AsRef<Path>>(
 
 async fn expand_schedule_template<P: AsRef<Path>>(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: P,
 ) -> io::Result<()> {
     #[rustfmt::skip]
@@ -434,7 +434,7 @@ async fn expand_schedule_template<P: AsRef<Path>>(
 
 async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     config: &Config<'_>,
 ) -> io::Result<()> {
     let call_tree = create_call_tree(&function_contents);
@@ -448,8 +448,8 @@ async fn expand_function_specific_templates(
 }
 
 fn create_call_tree<'l>(
-    function_contents: &'l HashMap<&NamespacedName, Vec<(usize, String, Line)>>,
-) -> MultiMap<&'l NamespacedName, (&'l NamespacedName, &'l usize)> {
+    function_contents: &'l HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+) -> MultiMap<&'l ResourceLocation, (&'l ResourceLocation, &'l usize)> {
     function_contents
         .iter()
         .flat_map(|(&caller, lines)| {
@@ -468,12 +468,12 @@ fn create_call_tree<'l>(
 
 async fn expand_function_templates(
     engine: &TemplateEngine<'_>,
-    fn_name: &NamespacedName,
+    fn_name: &ResourceLocation,
     lines: &Vec<(usize, String, Line)>,
-    call_tree: &MultiMap<&NamespacedName, (&NamespacedName, &usize)>,
+    call_tree: &MultiMap<&ResourceLocation, (&ResourceLocation, &usize)>,
     config: &Config<'_>,
 ) -> io::Result<()> {
-    let orig_fn = fn_name.name();
+    let orig_fn = fn_name.path();
     let orig_fn_tag = orig_fn.replace('/', "_");
     let engine = engine.extend([
         ("-orig_ns-", fn_name.namespace()),
@@ -567,8 +567,8 @@ async fn expand_function_templates(
                     "execute if entity @s[tag=-ns-_{caller_namespace}_{caller_function_tag}] run \
                      function -ns-:{caller_namespace}/{caller_function}/{line_number}_continue",
                     caller_namespace = caller.namespace(),
-                    caller_function = caller.name(),
-                    caller_function_tag = caller.name().replace("/", "_"),
+                    caller_function = caller.path(),
+                    caller_function_tag = caller.path().replace("/", "_"),
                     line_number = *line_number + 1
                 ))
             })

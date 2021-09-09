@@ -16,12 +16,12 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-pub mod commands;
+pub mod command;
 
-use self::commands::{
+use self::command::{
+    resource_location::{ResourceLocation, ResourceLocationRef},
     Argument, CommandParser, CommandParserError, CommandParserResult, MinecraftEntityAnchor,
-    MinecraftMessage, MinecraftScoreHolder, MinecraftTime, NamespacedName, NamespacedNameRef,
-    ParsedNode,
+    MinecraftMessage, MinecraftScoreHolder, MinecraftTime, ParsedNode,
 };
 use log::debug;
 use std::{convert::TryFrom, usize};
@@ -30,14 +30,14 @@ use std::{convert::TryFrom, usize};
 pub enum Line {
     Breakpoint,
     FunctionCall {
-        name: NamespacedName,
+        name: ResourceLocation,
         anchor: Option<MinecraftEntityAnchor>,
         execute_as: bool,
         selectors: Vec<usize>,
     },
     Schedule {
         schedule_start: usize,
-        function: NamespacedName,
+        function: ResourceLocation,
         operation: ScheduleOperation,
         selectors: Vec<usize>,
     },
@@ -227,7 +227,7 @@ fn parse_command<'l>(
                     }) = tail.first()
                     {
                         // TODO Handle invalid characters in NamespacedName
-                        if let Ok(function) = NamespacedNameRef::try_from(*string) {
+                        if let Ok(function) = ResourceLocationRef::try_from(*string) {
                             return (
                                 Line::Schedule {
                                     schedule_start: *index,

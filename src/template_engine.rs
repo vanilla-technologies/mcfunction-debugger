@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::parser::{
-    commands::{MinecraftEntityAnchor, NamespacedNameRef},
+    command::{resource_location::ResourceLocationRef, MinecraftEntityAnchor},
     Line, ScheduleOperation,
 };
 use std::{collections::HashMap, iter::FromIterator};
@@ -49,12 +49,12 @@ impl<'l> TemplateEngine<'l> {
 
     pub fn extend_orig_name<N: AsRef<str>>(
         &'l self,
-        orig_name: &'l NamespacedNameRef<N>,
+        orig_name: &'l ResourceLocationRef<N>,
     ) -> TemplateEngine<'l> {
-        let orig_fn_tag = orig_name.name().replace('/', "_");
+        let orig_fn_tag = orig_name.path().replace('/', "_");
         let mut engine = self.extend([
             ("-orig_ns-", orig_name.namespace()),
-            ("-orig/fn-", orig_name.name()),
+            ("-orig/fn-", orig_name.path()),
         ]);
         engine.replacements_owned.insert("-orig_fn-", orig_fn_tag);
         engine
@@ -105,7 +105,7 @@ impl<'l> TemplateEngine<'l> {
                     include_template!("data/template/functions/call_function.mcfunction");
                 let template = template
                     .replace("-call_ns-", name.namespace())
-                    .replace("-call/fn-", name.name())
+                    .replace("-call/fn-", name.path())
                     .replace("execute run ", execute)
                     .replace("# -debug_anchor-", &debug_anchor)
                     .replace("-iterate_as-", iterate_as);
@@ -117,7 +117,7 @@ impl<'l> TemplateEngine<'l> {
                 operation,
                 selectors,
             } => {
-                let schedule_fn = function.name().replace('/', "_");
+                let schedule_fn = function.path().replace('/', "_");
                 let execute =
                     exclude_internal_entites_from_selectors(&line[..*schedule_start], selectors);
                 let mut engine = self.extend([
