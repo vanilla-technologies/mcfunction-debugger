@@ -16,9 +16,16 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+pub mod brigadier;
+pub mod coordinate;
+
+use self::{
+    brigadier::BrigadierStringType,
+    coordinate::{MinecraftBlockPos, MinecraftRotation, MinecraftVec3},
+};
 use crate::parser::command::resource_location::ResourceLocationRef;
 use serde::{Deserialize, Serialize};
-use std::{convert::TryFrom, fmt::Display, ops::Not, u32, usize};
+use std::{convert::TryFrom, fmt::Display, u32, usize};
 
 type MinecraftDimension<'l> = ResourceLocationRef<&'l str>;
 
@@ -61,8 +68,6 @@ pub enum MinecraftOperation {
 
 type MinecraftResourceLocation<'l> = ResourceLocationRef<&'l str>;
 
-type MinecraftRotation = ();
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MinecraftScoreHolder<'l> {
     Selector(MinecraftSelector),
@@ -104,11 +109,10 @@ impl MinecraftTimeUnit {
     }
 }
 
-type MinecraftVec3 = ();
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Argument<'l> {
     BrigadierString(&'l str),
+    MinecraftBlockPos(MinecraftBlockPos),
     MinecraftDimension(MinecraftDimension<'l>),
     MinecraftEntity(MinecraftEntity),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
@@ -236,14 +240,6 @@ pub struct BrigadierIntegerProperties {
     pub max: Option<i32>,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BrigadierStringType {
-    Greedy,
-    Phrase,
-    Word,
-}
-
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum MinecraftEntityType {
@@ -267,100 +263,78 @@ impl ArgumentParser {
     pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, usize), String> {
         match self {
             ArgumentParser::BrigadierString { type_ } => {
-                let (string, len) = parse_brigadier_string(string, *type_)?;
-                Ok((Argument::BrigadierString(string), len))
+                let (argument, len) = brigadier::parse_string(string, *type_)?;
+                Ok((Argument::BrigadierString(argument), len))
+            }
+            ArgumentParser::MinecraftBlockPos => {
+                let (argument, len) = MinecraftBlockPos::parse(string)?;
+                Ok((Argument::MinecraftBlockPos(argument), len))
             }
             ArgumentParser::MinecraftDimension => {
-                let (dimension, len) = parse_minecraft_dimension(string)?;
-                Ok((Argument::MinecraftDimension(dimension), len))
+                let (argument, len) = parse_minecraft_dimension(string)?;
+                Ok((Argument::MinecraftDimension(argument), len))
             }
             ArgumentParser::MinecraftEntity { .. } => {
-                let (entity, len) = parse_minecraft_entity(string)?;
-                Ok((Argument::MinecraftEntity(entity), len))
+                let (argument, len) = parse_minecraft_entity(string)?;
+                Ok((Argument::MinecraftEntity(argument), len))
             }
             ArgumentParser::MinecraftEntityAnchor => {
-                let (entity_anchor, len) = parse_minecraft_entity_anchor(string)?;
-                Ok((Argument::MinecraftEntityAnchor(entity_anchor), len))
+                let (argument, len) = parse_minecraft_entity_anchor(string)?;
+                Ok((Argument::MinecraftEntityAnchor(argument), len))
             }
             ArgumentParser::MinecraftFunction => {
-                let (function, len) = parse_minecraft_function(string)?;
-                Ok((Argument::MinecraftFunction(function), len))
+                let (argument, len) = parse_minecraft_function(string)?;
+                Ok((Argument::MinecraftFunction(argument), len))
             }
             ArgumentParser::MinecraftIntRange => {
-                let (int_range, len) = parse_minecraft_int_range(string)?;
-                Ok((Argument::MinecraftIntRange(int_range), len))
+                let (argument, len) = parse_minecraft_int_range(string)?;
+                Ok((Argument::MinecraftIntRange(argument), len))
             }
             ArgumentParser::MinecraftMessage => {
-                let (message, len) = parse_minecraft_message(string)?;
-                Ok((Argument::MinecraftMessage(message), len))
+                let (argument, len) = parse_minecraft_message(string)?;
+                Ok((Argument::MinecraftMessage(argument), len))
             }
             ArgumentParser::MinecraftObjective => {
-                let (objective, len) = parse_minecraft_objective(string)?;
-                Ok((Argument::MinecraftObjective(objective), len))
+                let (argument, len) = parse_minecraft_objective(string)?;
+                Ok((Argument::MinecraftObjective(argument), len))
             }
             ArgumentParser::MinecraftOperation => {
-                let (operation, len) = parse_minecraft_operation(string)?;
-                Ok((Argument::MinecraftOperation(operation), len))
+                let (argument, len) = parse_minecraft_operation(string)?;
+                Ok((Argument::MinecraftOperation(argument), len))
             }
             ArgumentParser::MinecraftResourceLocation => {
-                let (resource_location, len) = parse_minecraft_resource_location(string)?;
-                Ok((Argument::MinecraftResourceLocation(resource_location), len))
+                let (argument, len) = parse_minecraft_resource_location(string)?;
+                Ok((Argument::MinecraftResourceLocation(argument), len))
             }
             ArgumentParser::MinecraftRotation => {
-                let (rotation, len) = parse_minecraft_rotation(string)?;
-                Ok((Argument::MinecraftRotation(rotation), len))
+                let (argument, len) = MinecraftRotation::parse(string)?;
+                Ok((Argument::MinecraftRotation(argument), len))
             }
             ArgumentParser::MinecraftScoreHolder { .. } => {
-                let (score_holder, len) = parse_minecraft_score_holder(string)?;
-                Ok((Argument::MinecraftScoreHolder(score_holder), len))
+                let (argument, len) = parse_minecraft_score_holder(string)?;
+                Ok((Argument::MinecraftScoreHolder(argument), len))
             }
             ArgumentParser::MinecraftSwizzle => {
-                let (swizzle, len) = parse_minecraft_swizzle(string)?;
-                Ok((Argument::MinecraftSwizzle(swizzle), len))
+                let (argument, len) = parse_minecraft_swizzle(string)?;
+                Ok((Argument::MinecraftSwizzle(argument), len))
             }
             ArgumentParser::MinecraftTime => {
-                let (time, len) = parse_minecraft_time(string)?;
-                Ok((Argument::MinecraftTime(time), len))
+                let (argument, len) = parse_minecraft_time(string)?;
+                Ok((Argument::MinecraftTime(argument), len))
             }
             ArgumentParser::MinecraftVec3 => {
-                let (vec3, len) = parse_minecraft_vec3(string)?;
-                Ok((Argument::MinecraftVec3(vec3), len))
+                let (argument, len) = MinecraftVec3::parse(string)?;
+                Ok((Argument::MinecraftVec3(argument), len))
             }
             ArgumentParser::Unknown => {
-                let (unknown, len) = parse_unknown(string)?;
-                Ok((Argument::Unknown(unknown), len))
+                let (argument, len) = parse_unknown(string)?;
+                Ok((Argument::Unknown(argument), len))
             }
             _ => Err(format!(
                 "Unsupported argument type: {}",
                 self.name().unwrap_or_default()
             )),
         }
-    }
-}
-
-fn parse_brigadier_double(string: &str) -> Result<(f64, usize), String> {
-    let len = string
-        .find(|c| (c < '0' || c > '9') && c != '.' && c != '-')
-        .unwrap_or(string.len());
-    if len == 0 {
-        Ok((0.0, len))
-    } else {
-        let f = &string[..len];
-        let f = f.parse::<f64>().map_err(|e| e.to_string())?;
-        Ok((f, len))
-    }
-}
-
-fn parse_brigadier_string(
-    string: &str,
-    type_: BrigadierStringType,
-) -> Result<(&str, usize), String> {
-    match type_ {
-        BrigadierStringType::Greedy => Ok((string, string.len())),
-        BrigadierStringType::Phrase => {
-            Err("Unsupported type 'phrase' for argument parser brigadier:string".to_string())
-        }
-        BrigadierStringType::Word => parse_unquoted_string(string),
     }
 }
 
@@ -467,7 +441,7 @@ fn parse_minecraft_message(message: &str) -> Result<(MinecraftMessage, usize), S
 }
 
 fn parse_minecraft_objective(string: &str) -> Result<(MinecraftObjective, usize), String> {
-    parse_unquoted_string(string)
+    brigadier::parse_unquoted_string(string)
 }
 
 fn parse_minecraft_operation(string: &str) -> Result<(MinecraftOperation, usize), String> {
@@ -509,19 +483,6 @@ fn is_allowed_in_resource_location(c: char) -> bool {
         || c == '/'
         || c == ':'
         || c == '_';
-}
-
-fn parse_minecraft_rotation(string: &str) -> Result<(MinecraftRotation, usize), String> {
-    const INCOMPLETE: &str = "Incomplete (expected 3 coordinates)";
-    let suffix = string.strip_prefix('~').unwrap_or(string);
-    let (_x, len) = parse_brigadier_double(suffix)?;
-    let suffix = &suffix[len..];
-    let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
-    check_non_local(suffix)?;
-    let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
-    let (_y, len) = parse_brigadier_double(suffix)?;
-
-    Ok(((), string.len() - &suffix[len..].len()))
 }
 
 fn parse_minecraft_score_holder(string: &str) -> Result<(MinecraftScoreHolder, usize), String> {
@@ -572,60 +533,10 @@ fn parse_minecraft_time(string: &str) -> Result<(MinecraftTime, usize), String> 
     Ok((MinecraftTime { time, unit }, len))
 }
 
-fn parse_minecraft_vec3(string: &str) -> Result<(MinecraftVec3, usize), String> {
-    const INCOMPLETE: &str = "Incomplete (expected 3 coordinates)";
-    let suffix = if let Some(suffix) = string.strip_prefix('^') {
-        let (_x, len) = parse_brigadier_double(suffix)?;
-        let suffix = &suffix[len..];
-        let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
-        let suffix = suffix.strip_prefix('^').ok_or(CANNOT_MIX.to_string())?;
-        let (_y, len) = parse_brigadier_double(suffix)?;
-        let suffix = &suffix[len..];
-        let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
-        let suffix = suffix.strip_prefix('^').ok_or(CANNOT_MIX.to_string())?;
-        let (_z, len) = parse_brigadier_double(suffix)?;
-        let suffix = &suffix[len..];
-        suffix
-    } else {
-        let suffix = string.strip_prefix('~').unwrap_or(string);
-        let (_x, len) = parse_brigadier_double(suffix)?;
-        let suffix = &suffix[len..];
-        let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
-        check_non_local(suffix)?;
-        let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
-        let (_y, len) = parse_brigadier_double(suffix)?;
-        let suffix = &suffix[len..];
-        let suffix = suffix.strip_prefix(' ').ok_or(INCOMPLETE.to_string())?;
-        check_non_local(suffix)?;
-        let suffix = suffix.strip_prefix('~').unwrap_or(suffix);
-        let (_z, len) = parse_brigadier_double(suffix)?;
-        let suffix = &suffix[len..];
-        suffix
-    };
-    Ok(((), string.len() - suffix.len()))
-}
-
 fn parse_unknown(string: &str) -> Result<(&str, usize), String> {
     // Best effort
     let len = string.find(' ').unwrap_or(string.len());
     Ok((&string[..len], len))
-}
-
-fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
-    let len = string
-        .find(|c| !is_allowed_in_unquoted_string(c))
-        .unwrap_or(string.len());
-    Ok((&string[..len], len))
-}
-
-fn is_allowed_in_unquoted_string(c: char) -> bool {
-    return c >= '0' && c <= '9'
-        || c >= 'A' && c <= 'Z'
-        || c >= 'a' && c <= 'z'
-        || c == '+'
-        || c == '-'
-        || c == '.'
-        || c == '_';
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -682,14 +593,4 @@ fn parse_minecraft_selector(
         &suffix
     };
     Ok(((), string.len() - suffix.len()))
-}
-
-const CANNOT_MIX: &str =
-    "Cannot mix world & local coordinates (everyhing must either use ^ or not)";
-fn check_non_local(string: &str) -> Result<(), String> {
-    string
-        .starts_with('^')
-        .not()
-        .then(|| ())
-        .ok_or(CANNOT_MIX.to_string())
 }
