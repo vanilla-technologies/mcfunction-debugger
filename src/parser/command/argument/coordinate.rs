@@ -16,9 +16,8 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use super::brigadier::parse_number;
+use super::brigadier::{self, parse_number};
 use crate::parser::command::argument::brigadier::ParseNumberError;
-use std::str::FromStr;
 
 const INCOMPLETE_2: &str = "Incomplete (expected 2 coordinates)";
 const INCOMPLETE_3: &str = "Incomplete (expected 3 coordinates)";
@@ -110,7 +109,7 @@ impl WorldCoordinates {
         WorldCoordinates::parse::<i32>(string)
     }
 
-    fn parse<N: BrigadierNumber>(string: &str) -> Result<(Self, usize), String> {
+    fn parse<N: Number>(string: &str) -> Result<(Self, usize), String> {
         let suffix = string;
         let (x_relative, len) = parse_relative(suffix);
         let suffix = &suffix[len..];
@@ -140,15 +139,12 @@ impl WorldCoordinates {
         Ok((coordinates, len))
     }
 
-    fn parse_coordinate<N: BrigadierNumber>(
-        string: &str,
-        relative: bool,
-    ) -> Result<(f64, usize), String> {
+    fn parse_coordinate<N: Number>(string: &str, relative: bool) -> Result<(f64, usize), String> {
         if relative {
             parse_number_or_default(string)
         } else {
             let (number, len) = parse_number_or_default::<N>(string)?;
-            Ok((number.as_f64(), len))
+            Ok((number.into(), len))
         }
     }
 }
@@ -195,34 +191,14 @@ fn parse_relative(string: &str) -> (bool, usize) {
     }
 }
 
-trait BrigadierNumber: Default + FromStr {
-    fn invalid(string: &str) -> String;
+trait Number: brigadier::Number + Default + Into<f64> {}
+impl Number for i32 {}
+impl Number for f64 {}
 
-    fn as_f64(self) -> f64;
-}
-
-impl BrigadierNumber for i32 {
-    fn invalid(string: &str) -> String {
-        format!("Invalid integer '{}'", string)
-    }
-    fn as_f64(self) -> f64 {
-        self as f64
-    }
-}
-
-impl BrigadierNumber for f64 {
-    fn invalid(string: &str) -> String {
-        format!("Invalid double '{}'", string)
-    }
-    fn as_f64(self) -> f64 {
-        self
-    }
-}
-
-fn parse_number_or_default<N: BrigadierNumber>(string: &str) -> Result<(N, usize), String> {
+fn parse_number_or_default<N: Number>(string: &str) -> Result<(N, usize), String> {
     match parse_number(string) {
         Ok(number) => Ok(number),
-        Err(ParseNumberError::Empty) => Ok((N::default(), 0)),
-        Err(ParseNumberError::Invalid(number)) => Err(N::invalid(number)),
+        Err(ParseNumberError::Empty(..)) => Ok((N::default(), 0)),
+        Err(e) => Err(e.to_string()),
     }
 }

@@ -111,6 +111,7 @@ impl MinecraftTimeUnit {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Argument<'l> {
+    BrigadierDouble(f64),
     BrigadierString(&'l str),
     MinecraftBlockPos(MinecraftBlockPos),
     MinecraftDimension(MinecraftDimension<'l>),
@@ -262,6 +263,10 @@ impl ArgumentParser {
 
     pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, usize), String> {
         match self {
+            ArgumentParser::BrigadierDouble => {
+                let (argument, len) = brigadier::parse_double(string)?;
+                Ok((Argument::BrigadierDouble(argument), len))
+            }
             ArgumentParser::BrigadierString { type_ } => {
                 let (argument, len) = brigadier::parse_string(string, *type_)?;
                 Ok((Argument::BrigadierString(argument), len))

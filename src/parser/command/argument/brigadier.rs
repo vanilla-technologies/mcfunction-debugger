@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{fmt::Display, marker::PhantomData, str::FromStr};
 
 pub fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
     let len = string
@@ -36,20 +36,51 @@ fn is_allowed_in_unquoted_string(c: char) -> bool {
         || c == '_';
 }
 
+pub fn parse_double(string: &str) -> Result<(f64, usize), String> {
+    parse_number(string).map_err(|e| e.to_string())
+}
+
+pub trait Number: FromStr {
+    fn type_name() -> &'static str;
+}
+
+impl Number for i32 {
+    fn type_name() -> &'static str {
+        "integer"
+    }
+}
+
+impl Number for f64 {
+    fn type_name() -> &'static str {
+        "double"
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ParseNumberError<'l> {
-    Empty,
+pub enum ParseNumberError<'l, N: Number> {
+    Empty(PhantomData<N>),
     Invalid(&'l str),
 }
 
-pub fn parse_number<N: FromStr>(string: &str) -> Result<(N, usize), ParseNumberError> {
+impl<N: Number> Display for ParseNumberError<'_, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseNumberError::Empty(_) => write!(f, "Expected {}", N::type_name()),
+            ParseNumberError::Invalid(string) => {
+                write!(f, "Invalid {} '{}'", N::type_name(), string)
+            }
+        }
+    }
+}
+
+pub fn parse_number<N: Number>(string: &str) -> Result<(N, usize), ParseNumberError<N>> {
     let len = string
         .find(|c| !is_allowed_number(c))
         .unwrap_or(string.len());
 
     let number = &string[..len];
     if number.is_empty() {
-        Err(ParseNumberError::Empty)
+        Err(ParseNumberError::Empty(PhantomData))
     } else {
         let number = number
             .parse()
