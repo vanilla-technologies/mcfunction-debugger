@@ -16,6 +16,10 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute unless entity @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tellraw @a [{"text": "Could not find breakpoint entity!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color": "red"}]
-execute unless entity @e[type=area_effect_cloud,tag=-ns-_breakpoint] run function -ns-:clean_up
-execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run function -ns-:resume_self
+scoreboard players reset stop_success -ns-_global
+execute if score breakpoint -ns-_global matches 1 run scoreboard players set stop_success -ns-_global 1
+execute if entity @e[type=area_effect_cloud,tag=-ns-_schedule] run scoreboard players set stop_success -ns-_global 1
+
+execute unless score stop_success -ns-_global matches 1 run tellraw @a {"text": "Cannot stop, there is no active debugging session!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color": "red"}
+execute if score stop_success -ns-_global matches 1 run function -ns-:clean_up
+execute if score stop_success -ns-_global matches 1 run tellraw @a {"text": "Debugging session was stopped!","color": "gold"}

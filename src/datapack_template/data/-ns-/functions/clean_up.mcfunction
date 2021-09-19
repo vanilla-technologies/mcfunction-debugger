@@ -16,6 +16,6 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute unless entity @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tellraw @a [{"text": "Could not find breakpoint entity!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color": "red"}]
-execute unless entity @e[type=area_effect_cloud,tag=-ns-_breakpoint] run function -ns-:clean_up
-execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run function -ns-:resume_self
+scoreboard players set breakpoint -ns-_global 0
+kill @e[tag=-ns-,tag=!-ns-_before_age_increment]
+execute as @e[type=area_effect_cloud,tag=-ns-_frozen] run function -ns-:unfreeze_aec

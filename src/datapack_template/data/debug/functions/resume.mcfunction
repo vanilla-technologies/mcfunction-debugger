@@ -16,5 +16,6 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute unless score breakpoint -ns-_global matches 1 run tellraw @a {"text": "Cannot resume, no function is suspended at a breakpoint!","color": "red"}
+execute unless score breakpoint -ns-_global matches 1 run tellraw @a {"text": "Cannot resume, no function is suspended at a breakpoint!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color": "red"}
+execute unless score breakpoint -ns-_global matches 1 run function -ns-:clean_up
 execute if score breakpoint -ns-_global matches 1 run function -ns-:resume_unchecked
