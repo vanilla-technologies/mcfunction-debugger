@@ -17,11 +17,14 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 pub mod brigadier;
-pub mod coordinate;
+pub mod minecraft;
 
 use self::{
     brigadier::BrigadierStringType,
-    coordinate::{MinecraftBlockPos, MinecraftRotation, MinecraftVec3},
+    minecraft::{
+        coordinate::{MinecraftBlockPos, MinecraftRotation, MinecraftVec3},
+        nbt::MinecraftNbtPath,
+    },
 };
 use crate::parser::command::resource_location::ResourceLocationRef;
 use serde::{Deserialize, Serialize};
@@ -120,6 +123,7 @@ pub enum Argument<'l> {
     MinecraftFunction(MinecraftFunction<'l>),
     MinecraftIntRange(MinecraftIntRange),
     MinecraftMessage(MinecraftMessage<'l>),
+    MinecraftNbtPath(MinecraftNbtPath<'l>),
     MinecraftObjective(MinecraftObjective<'l>),
     MinecraftOperation(MinecraftOperation),
     MinecraftResourceLocation(MinecraftResourceLocation<'l>),
@@ -299,6 +303,10 @@ impl ArgumentParser {
                 let (argument, len) = parse_minecraft_message(string)?;
                 Ok((Argument::MinecraftMessage(argument), len))
             }
+            ArgumentParser::MinecraftNbtPath => {
+                let (argument, len) = MinecraftNbtPath::parse(string)?;
+                Ok((Argument::MinecraftNbtPath(argument), len))
+            }
             ArgumentParser::MinecraftObjective => {
                 let (argument, len) = parse_minecraft_objective(string)?;
                 Ok((Argument::MinecraftObjective(argument), len))
@@ -446,7 +454,7 @@ fn parse_minecraft_message(message: &str) -> Result<(MinecraftMessage, usize), S
 }
 
 fn parse_minecraft_objective(string: &str) -> Result<(MinecraftObjective, usize), String> {
-    brigadier::parse_unquoted_string(string)
+    Ok(brigadier::parse_unquoted_string(string))
 }
 
 fn parse_minecraft_operation(string: &str) -> Result<(MinecraftOperation, usize), String> {

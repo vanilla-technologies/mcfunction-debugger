@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 clap = "2"
 futures = "0.3"
+hematite-nbt = { version = "0.5" }
 log = "0.4"
 multimap = "0.8"
 serde = { version = "1", features = ["derive"] }

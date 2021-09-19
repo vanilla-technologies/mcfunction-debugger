@@ -531,6 +531,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "futures",
+ "hematite-nbt",
  "log",
  "minect",
  "multimap",

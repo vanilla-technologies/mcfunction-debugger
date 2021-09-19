@@ -19,11 +19,64 @@
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, marker::PhantomData, str::FromStr};
 
-pub fn parse_unquoted_string(string: &str) -> Result<(&str, usize), String> {
+pub fn expect(string: &str, prefix: char) -> Result<&str, String> {
+    string
+        .strip_prefix(prefix)
+        .ok_or(format!("Expected '{}'", prefix))
+}
+
+pub fn parse_possibly_quoted_string(string: &str) -> Result<(&str, usize), String> {
+    if let Some(quote) = string.chars().next() {
+        if is_quote(quote) {
+            parse_quoted_string(string, quote)
+        } else {
+            Ok(parse_unquoted_string(string))
+        }
+    } else {
+        Ok(("", 0))
+    }
+}
+
+pub fn parse_quoted_string(string: &str, quote: char) -> Result<(&str, usize), String> {
+    let suffix = &string[quote.len_utf8()..];
+    let (string, len) = parse_string_until(suffix, quote)?;
+    Ok((string, quote.len_utf8() + len))
+}
+
+pub fn is_quote(c: char) -> bool {
+    c == '"' || c == '\''
+}
+
+pub fn parse_string_until(string: &str, terminator: char) -> Result<(&str, usize), String> {
+    let index = find_unescaped(string, terminator).ok_or("Unclosed quoted string".to_string())?;
+    Ok((&string[..index], index + terminator.len_utf8()))
+}
+
+fn find_unescaped(string: &str, to_find: char) -> Option<usize> {
+    const ESCAPE: char = '\\';
+    string
+        .char_indices()
+        // Mark escaped chars
+        .scan(false, |escaped, (index, c)| {
+            let e = *escaped;
+            if e {
+                *escaped = false;
+            } else if c == ESCAPE {
+                *escaped = true;
+            }
+            Some((index, c, e))
+        })
+        // Filter for unescaped chars
+        .filter(|(_index, _c, escaped)| !escaped)
+        .find(|(_index, c, _)| *c == to_find)
+        .map(|(index, ..)| index)
+}
+
+pub fn parse_unquoted_string(string: &str) -> (&str, usize) {
     let len = string
         .find(|c| !is_allowed_in_unquoted_string(c))
         .unwrap_or(string.len());
-    Ok((&string[..len], len))
+    (&string[..len], len)
 }
 
 fn is_allowed_in_unquoted_string(c: char) -> bool {
@@ -37,6 +90,10 @@ fn is_allowed_in_unquoted_string(c: char) -> bool {
 }
 
 pub fn parse_double(string: &str) -> Result<(f64, usize), String> {
+    parse_number(string).map_err(|e| e.to_string())
+}
+
+pub fn parse_int(string: &str) -> Result<(i32, usize), String> {
     parse_number(string).map_err(|e| e.to_string())
 }
 
@@ -107,6 +164,6 @@ pub fn parse_string(string: &str, type_: BrigadierStringType) -> Result<(&str, u
         BrigadierStringType::Phrase => {
             Err("Unsupported type 'phrase' for argument parser brigadier:string".to_string())
         }
-        BrigadierStringType::Word => parse_unquoted_string(string),
+        BrigadierStringType::Word => Ok(parse_unquoted_string(string)),
     }
 }

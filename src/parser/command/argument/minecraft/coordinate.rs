@@ -16,8 +16,7 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use super::brigadier::{self, parse_number};
-use crate::parser::command::argument::brigadier::ParseNumberError;
+use crate::parser::command::argument::brigadier::{self, parse_number, ParseNumberError};
 
 const INCOMPLETE_2: &str = "Incomplete (expected 2 coordinates)";
 const INCOMPLETE_3: &str = "Incomplete (expected 3 coordinates)";
