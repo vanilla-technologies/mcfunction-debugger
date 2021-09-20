@@ -393,7 +393,6 @@ async fn expand_resume_self_template<P: AsRef<Path>>(
         .map(|(name, line_number)| {
            engine.expand( &format!(
                 "execute \
-                  store success score resume_success -ns-_global \
                   if entity @s[tag=-ns-_{original_namespace}_{original_function_tag}_{line_number}] \
                   run function -ns-:{original_namespace}/{original_function}/{line_number_1}_continue",
                 original_namespace = name.namespace(),
