@@ -1,0 +1,5 @@
+scoreboard players set test_score test_global 0
+schedule function test:schedule_replace_cancels_old_schedule/increment 1t
+schedule function test:schedule_replace_cancels_old_schedule/assert_not_incremented 2t
+schedule function test:schedule_replace_cancels_old_schedule/increment 3t
+schedule function test:schedule_replace_cancels_old_schedule/assert_incremented 4t
