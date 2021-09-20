@@ -375,10 +375,10 @@ async fn expand_global_templates(
     Ok(())
 }
 
-async fn expand_resume_self_template<P: AsRef<Path>>(
+async fn expand_resume_self_template(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
-    output_path: P,
+    output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     let resume_cases = function_contents
         .iter()
@@ -410,10 +410,10 @@ async fn expand_resume_self_template<P: AsRef<Path>>(
     expand_template!(engine, path, "data/-ns-/functions/resume_self.mcfunction").await
 }
 
-async fn expand_schedule_template<P: AsRef<Path>>(
+async fn expand_schedule_template(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
-    output_path: P,
+    output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     #[rustfmt::skip]
     macro_rules! PATH { () => { "data/-ns-/functions/schedule.mcfunction" }; }
@@ -585,7 +585,7 @@ async fn expand_function_templates(
     Ok(())
 }
 
-async fn create_parent_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
+async fn create_parent_dir(path: impl AsRef<Path>) -> io::Result<()> {
     if let Some(parent_dir) = path.as_ref().parent() {
         create_dir_all(parent_dir).await?;
     }
