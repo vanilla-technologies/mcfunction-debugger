@@ -26,5 +26,5 @@ tag @e[type=area_effect_cloud,tag=-ns-_new] remove -ns-_new
 # -debug_anchor-
 
 execute run function -ns-:select_entity
-function -ns-:-call_ns-/-call/fn-/-iterate_as-
+function -ns-:-call_ns-/-call/fn-/iterate
 execute unless score breakpoint -ns-_global matches 1 as @e[type=area_effect_cloud,tag=-ns-_function_call] if score @s -ns-_depth = current -ns-_depth run function -ns-:-call_ns-/-call/fn-/return

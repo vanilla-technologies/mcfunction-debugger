@@ -101,7 +101,6 @@ fn test_execute() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -127,7 +126,6 @@ fn test_execute_align() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -153,7 +151,6 @@ fn test_execute_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -179,7 +176,6 @@ fn test_execute_multiple_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -205,7 +201,6 @@ fn test_multiple_execute_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -231,7 +226,6 @@ fn test_multiple_execute_some_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                execute_as: true,
                 selectors: vec![37],
             },
             None
@@ -257,7 +251,6 @@ fn test_execute_as() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: true,
                 selectors: vec![11],
             },
             None
@@ -283,7 +276,6 @@ fn test_execute_at() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![11],
             },
             None
@@ -309,7 +301,6 @@ fn test_execute_facing_pos() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -335,7 +326,6 @@ fn test_execute_facing_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![22],
             },
             None
@@ -361,7 +351,6 @@ fn test_execute_in() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -387,7 +376,6 @@ fn test_execute_in_qualified() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -413,7 +401,6 @@ fn test_execute_positioned_absolute() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -439,7 +426,6 @@ fn test_execute_positioned_local() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -465,7 +451,6 @@ fn test_execute_positioned_relative() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -491,7 +476,6 @@ fn test_execute_positioned_as() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![22],
             },
             None
@@ -517,7 +501,6 @@ fn test_execute_rotated_absolute() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -543,7 +526,6 @@ fn test_execute_rotated_relative() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -569,7 +551,6 @@ fn test_execute_rotated_as() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![19],
             },
             None
@@ -595,7 +576,6 @@ fn test_execute_if_block() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -622,7 +602,6 @@ fn test_execute_if_block_tag() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -649,7 +628,6 @@ fn test_execute_if_blocks() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -675,7 +653,6 @@ fn test_execute_if_data_block() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -701,7 +678,6 @@ fn test_execute_if_data_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![23],
             },
             None
@@ -727,7 +703,6 @@ fn test_execute_if_data_storage() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -753,7 +728,6 @@ fn test_execute_if_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![18],
             },
             None
@@ -779,7 +753,6 @@ fn test_execute_if_predicate() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -805,7 +778,6 @@ fn test_execute_if_score() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -831,7 +803,6 @@ fn test_execute_if_score_matches() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -857,7 +828,6 @@ fn test_execute_store_block() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -883,7 +853,6 @@ fn test_execute_store_bossbar() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None
@@ -909,7 +878,6 @@ fn test_execute_store_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![29],
             },
             None
@@ -935,7 +903,6 @@ fn test_execute_store_score() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![28],
             },
             None
@@ -961,7 +928,6 @@ fn test_execute_store_storage() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                execute_as: false,
                 selectors: vec![],
             },
             None

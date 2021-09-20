@@ -82,7 +82,6 @@ impl<'l> TemplateEngine<'l> {
             Line::FunctionCall {
                 name,
                 anchor,
-                execute_as,
                 selectors,
             } => {
                 let line = exclude_internal_entites_from_selectors(line, selectors);
@@ -98,17 +97,13 @@ impl<'l> TemplateEngine<'l> {
                         anchor_score = anchor_score
                     )
                 });
-                let iterate_as = execute_as
-                    .then(|| "iterate")
-                    .unwrap_or("iterate_same_executor");
                 let template =
                     include_template!("data/template/functions/call_function.mcfunction");
                 let template = template
                     .replace("-call_ns-", name.namespace())
                     .replace("-call/fn-", name.path())
                     .replace("execute run ", execute)
-                    .replace("# -debug_anchor-", &debug_anchor)
-                    .replace("-iterate_as-", iterate_as);
+                    .replace("# -debug_anchor-", &debug_anchor);
                 self.expand(&template)
             }
             Line::Schedule {

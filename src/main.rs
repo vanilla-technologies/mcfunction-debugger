@@ -507,7 +507,6 @@ async fn expand_function_templates(
             .await?;
             let mut futures = vec![
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"),
-                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iterate_same_executor.mcfunction"),
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"),
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),

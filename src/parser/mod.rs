@@ -34,7 +34,6 @@ pub enum Line {
     FunctionCall {
         name: ResourceLocation,
         anchor: Option<MinecraftEntityAnchor>,
-        execute_as: bool,
         selectors: Vec<usize>,
     },
     Schedule {
@@ -93,7 +92,6 @@ fn parse_command<'l>(
     let mut nodes = parsed_nodes.as_slice();
     let mut selectors = Vec::new();
     let mut maybe_anchor: Option<MinecraftEntityAnchor> = None;
-    let mut execute_as = false;
 
     while let Some((head, tail)) = nodes.split_first() {
         nodes = tail;
@@ -140,10 +138,6 @@ fn parse_command<'l>(
                         maybe_anchor = Some(*anchor);
                     }
                 }
-                if let Some((ParsedNode::Literal { literal: "as", .. }, _tail)) = tail.split_first()
-                {
-                    execute_as = true;
-                }
             }
             ParsedNode::Literal {
                 literal: "function",
@@ -158,7 +152,6 @@ fn parse_command<'l>(
                         Line::FunctionCall {
                             name: function.to_owned(),
                             anchor: maybe_anchor,
-                            execute_as,
                             selectors,
                         },
                         error,
