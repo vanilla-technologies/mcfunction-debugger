@@ -17,3 +17,4 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 function -ns-:uninstall
+scoreboard objectives remove -ns-_version
