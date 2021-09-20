@@ -1,1 +1,1 @@
-scoreboard players add schedule_append test_global 2
+scoreboard players add test_score test_global 2
