@@ -16,5 +16,6 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+pub mod block;
 pub mod coordinate;
 pub mod nbt;

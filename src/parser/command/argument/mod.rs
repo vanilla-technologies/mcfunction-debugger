@@ -26,7 +26,9 @@ use self::{
         nbt::MinecraftNbtPath,
     },
 };
-use crate::parser::command::resource_location::ResourceLocationRef;
+use crate::parser::command::{
+    argument::minecraft::block::MinecraftBlockPredicate, resource_location::ResourceLocationRef,
+};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Display, u32, usize};
 
@@ -117,6 +119,7 @@ pub enum Argument<'l> {
     BrigadierDouble(f64),
     BrigadierString(&'l str),
     MinecraftBlockPos(MinecraftBlockPos),
+    MinecraftBlockPredicate(MinecraftBlockPredicate<'l>),
     MinecraftDimension(MinecraftDimension<'l>),
     MinecraftEntity(MinecraftEntity),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
@@ -278,6 +281,10 @@ impl ArgumentParser {
             ArgumentParser::MinecraftBlockPos => {
                 let (argument, len) = MinecraftBlockPos::parse(string)?;
                 Ok((Argument::MinecraftBlockPos(argument), len))
+            }
+            ArgumentParser::MinecraftBlockPredicate => {
+                let (argument, len) = MinecraftBlockPredicate::parse(string)?;
+                Ok((Argument::MinecraftBlockPredicate(argument), len))
             }
             ArgumentParser::MinecraftDimension => {
                 let (argument, len) = parse_minecraft_dimension(string)?;

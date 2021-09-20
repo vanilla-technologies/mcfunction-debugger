@@ -183,9 +183,9 @@ impl CommandParser {
                 .into_iter()
                 .next()
                 .ok_or("Unknown command".to_string())?;
-            let (argument, suffix) = result?;
+            let (argument, len) = result?;
             let parsed = ParsedNode::Argument { argument, index };
-            Ok((command_spec, parsed, suffix))
+            Ok((command_spec, parsed, len))
         }
     }
 }

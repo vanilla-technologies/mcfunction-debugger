@@ -635,7 +635,7 @@ fn test_execute_if_blocks() {
     // given:
     let parser = CommandParser::default().unwrap();
     let line =
-        r#"execute if block -0 ~-.3 ~5 ^1 ^.25 ^-.75 ~-1 .5 -.75 all run function test:func"#;
+        r#"execute if blocks -0 ~-.3 ~5 ^1 ^.25 ^-.75 ~-1 ~.5 ~-.75 all run function test:func"#;
 
     // when:
     let actual = parse_line_internal(&parser, line);

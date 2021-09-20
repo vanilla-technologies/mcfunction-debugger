@@ -50,9 +50,9 @@ enum MinecraftNbtPathNode<'l> {
     AllElements,
     CompoundChild(&'l str),
     IndexedElement(i32),
-    MatchElement(Map<String, Value>),
-    MatchObject(&'l str, Map<String, Value>),
-    MatchRootObject(Map<String, Value>),
+    MatchElement(CompoundNbt),
+    MatchObject(&'l str, CompoundNbt),
+    MatchRootObject(CompoundNbt),
 }
 
 impl<'l> MinecraftNbtPathNode<'l> {
@@ -71,7 +71,7 @@ impl<'l> MinecraftNbtPathNode<'l> {
             '[' => {
                 let mut suffix = &string['['.len_utf8()..];
                 if suffix.starts_with('{') {
-                    let (compound, len) = parse_compound(suffix)?;
+                    let (compound, len) = CompoundNbt::parse(suffix)?;
                     suffix = &suffix[len..];
                     suffix = expect(suffix, ']')?;
                     Ok((Self::MatchElement(compound), string.len() - suffix.len()))
@@ -86,7 +86,7 @@ impl<'l> MinecraftNbtPathNode<'l> {
             }
             '{' => {
                 if root {
-                    let (compound, len) = parse_compound(string)?;
+                    let (compound, len) = CompoundNbt::parse(string)?;
                     Ok((Self::MatchRootObject(compound), len))
                 } else {
                     Err(INVALID_NODE.to_string())
@@ -108,7 +108,7 @@ fn parse_object_node<'l>(
 ) -> Result<(MinecraftNbtPathNode<'l>, usize), String> {
     use MinecraftNbtPathNode::*;
     if suffix.starts_with("{") {
-        let (compound, compound_len) = parse_compound(suffix)?;
+        let (compound, compound_len) = CompoundNbt::parse(suffix)?;
         Ok((MatchObject(name, compound), name_len + compound_len))
     } else {
         Ok((CompoundChild(name), name_len))
@@ -132,43 +132,41 @@ fn is_allowed_in_unquoted_name(c: char) -> bool {
     c != ' ' && c != '"' && c != '[' && c != ']' && c != '.' && c != '{' && c != '}'
 }
 
-fn parse_compound(string: &str) -> Result<(Map<String, Value>, usize), String> {
-    let mut compound = Map::new();
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompoundNbt(pub Map<String, Value>);
 
-    let mut suffix = string.trim_start();
-    suffix = expect(suffix, '{')?;
-    suffix = suffix.trim_start();
+impl CompoundNbt {
+    pub fn parse(string: &str) -> Result<(Self, usize), String> {
+        let mut compound = Map::new();
 
-    if !suffix.is_empty() {
-        while !suffix.starts_with('}') {
-            let (key, len) = parse_key(suffix)?;
-            suffix = &suffix[len..];
-            suffix = suffix.trim_start();
+        let mut suffix = expect(string, '{')?.trim_start();
+        if !suffix.is_empty() {
+            while !suffix.starts_with('}') {
+                let (key, len) = parse_key(suffix)?;
+                suffix = &suffix[len..].trim_start();
 
-            suffix = expect(suffix, ':')?;
-            suffix = suffix.trim_start();
+                suffix = expect(suffix, ':')?.trim_start();
 
-            let (value, len) = parse_value(suffix)?;
-            suffix = &suffix[len..];
-            suffix = suffix.trim_start();
+                let (value, len) = parse_value(suffix)?;
+                suffix = &suffix[len..].trim_start();
 
-            compound.insert(key, value);
+                compound.insert(key, value);
 
-            if let Some(s) = suffix.strip_prefix(',') {
-                suffix = s;
-            } else {
-                break;
-            }
-            suffix = suffix.trim_start();
+                if let Some(s) = suffix.strip_prefix(',') {
+                    suffix = s.trim_start();
+                } else {
+                    break;
+                }
 
-            if suffix.is_empty() {
-                return Err(EXPECTED_KEY.to_string());
+                if suffix.is_empty() {
+                    return Err(EXPECTED_KEY.to_string());
+                }
             }
         }
-    }
-    suffix = expect(suffix, '}')?;
+        suffix = expect(suffix, '}')?;
 
-    Ok((compound, string.len() - suffix.len()))
+        Ok((CompoundNbt(compound), string.len() - suffix.len()))
+    }
 }
 
 const EXPECTED_KEY: &str = "Expected key";
@@ -188,7 +186,7 @@ fn parse_value(string: &str) -> Result<(Value, usize), String> {
     if let Some(c) = c {
         match c {
             '{' => {
-                let (compound, len) = parse_compound(string)?;
+                let (CompoundNbt(compound), len) = CompoundNbt::parse(string)?;
                 Ok((Value::Compound(compound), len))
             }
             '[' => parse_array_or_list(string),
@@ -226,23 +224,20 @@ fn parse_array_or_list(string: &str) -> Result<(Value, usize), String> {
 }
 
 fn parse_list(string: &str) -> Result<(Vec<Value>, usize), String> {
-    let mut suffix = expect(string, '[')?;
-    suffix = suffix.trim_start();
-
     let mut vec = Vec::new();
+
+    let mut suffix = expect(string, '[')?.trim_start();
     while !suffix.starts_with(']') {
         let (value, len) = parse_value(suffix)?;
-        suffix = &suffix[len..];
-        suffix = suffix.trim_start();
+        suffix = &suffix[len..].trim_start();
 
         vec.push(value);
 
         if let Some(s) = suffix.strip_prefix(',') {
-            suffix = s;
+            suffix = s.trim_start();
         } else {
             break;
         }
-        suffix = suffix.trim_start();
 
         if suffix.is_empty() {
             return Err(EXPECTED_VALUE.to_string());
@@ -274,12 +269,11 @@ impl TryFrom<char> for NbtArrayType {
 
 trait NbtArrayParser<E> {
     fn parse_suffix(&self, string: &str) -> Result<(Value, usize), String> {
-        let mut suffix = string;
         let mut vec = Vec::new();
+        let mut suffix = string;
         while !suffix.starts_with(']') {
             let (value, len) = parse_value(suffix)?;
-            suffix = &suffix[len..];
-            suffix = suffix.trim_start();
+            suffix = &suffix[len..].trim_start();
 
             let tag_name = value.tag_name().to_string();
             let element = self.to_element(value).ok_or(format!(
@@ -290,11 +284,10 @@ trait NbtArrayParser<E> {
             vec.push(element);
 
             if let Some(s) = suffix.strip_prefix(',') {
-                suffix = s;
+                suffix = s.trim_start();
             } else {
                 break;
             }
-            suffix = suffix.trim_start();
 
             if suffix.is_empty() {
                 return Err(EXPECTED_VALUE.to_string());
