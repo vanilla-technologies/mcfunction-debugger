@@ -16,6 +16,15 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-# TODO always call 'iterate'? 'iterate_same_executor'
-execute unless score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/iterate
-execute unless score breakpoint -ns-_global matches 1 as @e[type=area_effect_cloud,tag=-ns-_function_call] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/return
+execute as @e[type=area_effect_cloud,tag=-ns-_selected_entity_marker] if score @s -ns-_depth = current -ns-_depth run tag @s add -ns-_tmp
+execute as @e[type=area_effect_cloud,tag=-ns-_tmp,limit=1] run tag @s add -ns-_current
+
+# If there is no entity with -ns-_tmp, we return.
+execute unless entity @e[type=area_effect_cloud,tag=-ns-_tmp] as @e[type=area_effect_cloud,tag=-ns-_function_call] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/return
+
+tag @e[type=area_effect_cloud] remove -ns-_tmp
+
+# If we returned above, the program is now either
+# 1. suspended at a breakpoint or
+# 2. terminated, in which case there is no entity with tag=-ns-_current
+execute unless score breakpoint -ns-_global matches 1 as @e[type=area_effect_cloud,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/-line_number-_continue

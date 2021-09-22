@@ -391,14 +391,15 @@ async fn expand_resume_self_template(
             )
         })
         .map(|(name, line_number)| {
-           engine.expand( &format!(
+            engine.expand(&format!(
                 "execute \
-                  if entity @s[tag=-ns-_{original_namespace}_{original_function_tag}_{line_number}] \
-                  run function -ns-:{original_namespace}/{original_function}/{line_number_1}_continue",
+                if entity @s[tag=-ns-_{original_namespace}_{original_function_tag}_{line_number}] \
+                run function -ns-:{original_namespace}/{original_function}/\
+                {line_number_1}_continue_current_iteration",
                 original_namespace = name.namespace(),
                 original_function = name.path(),
                 original_function_tag = name.path().replace("/", "_"),
-                line_number = line_number ,
+                line_number = line_number,
                 line_number_1 = line_number + 1
             ))
         })
@@ -490,15 +491,21 @@ async fn expand_function_templates(
     }) {
         let first = start_line == 1;
         let end_line = start_line + partition.len();
+        let last = end_line == lines.len() + 1;
+
+        let line_number = start_line.to_string();
         let line_numbers = format!("{}-{}", start_line, end_line - 1);
-
-        let engine = engine.extend([("-line_numbers-", line_numbers.as_str())]);
-
+        let engine = engine.extend([
+            ("-line_number-", line_number.as_str()),
+            ("-line_numbers-", line_numbers.as_str()),
+        ]);
         macro_rules! expand {
             ($p:literal) => {
                 expand_template!(engine, output_path, $p)
             };
         }
+
+        start_line = end_line;
 
         if first {
             create_parent_dir(
@@ -506,8 +513,9 @@ async fn expand_function_templates(
             )
             .await?;
             let mut futures = vec![
-                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iterate.mcfunction"),
-                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/iteration_step.mcfunction"),
+                expand!(
+                    "data/-ns-/functions/-orig_ns-/-orig/fn-/next_iteration_or_return.mcfunction"
+                ),
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
                 expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
@@ -521,19 +529,25 @@ async fn expand_function_templates(
             }
             try_join_all(futures).await?;
         } else {
-            let file_name = format!("{}_continue.mcfunction", start_line);
-            let path = fn_dir.join(file_name);
-            let mut template =
-                include_template!("data/-ns-/functions/-orig_ns-/-orig/fn-/continue.mcfunction")
-                    .to_string();
-            if let Some(_callers) = call_tree.get_vec(fn_name) {
-                template.push_str(include_template!(
-                    "data/-ns-/functions/-orig_ns-/-orig/fn-/continue_return.mcfunction"
-                ));
-            }
-            write(&path, &engine.expand(&template)).await?;
+            expand_template!(
+                engine,
+                output_path,
+                "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue_current_iteration.mcfunction"
+            )
+            .await?;
         }
-        start_line = end_line;
+
+        // -line_number-_continue.mcfunction
+        #[rustfmt::skip]
+        macro_rules! PATH { () => {"data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue.mcfunction"} }
+        let path = output_path.join(engine.expand(PATH!()));
+        let mut template = include_template!(PATH!()).to_string();
+        if last {
+            template.push_str(include_template!(
+                "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue_last.mcfunction"
+            ));
+        }
+        write(&path, &engine.expand(&template)).await?;
 
         // -line_numbers-.mcfunction
         let content = partition
@@ -547,14 +561,6 @@ async fn expand_function_templates(
             "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-.mcfunction"
         )
         .await?;
-
-        // -line_numbers-_with_context.mcfunction
-        expand_template!(
-            engine,
-            output_path,
-            "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-_with_context.mcfunction"
-        )
-        .await?;
     }
 
     if let Some(callers) = call_tree.get_vec(fn_name) {
@@ -563,7 +569,8 @@ async fn expand_function_templates(
             .map(|(caller, line_number)| {
                 engine.expand(&format!(
                     "execute if entity @s[tag=-ns-_{caller_namespace}_{caller_function_tag}] run \
-                     function -ns-:{caller_namespace}/{caller_function}/{line_number}_continue",
+                    function -ns-:{caller_namespace}/{caller_function}/\
+                    {line_number}_continue_current_iteration",
                     caller_namespace = caller.namespace(),
                     caller_function = caller.path(),
                     caller_function_tag = caller.path().replace("/", "_"),

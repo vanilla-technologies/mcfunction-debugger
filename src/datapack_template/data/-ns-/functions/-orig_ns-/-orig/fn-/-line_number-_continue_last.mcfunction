@@ -16,7 +16,4 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute as @e[type=area_effect_cloud,tag=-ns-_selected_entity_marker] if score @s -ns-_depth = current -ns-_depth run tag @s add -ns-_tmp
-execute as @e[type=area_effect_cloud,tag=-ns-_tmp,limit=1] run tag @s add -ns-_current
-tag @e[type=area_effect_cloud] remove -ns-_tmp
-execute as @e[type=area_effect_cloud,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/iteration_step
+execute unless score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/next_iteration_or_return
