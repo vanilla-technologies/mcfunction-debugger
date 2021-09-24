@@ -181,7 +181,10 @@ async fn run_test(
         create_tick_datapack(&test_fn, &on_breakpoint_fn).await?;
     }
 
-    let mut commands = vec![running_test_cmd(&test_fn)];
+    let mut commands = vec![
+        running_test_cmd(&test_fn),
+        "function mcfd:clean_up".to_string(),
+    ];
     enable_appropriate_datapacks(&mut commands, after_age_increment, debug);
     if after_age_increment {
         commands.push("scoreboard players set tick test_global 1".to_string());
