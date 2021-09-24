@@ -19,8 +19,8 @@
 scoreboard players set resume_success -ns-_global 1
 
 scoreboard players reset continue_success -ns-_global
-execute as @e[type=area_effect_cloud,tag=-ns-_selected_entity_marker,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run scoreboard players set continue_success -ns-_global 1
+execute as @e[type=area_effect_cloud,tag=-ns-_selected_entity_marker,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run scoreboard players set continue_success -ns-_global 1
 execute unless score continue_success -ns-_global matches 1 run tellraw @a [{"text": "Selected entity marker was killed!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color": "red"}]
 execute unless score continue_success -ns-_global matches 1 run function -ns-:clean_up
 
-execute as @e[type=area_effect_cloud,tag=-ns-_selected_entity_marker,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/-line_number-_continue
+execute as @e[type=area_effect_cloud,tag=-ns-_selected_entity_marker,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/-line_number-_continue
