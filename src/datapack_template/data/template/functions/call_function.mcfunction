@@ -18,7 +18,7 @@
 
 scoreboard players add current -ns-_depth 1
 
-summon area_effect_cloud ~ ~ ~ {Duration: 2147483647, Tags: [-ns-_new, -ns-, -ns-_function_call, -ns-_-orig_ns-_-orig_fn-]}
+summon area_effect_cloud ~ ~ ~ {Duration: 2147483647, Tags: [-ns-_new, -ns-, -ns-_function_call, -ns-_-orig_ns-_-orig_fn-, -ns-_active]}
 scoreboard players operation @e[type=area_effect_cloud,tag=-ns-_new] -ns-_anchor = current -ns-_anchor
 scoreboard players operation @e[type=area_effect_cloud,tag=-ns-_new] -ns-_depth = current -ns-_depth
 tag @e[type=area_effect_cloud,tag=-ns-_new] remove -ns-_new

@@ -1,4 +1,4 @@
 scoreboard players set test_score test_global 0
-schedule function test:schedule_append_same_tick_two_functions/add1 1t append
-schedule function test:schedule_append_same_tick_two_functions/add2 1t append
+schedule function test:utils/add_1 1t append
+schedule function test:utils/add_2 1t append
 schedule function test:schedule_append_same_tick_two_functions/assert 2t
