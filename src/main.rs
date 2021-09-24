@@ -568,13 +568,15 @@ async fn expand_function_templates(
             .iter()
             .map(|(caller, line_number)| {
                 engine.expand(&format!(
-                    "execute if entity @s[tag=-ns-_{caller_namespace}_{caller_function_tag}] run \
-                    function -ns-:{caller_namespace}/{caller_function}/\
-                    {line_number}_continue_current_iteration",
+                    "execute if entity \
+                    @s[tag=-ns-_{caller_namespace}_{caller_function_tag}_{line_number}] run \
+                    function -ns-:{caller_namespace}/{caller_function}/{line_number_1}\
+                    _continue_current_iteration",
                     caller_namespace = caller.namespace(),
                     caller_function = caller.path(),
                     caller_function_tag = caller.path().replace("/", "_"),
-                    line_number = *line_number + 1
+                    line_number = line_number,
+                    line_number_1 = *line_number + 1,
                 ))
             })
             .collect::<Vec<_>>()

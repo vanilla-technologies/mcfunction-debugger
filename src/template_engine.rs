@@ -102,6 +102,7 @@ impl<'l> TemplateEngine<'l> {
                 let template = template
                     .replace("-call_ns-", name.namespace())
                     .replace("-call/fn-", name.path())
+                    .replace("-line_number-", &line_number.to_string())
                     .replace("execute run ", execute)
                     .replace("# -debug_anchor-", &debug_anchor);
                 self.expand(&template)
