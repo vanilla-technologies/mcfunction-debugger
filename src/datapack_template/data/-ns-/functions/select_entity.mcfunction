@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-function -ns-:id/init_self
+execute if entity @s[tag=!-ns-] run function -ns-:id/init_self
 summon area_effect_cloud ~ ~ ~ {Duration: 2147483647, Tags: [-ns-_new, -ns-, -ns-_selected_entity_marker], CustomName: '{"text": "Server"}'}
 teleport @e[type=area_effect_cloud,tag=-ns-_new] ~ ~ ~ ~ ~
 scoreboard players operation @e[type=area_effect_cloud,tag=-ns-_new] -ns-_id = @s -ns-_id
