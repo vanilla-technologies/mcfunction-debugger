@@ -1,4 +1,4 @@
-execute anchored eyes run function test:do_nothing
+execute anchored eyes run function test:utils/do_nothing
 
 kill @e[type=area_effect_cloud,tag=test]
 summon area_effect_cloud ^ ^ ^ {Tags: ["test"]}

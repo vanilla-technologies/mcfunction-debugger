@@ -5,7 +5,7 @@ execute store result score aec1_x test_global run data get entity @e[type=area_e
 
 kill @e[type=sheep,tag=test]
 summon sheep ~3 ~ ~ {Tags: [test], NoAI: true}
-execute rotated ~-4 ~ as @e[type=sheep,tag=test] run function test:do_nothing
+execute rotated ~-4 ~ as @e[type=sheep,tag=test] run function test:utils/do_nothing
 
 kill @e[type=area_effect_cloud,tag=test,tag=rotation2]
 summon area_effect_cloud ~ ~ ~ {Tags: [test, rotation2]}

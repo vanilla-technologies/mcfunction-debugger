@@ -1,7 +1,7 @@
 scoreboard players set @s test_global 1
 kill @e[type=sheep,tag=test]
 summon sheep ~ ~ ~ {Tags: [test], NoAI: true}
-execute as @e[type=sheep,tag=test] run function test:do_nothing
+execute as @e[type=sheep,tag=test] run function test:utils/do_nothing
 scoreboard players add @s test_global 1
 
 # Reset is necessary in server context
