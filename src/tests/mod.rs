@@ -280,9 +280,10 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
         };
     }
     try_join!(
-        create_tick_template!("pack.mcmeta"),
         create_tick_template!("data/minecraft/tags/functions/tick.json"),
         create_tick_template!("data/test/functions/tick.mcfunction"),
+        create_tick_template!("data/test/functions/tick/on_breakpoint.mcfunction"),
+        create_tick_template!("pack.mcmeta"),
     )?;
     wait_for_mount().await;
     Ok(())
