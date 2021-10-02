@@ -93,151 +93,128 @@ fn parse_command<'l>(
     let mut selectors = Vec::new();
     let mut maybe_anchor: Option<MinecraftEntityAnchor> = None;
 
-    while let Some((head, tail)) = nodes.split_first() {
-        nodes = tail;
-        match head {
-            ParsedNode::Argument {
+    while let [_, tail @ ..] = nodes {
+        match nodes {
+            [ParsedNode::Argument {
                 argument:
                     Argument::MinecraftEntity(..)
                     | Argument::MinecraftScoreHolder(MinecraftScoreHolder::Selector(..)),
                 index,
-            } => {
+            }, ..] => {
                 selectors.push(*index);
             }
-            ParsedNode::Argument {
+            [ParsedNode::Argument {
                 argument:
                     Argument::MinecraftMessage(MinecraftMessage {
                         selectors: message_selectors,
                         ..
                     }),
                 index,
-            } => {
+            }, ..] => {
                 selectors.extend(
                     message_selectors
                         .iter()
                         .map(|(_selector, start, _end)| index + start),
                 );
             }
-            ParsedNode::Literal {
+            [ParsedNode::Literal {
                 literal: "execute", ..
             }
-            | ParsedNode::Redirect("execute") => {
-                if let Some((
-                    ParsedNode::Literal {
-                        literal: "anchored",
-                        ..
-                    },
-                    tail,
-                )) = tail.split_first()
-                {
-                    if let Some(ParsedNode::Argument {
-                        argument: Argument::MinecraftEntityAnchor(anchor),
-                        ..
-                    }) = tail.first()
-                    {
-                        maybe_anchor = Some(*anchor);
-                    }
-                }
+            | ParsedNode::Redirect("execute"), ParsedNode::Literal {
+                literal: "anchored",
+                ..
+            }, ParsedNode::Argument {
+                argument: Argument::MinecraftEntityAnchor(anchor),
+                ..
+            }, ..] => {
+                maybe_anchor = Some(*anchor);
             }
-            ParsedNode::Literal {
+            [ParsedNode::Literal {
                 literal: "function",
                 ..
-            } => {
-                if let Some(ParsedNode::Argument {
-                    argument: Argument::MinecraftFunction(function),
-                    ..
-                }) = tail.first()
-                {
-                    return (
-                        Line::FunctionCall {
-                            name: function.to_owned(),
-                            anchor: maybe_anchor,
-                            selectors,
-                        },
-                        error,
-                    );
-                }
+            }, ParsedNode::Argument {
+                argument: Argument::MinecraftFunction(function),
+                ..
+            }, ..] => {
+                return (
+                    Line::FunctionCall {
+                        name: function.to_owned(),
+                        anchor: maybe_anchor,
+                        selectors,
+                    },
+                    error,
+                );
             }
-            ParsedNode::Literal {
+            [ParsedNode::Literal {
                 literal: "schedule",
                 index,
-            } => {
-                if let Some((
-                    ParsedNode::Literal {
-                        literal: "function",
-                        ..
-                    },
-                    tail,
-                )) = tail.split_first()
-                {
-                    if let Some((
-                        ParsedNode::Argument {
-                            argument: Argument::MinecraftFunction(function),
-                            ..
-                        },
-                        tail,
-                    )) = tail.split_first()
-                    {
-                        if let Some((
-                            ParsedNode::Argument {
-                                argument: Argument::MinecraftTime(time),
-                                ..
-                            },
-                            tail,
-                        )) = tail.split_first()
-                        {
-                            let operation = match tail.first() {
-                                Some(ParsedNode::Literal {
-                                    literal: "append", ..
-                                }) => ScheduleOperation::APPEND { time: time.clone() },
-                                None
-                                | Some(ParsedNode::Literal {
-                                    literal: "replace", ..
-                                }) => ScheduleOperation::REPLACE { time: time.clone() },
-                                _ => return (Line::OtherCommand { selectors }, None),
-                            };
-
-                            return (
-                                Line::Schedule {
-                                    schedule_start: *index,
-                                    function: function.to_owned(),
-                                    operation,
-                                    selectors,
-                                },
-                                error,
-                            );
-                        }
-                    }
-                }
-                if let Some((
-                    ParsedNode::Literal {
-                        literal: "clear", ..
-                    },
-                    tail,
-                )) = tail.split_first()
-                {
-                    if let Some(ParsedNode::Argument {
-                        argument: Argument::BrigadierString(string),
-                        ..
-                    }) = tail.first()
-                    {
-                        // TODO Handle invalid characters in NamespacedName
-                        if let Ok(function) = ResourceLocationRef::try_from(*string) {
-                            return (
-                                Line::Schedule {
-                                    schedule_start: *index,
-                                    function: function.to_owned(),
-                                    operation: ScheduleOperation::CLEAR,
-                                    selectors,
-                                },
-                                error,
-                            );
-                        }
-                    }
-                }
+            }, tail @ ..] => {
+                return parse_schedule(*index, tail, selectors, error);
             }
             _ => {}
         }
+        nodes = tail;
+    }
+    (Line::OtherCommand { selectors }, error)
+}
+
+fn parse_schedule<'l>(
+    schedule_start: usize,
+    tail: &[ParsedNode],
+    selectors: Vec<usize>,
+    error: Option<CommandParserError<'l>>,
+) -> (Line, Option<CommandParserError<'l>>) {
+    match tail {
+        [ParsedNode::Literal {
+            literal: "function",
+            ..
+        }, ParsedNode::Argument {
+            argument: Argument::MinecraftFunction(function),
+            ..
+        }, ParsedNode::Argument {
+            argument: Argument::MinecraftTime(time),
+            ..
+        }, tail @ ..] => {
+            let operation = match tail {
+                [ParsedNode::Literal {
+                    literal: "append", ..
+                }] => ScheduleOperation::APPEND { time: time.clone() },
+                []
+                | [ParsedNode::Literal {
+                    literal: "replace", ..
+                }] => ScheduleOperation::REPLACE { time: time.clone() },
+                _ => return (Line::OtherCommand { selectors }, error),
+            };
+            return (
+                Line::Schedule {
+                    schedule_start,
+                    function: function.to_owned(),
+                    operation,
+                    selectors,
+                },
+                error,
+            );
+        }
+        [ParsedNode::Literal {
+            literal: "clear", ..
+        }, ParsedNode::Argument {
+            argument: Argument::BrigadierString(string),
+            ..
+        }] => {
+            // TODO Handle invalid characters in NamespacedName
+            if let Ok(function) = ResourceLocationRef::try_from(*string) {
+                return (
+                    Line::Schedule {
+                        schedule_start,
+                        function: function.to_owned(),
+                        operation: ScheduleOperation::CLEAR,
+                        selectors,
+                    },
+                    error,
+                );
+            }
+        }
+        _ => {}
     }
     (Line::OtherCommand { selectors }, error)
 }
