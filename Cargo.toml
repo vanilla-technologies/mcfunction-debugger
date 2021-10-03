@@ -1,10 +1,13 @@
 [package]
-name = "mcfunction-debugger"
-version = "0.1.0"
 authors = ["Adrodoc <adrodoc55@googlemail.com>", "skess42 <skagaros@gmail.com>"]
+categories = ["command-line-utilities", "development-tools::debugging"]
+description = "A debugger for Minecraft's *.mcfunction files that does not require any Minecraft mods"
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+keywords = ["datapack", "debugger", "mcfunction", "minecraft", "vanilla"]
+license = "GPL-3.0-or-later"
+name = "mcfunction-debugger"
+repository = "https://github.com/vanilla-technologies/mcfunction-debugger"
+version = "0.1.0"
 
 [dependencies]
 clap = "2"
