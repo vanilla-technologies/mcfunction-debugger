@@ -20,10 +20,7 @@ use clap::{crate_authors, crate_version, App, Arg};
 use log::LevelFilter;
 use mcfunction_debugger::generate_debug_datapack;
 use simple_logger::SimpleLogger;
-use std::{
-    io::{self},
-    path::Path,
-};
+use std::{io, path::Path};
 
 const INPUT_ARG: &str = "datapack";
 const OUTPUT_ARG: &str = "output";
