@@ -194,7 +194,7 @@ See the GNU General Public License for more details.
     let pack_mcmeta_path = input_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
 
-    generate_debug_datapack(input_path, namespace, output_path, shadow).await?;
+    generate_debug_datapack(input_path, output_path, namespace, shadow).await?;
 
     Ok(())
 }
@@ -205,15 +205,11 @@ fn parse_log_level(log_level: &str) -> Option<LevelFilter> {
 }
 
 async fn generate_debug_datapack(
-    input_datapack_path: &Path,
+    input_datapack_path: impl AsRef<Path>,
+    output_path: impl AsRef<Path>,
     namespace: &str,
-    output_path: &Path,
     shadow: bool,
 ) -> io::Result<()> {
-    let config = Config {
-        output_path,
-        shadow,
-    };
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let functions = find_function_files(input_datapack_path).await?;
@@ -245,18 +241,14 @@ async fn generate_debug_datapack(
         })
         .collect::<Result<HashMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error>>()?;
 
-    generate_output_datapack(&function_contents, namespace, &config).await
-}
-
-struct Config<'l> {
-    output_path: &'l Path,
-    shadow: bool,
+    let engine = TemplateEngine::new(HashMap::from_iter([("-ns-", namespace)]));
+    expand_templates(&engine, &function_contents, &output_path, shadow).await
 }
 
 async fn find_function_files(
-    datapack_path: &Path,
+    datapack_path: impl AsRef<Path>,
 ) -> Result<HashMap<ResourceLocation, PathBuf>, io::Error> {
-    let data_path = datapack_path.join("data");
+    let data_path = datapack_path.as_ref().join("data");
     let threads = data_path
         .read_dir()?
         .collect::<io::Result<Vec<_>>>()?
@@ -304,15 +296,15 @@ fn get_functions(
     })
 }
 
-async fn generate_output_datapack(
+async fn expand_templates(
+    engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
-    namespace: &str,
-    config: &Config<'_>,
+    output_path: impl AsRef<Path>,
+    shadow: bool,
 ) -> io::Result<()> {
-    let engine = TemplateEngine::new(HashMap::from_iter([("-ns-", namespace)]));
     try_join!(
-        expand_global_templates(&engine, function_contents, config),
-        expand_function_specific_templates(&engine, function_contents, config),
+        expand_global_templates(engine, function_contents, &output_path),
+        expand_function_specific_templates(engine, function_contents, &output_path, shadow),
     )?;
     Ok(())
 }
@@ -328,9 +320,9 @@ macro_rules! expand_template {
 async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
-    config: &Config<'_>,
+    output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
-    let output_path = config.output_path;
+    let output_path = output_path.as_ref();
 
     macro_rules! expand {
         ($p:literal) => {
@@ -435,12 +427,13 @@ async fn expand_schedule_template(
 async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
-    config: &Config<'_>,
+    output_path: impl AsRef<Path>,
+    shadow: bool,
 ) -> io::Result<()> {
     let call_tree = create_call_tree(&function_contents);
 
     try_join_all(function_contents.iter().map(|(fn_name, lines)| {
-        expand_function_templates(&engine, fn_name, lines, &call_tree, config)
+        expand_function_templates(&engine, fn_name, lines, &call_tree, &output_path, shadow)
     }))
     .await?;
 
@@ -471,7 +464,8 @@ async fn expand_function_templates(
     fn_name: &ResourceLocation,
     lines: &Vec<(usize, String, Line)>,
     call_tree: &MultiMap<&ResourceLocation, (&ResourceLocation, &usize)>,
-    config: &Config<'_>,
+    output_path: impl AsRef<Path>,
+    shadow: bool,
 ) -> io::Result<()> {
     let orig_fn = fn_name.path();
     let orig_fn_tag = orig_fn.replace('/', "_");
@@ -481,7 +475,7 @@ async fn expand_function_templates(
         ("-orig/fn-", orig_fn),
     ]);
 
-    let output_path = config.output_path;
+    let output_path = output_path.as_ref();
     let fn_dir = output_path.join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
     create_dir_all(&fn_dir).await?;
 
@@ -520,7 +514,7 @@ async fn expand_function_templates(
                 expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
                 expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
             ];
-            if config.shadow {
+            if shadow {
                 create_parent_dir(
                     output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")),
                 )
