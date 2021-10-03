@@ -70,7 +70,7 @@ fn remove_license_header_from_templates(out_dir: impl AsRef<Path>) {
     }
 }
 
-const DATAPACKS_PATH: &str = "src/tests/datapacks";
+const DATAPACKS_PATH: &str = "tests/datapacks";
 
 fn generate_tests(out_dir: impl AsRef<Path>) {
     let out_dir = out_dir.as_ref().join("tests");

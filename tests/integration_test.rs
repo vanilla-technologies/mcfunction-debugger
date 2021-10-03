@@ -1,20 +1,24 @@
-use super::*;
+use mcfunction_debugger::generate_debug_datapack;
 use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
 use serial_test::serial;
 use std::{
+    io,
+    path::Path,
     sync::atomic::{AtomicBool, AtomicI8, Ordering},
     time::Duration,
 };
 use tokio::{
+    fs::{create_dir_all, write},
     sync::OnceCell,
     time::{sleep, timeout},
+    try_join,
 };
 
 macro_rules! include_template {
     ( $path:expr) => {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/tests/datapacks/",
+            "/tests/datapacks/",
             $path
         ))
     };
