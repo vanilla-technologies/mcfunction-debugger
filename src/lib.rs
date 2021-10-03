@@ -45,14 +45,14 @@ use walkdir::WalkDir;
 
 /// Visible for testing only. This is a binary crate, it is not intended to be used as a library.
 pub async fn generate_debug_datapack(
-    input_datapack_path: impl AsRef<Path>,
+    input_path: impl AsRef<Path>,
     output_path: impl AsRef<Path>,
     namespace: &str,
     shadow: bool,
 ) -> io::Result<()> {
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let functions = find_function_files(input_datapack_path).await?;
+    let functions = find_function_files(input_path).await?;
     let function_contents = functions
         .iter()
         .map(|(name, path)| {
