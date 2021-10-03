@@ -73,10 +73,14 @@ fn remove_license_header_from_templates(out_dir: impl AsRef<Path>) {
 const DATAPACKS_PATH: &str = "tests/datapacks";
 
 fn generate_tests(out_dir: impl AsRef<Path>) {
+    let datapack_path = Path::new(DATAPACKS_PATH).join("mcfd_test");
+    if !datapack_path.is_dir() {
+        return;
+    }
+
     let out_dir = out_dir.as_ref().join("tests");
     create_dir_all(&out_dir).unwrap();
 
-    let datapack_path = Path::new(DATAPACKS_PATH).join("mcfd_test");
     for (namespace, tests) in find_tests(&datapack_path) {
         let path = out_dir.join(namespace).with_extension("rs");
         let mut contents = tests
