@@ -7,10 +7,10 @@
             "path": "src/datapack_template"
         },
         {
-            "path": "src/tests/datapacks/mcfd_test"
+            "path": "tests/datapacks/mcfd_test"
         },
         {
-            "path": "src/tests/datapacks/mcfd_tick"
+            "path": "tests/datapacks/mcfd_tick"
         }
     ]
 }
