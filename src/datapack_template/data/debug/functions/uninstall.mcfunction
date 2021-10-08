@@ -18,3 +18,4 @@
 
 function -ns-:uninstall
 scoreboard objectives remove -ns-_version
+datapack disable "file/-datapack-"

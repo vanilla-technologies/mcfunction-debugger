@@ -69,18 +69,22 @@ See the GNU General Public License for more details.
         ))
         .about("Generate debug datapacks that suspend on '# breakpoint' lines")
         .long_about(
-            "Debug your datapacks in three steps:\n\
+            "Debug your datapacks in five steps:\n\
             1. Add '# breakpoint' lines in your *.mcfunction files\n\
-            2. Generate a debug datapack and load it in Minecraft\n\
-            3. Start debugging any of your functions by executing the command \
-            /function debug:<your_namespace>/<your_function>",
+            2. Generate a debug datapack\n\
+            3. Load the debug datapack in Minecraft\n\
+            4. Start debugging any of your functions with: \
+            /function debug:<your_namespace>/<your_function>\n\
+            5. When finished, uninstall the debug datapack with: \
+            /function debug:uninstall",
         )
         .arg(
             Arg::with_name(INPUT_ARG)
                 .help("The input datapack directory.")
                 .long_help(
-                    "The datapack to generate a debug datapack for. \
-                    Must be a directory containing a pack.mcmeta file.",
+                    "The datapack to generate a debug datapack for. Must be a directory containing \
+                    a pack.mcmeta file, for example: \
+                    '%APPDATA%\\.minecraft\\saves\\Your-World\\datapacks\\my-datapack'.",
                 )
                 .long("input")
                 .value_name("DATAPACK")
@@ -108,8 +112,8 @@ See the GNU General Public License for more details.
                     "The namespace is used for all internal functions in the generated datapack \
                     and as a prefix for all scoreboard objectives and tags. By specifying a \
                     different namespace with max. 7 characters you can avoid name clashes. The \
-                    generated functions in the 'debug' namespace such as 'debug:install' and \
-                    'debug:resume' are unaffected by this option.",
+                    generated functions in the 'debug' namespace such as 'debug:resume' and \
+                    'debug:uninstall' are unaffected by this option.",
                 )
                 .long("namespace")
                 .value_name("STRING")
@@ -136,10 +140,11 @@ See the GNU General Public License for more details.
                     using this make sure to disable the input datapack to avoid name clashes.\n\n\
                     This can be helpful when executing a function from a command block, because \
                     you don't have to change the function call to debug the function. Note however \
-                    that calling a debug function inside an execute prevents the debugger to \
-                    suspend the execute. For example if the command 'execute as @e run function \
-                    my_namespace:my_function' hits a breakpoint in my_function if there is more \
-                    than one entity my_function will be called again, resulting in an error like: \
+                    that calling a debug function inside an execute command prevents the debugger \
+                    from suspending the execute command. For example, if the command \
+                    'execute as @e run function my_namespace:my_function' hits a breakpoint in \
+                    my_function and there is more than one entity, my_function will be called \
+                    again, resulting in an error like: \
                     'Cannot start debugging my_namespace:my_function, because a function is \
                     already suspended at a breakpoint!'",
                 )

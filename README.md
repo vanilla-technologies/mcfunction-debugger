@@ -1,41 +1,123 @@
+[![Minecraft: Java Edition 1.14.1 - 1.18.1](https://img.shields.io/badge/Minecraft%3A%20Java%20Edition-1.14.1%20--%201.18.1-informational)](https://www.minecraft.net/store/minecraft-java-edition)
+![Minecraft: Bedrock Edition unsupported](https://img.shields.io/badge/Minecraft%3A%20Bedrock%20Edition-unsupported-critical)\
+[![crates.io](https://img.shields.io/crates/v/mcfunction-debugger)](https://crates.io/crates/mcfunction-debugger)
+
 # mcfunction-debugger
 
 mcfunction-debugger is a debugger for Minecraft's *.mcfunction files that does not require any Minecraft mods.
 
-## Debug your datapack in three steps
+## Status
+
+This project has reached a minimum-viable product level of quality.
+It offers a command line interface but does not integrate with an editor.
+We already started implementing the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) to provide an extension for [Visual Studio Code](https://code.visualstudio.com/) which will also include additional features like stepping through the code and showing current scoreboard values, but this will take some time.
+
+## Usage
+
+You can debug any datapack with the following five steps:
 
 1. Add `# breakpoint` lines in your *.mcfunction files
-2. Generate a debug datapack and load it in Minecraft
-3. Start debugging any of your functions by executing the command `/function debug:<your_namespace>/<your_function>`
+2. Generate a debug datapack
+3. Load the debug datapack in Minecraft
+4. Start debugging any of your functions with: `/function debug:<your_namespace>/<your_function>`
+5. When finished, uninstall the debug datapack with: `/function debug:uninstall`
 
-## Generating a debug datapack
+A more detailed description can be found [here](docs/usage.md).
 
-Currently it is necessary to [install Rust](https://www.rust-lang.org/tools/install) and clone this reporsitory in order to generate a debug datapack.
-Executables for Windows, Linux and Mac will be provided with the first release.
+## Installation
 
-Build an executable for Windows with following command:
+### Using precompiled binaries
 
-`cargo build --release`
+Precompiled binaries are available under [releases](https://github.com/vanilla-technologies/mcfunction-debugger/releases).
+We recommend saving the `mcfunction-debugger` binary to Minecraft's `saves` directory for ease of use.
+On Windows this is located at `%APPDATA%\.minecraft\saves`.
 
-and run it with
+### Installing from source
 
-`mcfunction-debugger [FLAGS] [OPTIONS] --input <DATAPACK> --output <DATAPACK>`
+mcfunction-debugger is written in Rust so to build it from source you need to [install Rust](https://www.rust-lang.org/tools/install).
 
-### Flags
+You can then install it from [crates.io](https://crates.io/crates/mcfunction-debugger) by running:
+```
+cargo install mcfunction-debugger
+```
 
-* `shadow`: When this is set to true the generated datapack will additionally contain functions with the same name as the functions in the input datapack.
-These functions will simply forward to the appropriate function in the `debug` namespace. When using this make sure to disable the input datapack to avoid name clashes.\
-\
-This can be helpful when executing a function from a command block, because you don't have to change the function call to debug the function. Note however that calling a debug function inside an execute prevents the debugger to suspend the execute. For example if the command `execute as @e run function my_namespace:my_function` hits a breakpoint in my_function if there is more than one entity my_function will be called again, resulting in an error like: "Cannot start debugging my_namespace:my_function, because a function is already suspended at a breakpoint!".
+Or from GitHub by running:
+```
+cargo install --git https://github.com/vanilla-technologies/mcfunction-debugger.git
+```
 
+To uninstall run:
+```
+cargo uninstall mcfunction-debugger
+```
 
-### Options
+## Planned features
 
-* `input`: The datapack to generate a debug datapack for. This has to be a directory containing a `pack.mcmeta` file.
-* `log-level`: The log level can also be configured via the environment variable `LOG_LEVEL`.
-* `namespace`: The internal namespace of the generated datapack.\
-Default value: `mcfd`.\
-The namespace is used for all internal functions in the generated datapack and as a prefix for all scoreboard objectives and tags. By specifying a different namespace with max. 7 characters you can avoid name clashes. The generated functions in the `debug` namespace such as `debug:install` and `debug:resume` are unaffected by this option.
-* `output`: The directory that should become the generated debug datapack.
-On Windows this is typically a directory in the datapacks directory of your world, for example: \
-`%APPDATA%\.minecraft\\saves\\Your-World\\datapacks\\debug-my-datapack`
+These features are planned, but not yet implemented:
+
+* Support function tags [#12](https://github.com/vanilla-technologies/mcfunction-debugger/issues/12)
+* Allow users to supply a `commands.json` file for newer or older versions of Minecraft [#42](https://github.com/vanilla-technologies/mcfunction-debugger/issues/42)
+* Freezing the `gametime` while suspended [#18](https://github.com/vanilla-technologies/mcfunction-debugger/issues/18)
+* Freezing the age of all entities while suspended (this is currently only done for area_effect_clouds) [#24](https://github.com/vanilla-technologies/mcfunction-debugger/issues/24)
+* Support debugging multiple datapacks at once [#9](https://github.com/vanilla-technologies/mcfunction-debugger/issues/9)
+* Support debugging `load.json` and `tick.json` [#8](https://github.com/vanilla-technologies/mcfunction-debugger/issues/8)
+* Support storing the `result`/`success` of a `function` command with `execute store` [#11](https://github.com/vanilla-technologies/mcfunction-debugger/issues/11)
+* Setting `randomTickSpeed` to 0 while suspended [#14](https://github.com/vanilla-technologies/mcfunction-debugger/issues/14)
+
+## Caveats
+
+Unfortunately a program can always behave slightly differently when being debugged.
+Here are some problems you might encounter with mcfunction-debugger.
+
+### Operating on Dead Entities
+
+In a Minecraft function you can kill an entity and then continue using it.
+For example, consider the following datapack:
+
+`example:sacrifice_pig`:
+```
+summon pig ~ ~ ~ {Tags: [sacrifice]}
+execute as @e[type=pig,tag=sacrifice] run function example:perform_necromancy
+```
+
+`example:perform_necromancy`:
+```
+say I am still alive
+function example:kill_me
+say I am dead inside
+```
+
+`example:kill_me`:
+```
+kill @s
+```
+
+After the function `example:kill_me` is executed the pig is dead, yet it speaks to us from the other side.
+This cannot be handled by the debugger.
+If you try to debug the function `example:sacrifice_pig` it will crash:
+```
+[Pig] I am still alive
+Selected entity was killed!
+Start a new debugging session with '/function debug:<your_namespace>/<your_function>'
+Executed 145 commands from function 'debug:example/sacrifice_pig'
+```
+
+### Hitting the Maximum Command Chain Length
+
+By default Minecraft only executes up to 65536 commands per tick.
+Since the debug datapack needs to run many commands in addition to the commands of your datapack, you might hit this limit when debugging a very large datapack.
+You can tell by looking at how many commands where executed from the function.
+When you see something like:
+```
+Executed 65536 commands from function 'debug:resume'
+```
+You should stop the debug session with `/function debug:stop` and add more breakpoints to avoid running so many commands at once or increase the command limit with:
+```
+/gamerule maxCommandChainLength 2147483647
+```
+
+### Chunkloading
+
+If a chunk that contains an entity required for debugging is unloaded, while a function is suspended on a breakpoint, the debug session will crash, if you try to resume the execution.
+
+This can for example happen if you go far away or if the function operates in a chunk that is only loaded temporarily (for instance by a `teleport` command or by going through a portal).

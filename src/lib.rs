@@ -32,6 +32,7 @@ use multimap::MultiMap;
 use parser::command::{resource_location::ResourceLocation, CommandParser};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    ffi::OsStr,
     fs::File,
     io::{self, BufRead},
     iter::{repeat, FromIterator},
@@ -54,7 +55,15 @@ pub async fn generate_debug_datapack(
     let functions = find_function_files(input_path).await?;
     let function_contents = parse_functions(&functions).await?;
 
-    let engine = TemplateEngine::new(HashMap::from_iter([("-ns-", namespace)]));
+    let output_name = output_path
+        .as_ref()
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or_default();
+    let engine = TemplateEngine::new(HashMap::from_iter([
+        ("-ns-", namespace),
+        ("-datapack-", output_name),
+    ]));
     expand_templates(&engine, &function_contents, &output_path, shadow).await
 }
 

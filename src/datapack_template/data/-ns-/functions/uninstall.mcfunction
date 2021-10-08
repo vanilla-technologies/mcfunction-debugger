@@ -31,3 +31,5 @@ scoreboard objectives remove -ns-_constant
 
 function -ns-:id/uninstall
 kill @e[tag=-ns-]
+
+tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Datapack '-datapack-' was uninstalled."}]
