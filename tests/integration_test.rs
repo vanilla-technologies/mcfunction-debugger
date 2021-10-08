@@ -191,6 +191,7 @@ async fn run_test(
     ];
     enable_appropriate_datapacks(&mut commands, after_age_increment, debug);
     if after_age_increment {
+        commands.push("reload".to_string());
         commands.push("scoreboard players set tick test_global 1".to_string());
     } else {
         commands.push(format!("schedule function {} 1", test_fn));
