@@ -16,11 +16,11 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players set resume_success -ns-_global 1
-
-scoreboard players reset continue_success -ns-_global
-execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run scoreboard players set continue_success -ns-_global 1
-execute unless score continue_success -ns-_global matches 1 run tellraw @a [{"text":"Debugger context entity was killed!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"red"}]
-execute unless score continue_success -ns-_global matches 1 run function -ns-:clean_up
+scoreboard players reset found_context -ns-_global
+execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run scoreboard players set found_context -ns-_global 1
+execute unless score found_context -ns-_global matches 1 run tellraw @a [{"text":"Debugger context entity was killed!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"red"}]
+execute unless score found_context -ns-_global matches 1 run function -ns-:clean_up
 
 execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/-line_number-_continue
+
+scoreboard players set found_continue_function -ns-_global 1

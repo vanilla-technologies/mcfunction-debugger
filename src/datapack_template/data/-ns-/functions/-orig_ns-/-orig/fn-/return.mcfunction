@@ -18,9 +18,12 @@
 
 scoreboard players operation current -ns-_anchor = @s -ns-_anchor
 scoreboard players remove current -ns-_depth 1
+scoreboard players reset found_continue_function -ns-_global
 
 tag @s remove -ns-_active
 
 # -return_cases-
 
-kill @s
+execute if score found_continue_function -ns-_global matches 1 run kill @s
+execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text": "Function call at ","color": "red"},{"selector":"@s","color": "red"},{"text": " was deleted!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color": "red"}]
+execute unless score found_continue_function -ns-_global matches 1 run function -ns-:clean_up

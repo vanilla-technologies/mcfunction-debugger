@@ -16,10 +16,10 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players reset resume_success -ns-_global
+scoreboard players reset found_continue_function -ns-_global
 
 # -resume_cases-
 
-execute unless score resume_success -ns-_global matches 1 run tellraw @a [{"text": "Breakpoint ","color": "red"},{"selector":"@s","color": "red"},{"text": " was deleted!\nYou can either restore this breakpoint or stop the current debugging session with ","color": "red"}, {"text": "/function debug:stop","clickEvent": {"action": "suggest_command","value": "/function debug:stop"},"color": "aqua"}]
-execute if score resume_success -ns-_global matches 1 run kill @s
-execute unless score resume_success -ns-_global matches 1 run scoreboard players set breakpoint -ns-_global 1
+execute if score found_continue_function -ns-_global matches 1 run kill @s
+execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text": "Breakpoint at ","color": "red"},{"selector":"@s","color": "red"},{"text": " was deleted!\nYou can either restore this breakpoint or stop the current debugging session with ","color": "red"}, {"text": "/function debug:stop","clickEvent": {"action": "suggest_command","value": "/function debug:stop"},"color": "aqua"}]
+execute unless score found_continue_function -ns-_global matches 1 run scoreboard players set breakpoint -ns-_global 1
