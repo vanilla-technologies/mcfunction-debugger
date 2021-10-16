@@ -419,7 +419,7 @@ async fn expand_function_templates(
         expand_template!(
             engine.extend([("# -return_cases-", return_cases.as_str())]),
             output_path,
-            "data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"
+            "data/-ns-/functions/-orig_ns-/-orig/fn-/return_self.mcfunction"
         )
         .await?;
     }
