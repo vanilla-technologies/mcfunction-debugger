@@ -181,6 +181,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/id/init_self.mcfunction"),
         expand!("data/-ns-/functions/id/install.mcfunction"),
         expand!("data/-ns-/functions/id/uninstall.mcfunction"),
+        expand!("data/-ns-/functions/animate_context.mcfunction"),
         expand!("data/-ns-/functions/clean_up.mcfunction"),
         expand!("data/-ns-/functions/decrement_age.mcfunction"),
         expand!("data/-ns-/functions/freeze_aec.mcfunction"),

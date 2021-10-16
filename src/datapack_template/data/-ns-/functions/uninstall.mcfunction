@@ -23,5 +23,8 @@ scoreboard objectives remove -ns-_anchor
 scoreboard objectives remove -ns-_depth
 scoreboard objectives remove -ns-_global
 scoreboard objectives remove -ns-_tmp
+
+scoreboard objectives remove -ns-_constant
+
 function -ns-:id/uninstall
 kill @e[tag=-ns-]

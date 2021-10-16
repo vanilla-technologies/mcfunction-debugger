@@ -24,4 +24,8 @@ scoreboard objectives add -ns-_anchor dummy
 scoreboard objectives add -ns-_depth dummy
 scoreboard objectives add -ns-_global dummy
 scoreboard objectives add -ns-_tmp dummy
+
+scoreboard objectives add -ns-_constant dummy
+scoreboard players set 88 -ns-_constant 88
+
 function -ns-:id/install

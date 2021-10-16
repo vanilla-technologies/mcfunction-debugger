@@ -16,6 +16,8 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
+execute if score breakpoint -ns-_global matches 1 at @e[type=area_effect_cloud,tag=-ns-_breakpoint] run function -ns-:animate_context
+
 execute if score tick_resume -ns-_global matches 1 run function -ns-:resume_immediately
 scoreboard players reset tick_resume -ns-_global
 
