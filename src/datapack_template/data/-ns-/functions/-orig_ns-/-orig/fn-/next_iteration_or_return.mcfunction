@@ -20,7 +20,7 @@ execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active] if score 
 execute as @e[type=area_effect_cloud,tag=-ns-_tmp,limit=1] run tag @s add -ns-_current
 
 # If there is no entity with -ns-_tmp, we return.
-execute unless entity @e[type=area_effect_cloud,tag=-ns-_tmp] run function -ns-:-orig_ns-/-orig/fn-/return
+execute unless entity @e[type=area_effect_cloud,tag=-ns-_tmp] run function -ns-:-orig_ns-/-orig/fn-/return_or_finish
 
 tag @e[type=area_effect_cloud] remove -ns-_tmp
 

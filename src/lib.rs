@@ -395,12 +395,16 @@ async fn expand_function_templates(
         .await?;
     }
 
-    expand_template!(
-        engine,
-        output_path,
-        "data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"
-    )
-    .await?;
+    macro_rules! expand {
+        ($p:literal) => {
+            expand_template!(engine, output_path, $p)
+        };
+    }
+
+    try_join!(
+        expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"),
+        expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return_or_finish.mcfunction"),
+    )?;
 
     if let Some(callers) = call_tree.get_vec(fn_name) {
         let return_cases = callers
