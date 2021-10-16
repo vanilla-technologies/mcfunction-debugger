@@ -16,10 +16,9 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players reset found_context -ns-_global
-execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run scoreboard players set found_context -ns-_global 1
-execute unless score found_context -ns-_global matches 1 run tellraw @a [{"text":"Debugger context entity was killed!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"red"}]
-execute unless score found_context -ns-_global matches 1 run function -ns-:clean_up
-execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/-line_number-_continue
-
-scoreboard players set found_continue_function -ns-_global 1
+scoreboard players reset found_function_call -ns-_global
+execute if score current -ns-_depth matches 0 run scoreboard players set found_function_call -ns-_global 1
+execute as @e[type=area_effect_cloud,tag=-ns-_function_call,tag=-ns-_active] if score @s -ns-_depth = current -ns-_depth run scoreboard players set found_function_call -ns-_global 1
+execute unless score found_function_call -ns-_global matches 1 run tellraw @a [{"text":"Debugger function call entity was killed!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"red"}]
+execute unless score found_function_call -ns-_global matches 1 run function -ns-:clean_up
+execute as @e[type=area_effect_cloud,tag=-ns-_function_call,tag=-ns-_active] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/return_self

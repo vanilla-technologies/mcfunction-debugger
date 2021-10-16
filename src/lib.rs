@@ -363,9 +363,7 @@ async fn expand_function_templates(
             }
             try_join_all(futures).await?;
         } else {
-            expand_template!(
-                engine,
-                output_path,
+            expand!(
                 "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue_current_iteration.mcfunction"
             )
             .await?;
@@ -396,6 +394,13 @@ async fn expand_function_templates(
         )
         .await?;
     }
+
+    expand_template!(
+        engine,
+        output_path,
+        "data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"
+    )
+    .await?;
 
     if let Some(callers) = call_tree.get_vec(fn_name) {
         let return_cases = callers
