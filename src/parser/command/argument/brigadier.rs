@@ -47,7 +47,7 @@ pub fn is_quote(c: char) -> bool {
     c == '"' || c == '\''
 }
 
-pub fn parse_string_until(string: &str, terminator: char) -> Result<(&str, usize), String> {
+fn parse_string_until(string: &str, terminator: char) -> Result<(&str, usize), String> {
     let index = find_unescaped(string, terminator).ok_or("Unclosed quoted string".to_string())?;
     Ok((&string[..index], index + terminator.len_utf8()))
 }
@@ -87,6 +87,18 @@ fn is_allowed_in_unquoted_string(c: char) -> bool {
         || c == '-'
         || c == '.'
         || c == '_';
+}
+
+pub fn parse_bool(string: &str) -> Result<(bool, usize), String> {
+    let (string, len) = parse_unquoted_string(string);
+    match string {
+        "false" => Ok((false, len)),
+        "true" => Ok((true, len)),
+        string => Err(format!(
+            "Invalid bool, expected true or false but found '{}'",
+            string
+        )),
+    }
 }
 
 pub fn parse_double(string: &str) -> Result<(f64, usize), String> {

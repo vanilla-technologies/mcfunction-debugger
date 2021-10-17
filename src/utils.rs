@@ -16,8 +16,16 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-pub mod block;
-pub mod coordinate;
-pub mod entity;
-pub mod nbt;
-pub mod range;
+pub trait Map0<T0, R0> {
+    type Output;
+
+    fn map0<F: Fn(T0) -> R0>(self, map: F) -> Self::Output;
+}
+
+impl<T0, T1, R0> Map0<T0, R0> for (T0, T1) {
+    type Output = (R0, T1);
+
+    fn map0<F: Fn(T0) -> R0>(self, map: F) -> Self::Output {
+        (map(self.0), self.1)
+    }
+}

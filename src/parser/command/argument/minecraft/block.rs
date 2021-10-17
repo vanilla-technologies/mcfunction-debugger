@@ -20,7 +20,6 @@ use crate::parser::command::{
     argument::{
         brigadier::{expect, parse_possibly_quoted_string},
         minecraft::nbt::CompoundNbt,
-        parse_minecraft_resource_location,
     },
     resource_location::ResourceLocationRef,
 };
@@ -43,7 +42,7 @@ impl<'l> MinecraftBlockPredicate<'l> {
         let tag_len = if tag { '#'.len_utf8() } else { 0 };
         let suffix = &suffix[tag_len..];
 
-        let (block, block_len) = parse_minecraft_resource_location(suffix)?;
+        let (block, block_len) = ResourceLocationRef::parse(suffix)?;
         let suffix = &suffix[block_len..];
 
         let (properties, properties_len) = parse_properties(suffix)?;

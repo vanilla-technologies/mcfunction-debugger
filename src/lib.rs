@@ -21,6 +21,7 @@ mod macros;
 
 mod parser;
 mod template_engine;
+mod utils;
 
 use crate::{
     parser::{parse_line, Line},

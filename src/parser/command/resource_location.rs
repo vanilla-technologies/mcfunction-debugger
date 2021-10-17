@@ -16,11 +16,11 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use std::{convert::TryFrom, fmt::Display};
+use std::{convert::TryFrom, fmt::Display, hash::Hash};
 
 pub type ResourceLocation = ResourceLocationRef<String>;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq)]
 pub struct ResourceLocationRef<S: AsRef<str>> {
     string: S,
     namespace_len: usize,
@@ -36,16 +36,21 @@ impl<'l> TryFrom<&'l str> for ResourceLocationRef<&'l str> {
     type Error = InvalidResourceLocation;
 
     fn try_from(string: &'l str) -> Result<Self, Self::Error> {
-        let (namespace, path) = string.split_once(':').unwrap_or(("minecraft", string));
+        let (path, namespace_len) = if let Some((namespace, path)) = string.split_once(':') {
+            if !namespace.chars().all(is_valid_namespace_char) {
+                return Err(InvalidResourceLocation::InvalidNamespace);
+            }
+            (path, namespace.len())
+        } else {
+            (string, usize::MAX)
+        };
 
-        if !namespace.chars().all(is_valid_namespace_char) {
-            Err(InvalidResourceLocation::InvalidNamespace)
-        } else if !path.chars().all(is_valid_path_char) {
+        if !path.chars().all(is_valid_path_char) {
             Err(InvalidResourceLocation::InvalidPath)
         } else {
             Ok(ResourceLocationRef {
                 string,
-                namespace_len: namespace.len(),
+                namespace_len,
             })
         }
     }
@@ -68,11 +73,19 @@ impl<S: AsRef<str>> ResourceLocationRef<S> {
     }
 
     pub fn namespace(&self) -> &str {
-        &self.string.as_ref()[..self.namespace_len]
+        if self.namespace_len == usize::MAX {
+            "minecraft"
+        } else {
+            &self.string.as_ref()[..self.namespace_len]
+        }
     }
 
     pub fn path(&self) -> &str {
-        &self.string.as_ref()[self.namespace_len + 1..]
+        if self.namespace_len == usize::MAX {
+            self.string.as_ref()
+        } else {
+            &self.string.as_ref()[self.namespace_len + 1..]
+        }
     }
 
     pub fn to_owned(&self) -> ResourceLocation {
@@ -80,6 +93,44 @@ impl<S: AsRef<str>> ResourceLocationRef<S> {
             string: self.string.as_ref().to_owned(),
             namespace_len: self.namespace_len,
         }
+    }
+}
+
+impl<S: AsRef<str>> PartialEq for ResourceLocationRef<S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.namespace() == other.namespace() && self.path() == other.path()
+    }
+}
+
+impl<S: AsRef<str>> Hash for ResourceLocationRef<S> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.namespace().hash(state);
+        self.path().hash(state);
+    }
+}
+
+impl<'l> ResourceLocationRef<&'l str> {
+    pub fn parse(string: &'l str) -> Result<(Self, usize), String> {
+        const INVALID_ID: &str = "Invalid ID";
+
+        let len = string
+            .find(|c| !Self::is_allowed_in_resource_location(c))
+            .unwrap_or(string.len());
+        let resource_location = &string[..len];
+
+        let resource_location =
+            ResourceLocationRef::try_from(resource_location).map_err(|_| INVALID_ID.to_string())?;
+        Ok((resource_location, len))
+    }
+
+    fn is_allowed_in_resource_location(c: char) -> bool {
+        return c >= '0' && c <= '9'
+            || c >= 'a' && c <= 'z'
+            || c == '-'
+            || c == '.'
+            || c == '/'
+            || c == ':'
+            || c == '_';
     }
 }
 

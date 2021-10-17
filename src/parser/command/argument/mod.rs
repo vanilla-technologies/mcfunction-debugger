@@ -23,18 +23,22 @@ use self::{
     brigadier::{parse_unquoted_string, BrigadierStringType},
     minecraft::{
         coordinate::{MinecraftBlockPos, MinecraftRotation, MinecraftVec3},
+        entity::{MinecraftSelector, MinecraftSelectorParserError},
         nbt::MinecraftNbtPath,
+        range::MinecraftRange,
     },
 };
-use crate::parser::command::{
-    argument::minecraft::block::MinecraftBlockPredicate, resource_location::ResourceLocationRef,
+use crate::{
+    parser::command::{
+        argument::minecraft::{block::MinecraftBlockPredicate, entity::MinecraftEntity},
+        resource_location::ResourceLocationRef,
+    },
+    utils::Map0,
 };
 use serde::{Deserialize, Serialize};
-use std::{convert::TryFrom, fmt::Display, u32, usize};
+use std::{u32, usize};
 
 type MinecraftDimension<'l> = ResourceLocationRef<&'l str>;
-
-type MinecraftEntity = ();
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MinecraftEntityAnchor {
@@ -44,16 +48,10 @@ pub enum MinecraftEntityAnchor {
 
 type MinecraftFunction<'l> = ResourceLocationRef<&'l str>;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MinecraftIntRange {
-    pub min: Option<i32>,
-    pub max: Option<i32>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MinecraftMessage<'l> {
     pub message: &'l str,
-    pub selectors: Vec<(MinecraftSelector, usize, usize)>,
+    pub selectors: Vec<(MinecraftSelector<'l>, usize, usize)>,
 }
 
 type MinecraftObjective<'l> = &'l str;
@@ -73,14 +71,12 @@ pub enum MinecraftOperation {
 
 type MinecraftResourceLocation<'l> = ResourceLocationRef<&'l str>;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MinecraftScoreHolder<'l> {
-    Selector(MinecraftSelector),
+    Selector(MinecraftSelector<'l>),
     Wildcard,
     String(&'l str),
 }
-
-type MinecraftSelector = ();
 
 type MinecraftSwizzle = ();
 
@@ -123,10 +119,10 @@ pub enum Argument<'l> {
     MinecraftBlockPos(MinecraftBlockPos),
     MinecraftBlockPredicate(MinecraftBlockPredicate<'l>),
     MinecraftDimension(MinecraftDimension<'l>),
-    MinecraftEntity(MinecraftEntity),
+    MinecraftEntity(MinecraftEntity<'l>),
     MinecraftEntityAnchor(MinecraftEntityAnchor),
     MinecraftFunction(MinecraftFunction<'l>),
-    MinecraftIntRange(MinecraftIntRange),
+    MinecraftIntRange(MinecraftRange<i32>),
     MinecraftMessage(MinecraftMessage<'l>),
     MinecraftNbtPath(MinecraftNbtPath<'l>),
     MinecraftObjective(MinecraftObjective<'l>),
@@ -273,105 +269,69 @@ impl ArgumentParser {
 
     pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, usize), String> {
         match self {
-            ArgumentParser::BrigadierDouble => {
-                let (argument, len) = brigadier::parse_double(string)?;
-                Ok((Argument::BrigadierDouble(argument), len))
+            Self::BrigadierDouble => {
+                brigadier::parse_double(string).map(|it| it.map0(Argument::BrigadierDouble))
             }
-            ArgumentParser::BrigadierString { type_ } => {
-                let (argument, len) = brigadier::parse_string(string, *type_)?;
-                Ok((Argument::BrigadierString(argument), len))
+            Self::BrigadierString { type_ } => {
+                brigadier::parse_string(string, *type_).map(|it| it.map0(Argument::BrigadierString))
             }
-            ArgumentParser::MinecraftBlockPos => {
-                let (argument, len) = MinecraftBlockPos::parse(string)?;
-                Ok((Argument::MinecraftBlockPos(argument), len))
+            Self::MinecraftBlockPos => {
+                MinecraftBlockPos::parse(string).map(|it| it.map0(Argument::MinecraftBlockPos))
             }
-            ArgumentParser::MinecraftBlockPredicate => {
-                let (argument, len) = MinecraftBlockPredicate::parse(string)?;
-                Ok((Argument::MinecraftBlockPredicate(argument), len))
+            Self::MinecraftBlockPredicate => MinecraftBlockPredicate::parse(string)
+                .map(|it| it.map0(Argument::MinecraftBlockPredicate)),
+            Self::MinecraftDimension => {
+                MinecraftDimension::parse(string).map(|it| it.map0(Argument::MinecraftDimension))
             }
-            ArgumentParser::MinecraftDimension => {
-                let (argument, len) = parse_minecraft_dimension(string)?;
-                Ok((Argument::MinecraftDimension(argument), len))
+            Self::MinecraftEntity { .. } => {
+                MinecraftEntity::parse(string).map(|it| it.map0(Argument::MinecraftEntity))
             }
-            ArgumentParser::MinecraftEntity { .. } => {
-                let (argument, len) = parse_minecraft_entity(string)?;
-                Ok((Argument::MinecraftEntity(argument), len))
+            Self::MinecraftEntityAnchor => parse_minecraft_entity_anchor(string)
+                .map(|it| it.map0(Argument::MinecraftEntityAnchor)),
+            Self::MinecraftFunction => {
+                MinecraftFunction::parse(string).map(|it| it.map0(Argument::MinecraftFunction))
             }
-            ArgumentParser::MinecraftEntityAnchor => {
-                let (argument, len) = parse_minecraft_entity_anchor(string)?;
-                Ok((Argument::MinecraftEntityAnchor(argument), len))
+            Self::MinecraftIntRange => {
+                MinecraftRange::parse(string).map(|it| it.map0(Argument::MinecraftIntRange))
             }
-            ArgumentParser::MinecraftFunction => {
-                let (argument, len) = parse_minecraft_function(string)?;
-                Ok((Argument::MinecraftFunction(argument), len))
+            Self::MinecraftMessage => {
+                parse_minecraft_message(string).map(|it| it.map0(Argument::MinecraftMessage))
             }
-            ArgumentParser::MinecraftIntRange => {
-                let (argument, len) = parse_minecraft_int_range(string)?;
-                Ok((Argument::MinecraftIntRange(argument), len))
+            Self::MinecraftNbtPath => {
+                MinecraftNbtPath::parse(string).map(|it| it.map0(Argument::MinecraftNbtPath))
             }
-            ArgumentParser::MinecraftMessage => {
-                let (argument, len) = parse_minecraft_message(string)?;
-                Ok((Argument::MinecraftMessage(argument), len))
+            Self::MinecraftObjective => {
+                parse_minecraft_objective(string).map(|it| it.map0(Argument::MinecraftObjective))
             }
-            ArgumentParser::MinecraftNbtPath => {
-                let (argument, len) = MinecraftNbtPath::parse(string)?;
-                Ok((Argument::MinecraftNbtPath(argument), len))
+            Self::MinecraftOperation => {
+                parse_minecraft_operation(string).map(|it| it.map0(Argument::MinecraftOperation))
             }
-            ArgumentParser::MinecraftObjective => {
-                let (argument, len) = parse_minecraft_objective(string)?;
-                Ok((Argument::MinecraftObjective(argument), len))
+            Self::MinecraftResourceLocation => MinecraftResourceLocation::parse(string)
+                .map(|it| it.map0(Argument::MinecraftResourceLocation)),
+            Self::MinecraftRotation => {
+                MinecraftRotation::parse(string).map(|it| it.map0(Argument::MinecraftRotation))
             }
-            ArgumentParser::MinecraftOperation => {
-                let (argument, len) = parse_minecraft_operation(string)?;
-                Ok((Argument::MinecraftOperation(argument), len))
+            Self::MinecraftScoreHolder { .. } => parse_minecraft_score_holder(string)
+                .map(|it| it.map0(Argument::MinecraftScoreHolder)),
+            Self::MinecraftSwizzle => {
+                parse_minecraft_swizzle(string).map(|it| it.map0(Argument::MinecraftSwizzle))
             }
-            ArgumentParser::MinecraftResourceLocation => {
-                let (argument, len) = parse_minecraft_resource_location(string)?;
-                Ok((Argument::MinecraftResourceLocation(argument), len))
-            }
-            ArgumentParser::MinecraftRotation => {
-                let (argument, len) = MinecraftRotation::parse(string)?;
-                Ok((Argument::MinecraftRotation(argument), len))
-            }
-            ArgumentParser::MinecraftScoreHolder { .. } => {
-                let (argument, len) = parse_minecraft_score_holder(string)?;
-                Ok((Argument::MinecraftScoreHolder(argument), len))
-            }
-            ArgumentParser::MinecraftSwizzle => {
-                let (argument, len) = parse_minecraft_swizzle(string)?;
-                Ok((Argument::MinecraftSwizzle(argument), len))
+            Self::MinecraftTime => {
+                parse_minecraft_time(string).map(|it| it.map0(Argument::MinecraftTime))
             }
             ArgumentParser::MinecraftTeam => {
-                let (argument, len) = parse_minecraft_team(string)?;
-                Ok((Argument::MinecraftTeam(argument), len))
+                parse_minecraft_team(string).map(|it| it.map0(Argument::MinecraftTeam))
             }
-            ArgumentParser::MinecraftTime => {
-                let (argument, len) = parse_minecraft_time(string)?;
-                Ok((Argument::MinecraftTime(argument), len))
+            Self::MinecraftVec3 => {
+                MinecraftVec3::parse(string).map(|it| it.map0(Argument::MinecraftVec3))
             }
-            ArgumentParser::MinecraftVec3 => {
-                let (argument, len) = MinecraftVec3::parse(string)?;
-                Ok((Argument::MinecraftVec3(argument), len))
-            }
-            ArgumentParser::Unknown => {
-                let (argument, len) = parse_unknown(string)?;
-                Ok((Argument::Unknown(argument), len))
-            }
+            Self::Unknown => parse_unknown(string).map(|it| it.map0(Argument::Unknown)),
             _ => Err(format!(
                 "Unsupported argument type: {}",
                 self.name().unwrap_or_default()
             )),
         }
     }
-}
-
-fn parse_minecraft_dimension(string: &str) -> Result<(MinecraftDimension, usize), String> {
-    parse_minecraft_resource_location(string)
-}
-
-// TODO support for player name and UUID
-fn parse_minecraft_entity(string: &str) -> Result<(MinecraftEntity, usize), String> {
-    parse_minecraft_selector(string).map_err(Into::into)
 }
 
 fn parse_minecraft_entity_anchor(string: &str) -> Result<(MinecraftEntityAnchor, usize), String> {
@@ -386,70 +346,12 @@ fn parse_minecraft_entity_anchor(string: &str) -> Result<(MinecraftEntityAnchor,
     }
 }
 
-fn parse_minecraft_function(string: &str) -> Result<(MinecraftFunction, usize), String> {
-    parse_minecraft_resource_location(string)
-}
-
-fn parse_minecraft_int_range(string: &str) -> Result<(MinecraftIntRange, usize), String> {
-    const EMPTY: &str = "Expected value or range of values";
-    const SEPERATOR: &str = "..";
-
-    fn is_allowed_number(c: char) -> bool {
-        c >= '0' && c <= '9' || c == '-'
-    }
-
-    fn number_len(string: &str) -> usize {
-        let mut index = 0;
-        loop {
-            let suffix = &string[index..];
-            index += suffix
-                .find(|c| !is_allowed_number(c))
-                .unwrap_or(suffix.len());
-            let suffix = &string[index..];
-            if suffix.starts_with('.') && !suffix.starts_with(SEPERATOR) {
-                index += '.'.len_utf8();
-            } else {
-                break index;
-            }
-        }
-    }
-
-    fn parse_i32(string: &str) -> Result<Option<i32>, String> {
-        if string.is_empty() {
-            Ok(None)
-        } else {
-            string
-                .parse()
-                .map(Some)
-                .map_err(|_| format!("Invalid integer '{}'", string))
-        }
-    }
-
-    let min_len = number_len(string);
-    let (min, suffix) = string.split_at(min_len);
-    let min = parse_i32(min)?;
-
-    let (max, len) = if let Some(suffix) = suffix.strip_prefix(SEPERATOR) {
-        let max_len = number_len(suffix);
-        let max = parse_i32(&suffix[..max_len])?;
-        (max, min_len + SEPERATOR.len() + max_len)
-    } else {
-        (min, min_len)
-    };
-
-    if min.is_none() && max.is_none() {
-        Err(EMPTY.to_string())
-    } else {
-        Ok((MinecraftIntRange { min, max }, len))
-    }
-}
-
 fn parse_minecraft_message(message: &str) -> Result<(MinecraftMessage, usize), String> {
     let mut index = 0;
     let mut selectors = Vec::new();
     while let Some(i) = &message[index..].find('@') {
         index += i;
-        match parse_minecraft_selector(&message[index..]) {
+        match MinecraftSelector::parse(&message[index..]) {
             Ok((selector, len)) => {
                 selectors.push((selector, index, index + len));
                 index += len;
@@ -487,34 +389,9 @@ fn parse_minecraft_operation(string: &str) -> Result<(MinecraftOperation, usize)
     }
 }
 
-fn parse_minecraft_resource_location(
-    string: &str,
-) -> Result<(MinecraftResourceLocation, usize), String> {
-    const INVALID_ID: &str = "Invalid ID";
-
-    let len = string
-        .find(|c| !is_allowed_in_resource_location(c))
-        .unwrap_or(string.len());
-    let resource_location = &string[..len];
-
-    let resource_location =
-        ResourceLocationRef::try_from(resource_location).map_err(|_| INVALID_ID.to_string())?;
-    Ok((resource_location, len))
-}
-
-fn is_allowed_in_resource_location(c: char) -> bool {
-    return c >= '0' && c <= '9'
-        || c >= 'a' && c <= 'z'
-        || c == '-'
-        || c == '.'
-        || c == '/'
-        || c == ':'
-        || c == '_';
-}
-
 fn parse_minecraft_score_holder(string: &str) -> Result<(MinecraftScoreHolder, usize), String> {
     if string.starts_with('@') {
-        let (selector, len) = parse_minecraft_selector(string)?;
+        let (selector, len) = MinecraftSelector::parse(string)?;
         Ok((MinecraftScoreHolder::Selector(selector), len))
     } else {
         let len = string.find(' ').unwrap_or(string.len());
@@ -568,60 +445,4 @@ fn parse_unknown(string: &str) -> Result<(&str, usize), String> {
     // Best effort
     let len = string.find(' ').unwrap_or(string.len());
     Ok((&string[..len], len))
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum MinecraftSelectorParserError {
-    MissingSelectorType,
-    UnknownSelectorType(char),
-    Other(String),
-}
-
-impl Display for MinecraftSelectorParserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MissingSelectorType => f.write_str("Missing selector type"),
-            Self::UnknownSelectorType(selector_type) => {
-                write!(f, "Unknown selector type '{}'", selector_type)
-            }
-            Self::Other(message) => f.write_str(&message),
-        }
-    }
-}
-
-impl From<MinecraftSelectorParserError> for String {
-    fn from(e: MinecraftSelectorParserError) -> Self {
-        e.to_string()
-    }
-}
-
-// TODO support ] in strings and NBT
-fn parse_minecraft_selector(
-    string: &str,
-) -> Result<(MinecraftSelector, usize), MinecraftSelectorParserError> {
-    type Error = MinecraftSelectorParserError;
-
-    let mut suffix = string
-        .strip_prefix('@')
-        .ok_or(Error::Other(format!("Invalid entity {}", string)))?;
-
-    if suffix.is_empty() {
-        return Err(Error::MissingSelectorType);
-    }
-
-    const SELECTOR_TYPES: &[char] = &['a', 'e', 'p', 'r', 's'];
-
-    suffix = suffix
-        .strip_prefix(SELECTOR_TYPES)
-        .ok_or(Error::UnknownSelectorType(suffix.chars().next().unwrap()))?;
-
-    suffix = if let Some(suffix) = suffix.strip_prefix('[') {
-        let end = suffix
-            .find(']')
-            .ok_or(Error::Other(format!("Expected end of options")))?;
-        &suffix[1 + end..]
-    } else {
-        &suffix
-    };
-    Ok(((), string.len() - suffix.len()))
 }
