@@ -214,7 +214,7 @@ async fn expand_resume_self_template(
     function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
-    let resume_cases = function_contents
+    let mut resume_cases = function_contents
         .iter()
         .flat_map(|(name, lines)| {
             repeat(name).zip(
@@ -237,8 +237,9 @@ async fn expand_resume_self_template(
                 line_number_1 = line_number + 1
             ))
         })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect::<Vec<_>>();
+    resume_cases.sort();
+    let resume_cases = resume_cases.join("\n");
 
     let engine = engine.extend([("# -resume_cases-", resume_cases.as_str())]);
     let path = output_path.as_ref();
@@ -409,7 +410,7 @@ async fn expand_function_templates(
     )?;
 
     if let Some(callers) = call_tree.get_vec(fn_name) {
-        let return_cases = callers
+        let mut return_cases = callers
             .iter()
             .map(|(caller, line_number)| {
                 engine.expand(&format!(
@@ -424,8 +425,9 @@ async fn expand_function_templates(
                     line_number_1 = *line_number + 1,
                 ))
             })
-            .collect::<Vec<_>>()
-            .join("\n");
+            .collect::<Vec<_>>();
+        return_cases.sort();
+        let return_cases = return_cases.join("\n");
 
         expand_template!(
             engine.extend([("# -return_cases-", return_cases.as_str())]),
