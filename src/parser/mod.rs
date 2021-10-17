@@ -187,42 +187,47 @@ fn parse_command<'l>(
                     error,
                 );
             }
-            [ParsedNode::Literal {
+            // TODO Fix teleport parser
+            [ParsedNode::Redirect("teleport")
+            | ParsedNode::Literal {
                 literal: "teleport",
                 ..
+            }, tail @ ..]
+                if error.is_none() =>
+            {
+                match tail {
+                    [ParsedNode::Argument {
+                        name: "location",
+                        argument: Argument::MinecraftVec3(..),
+                        index,
+                        ..
+                    }] => {
+                        return (
+                            Line::OptionalSelectorCommand {
+                                missing_selector: index - 1,
+                                selectors,
+                            },
+                            error,
+                        );
+                    }
+                    [ParsedNode::Argument {
+                        name: "destination",
+                        argument: Argument::MinecraftEntity(..),
+                        index,
+                        ..
+                    }] => {
+                        selectors.insert(*index);
+                        return (
+                            Line::OptionalSelectorCommand {
+                                missing_selector: index - 1,
+                                selectors,
+                            },
+                            error,
+                        );
+                    }
+                    _ => {}
+                }
             }
-            | ParsedNode::Redirect("teleport"), tail @ ..] => match tail {
-                [ParsedNode::Argument {
-                    name: "location",
-                    argument: Argument::MinecraftVec3(..),
-                    index,
-                    ..
-                }] => {
-                    return (
-                        Line::OptionalSelectorCommand {
-                            missing_selector: index - 1,
-                            selectors,
-                        },
-                        error,
-                    );
-                }
-                [ParsedNode::Argument {
-                    name: "destination",
-                    argument: Argument::MinecraftEntity(..),
-                    index,
-                    ..
-                }] => {
-                    selectors.insert(*index);
-                    return (
-                        Line::OptionalSelectorCommand {
-                            missing_selector: index - 1,
-                            selectors,
-                        },
-                        error,
-                    );
-                }
-                _ => {}
-            },
             _ => {}
         }
         nodes = tail;
