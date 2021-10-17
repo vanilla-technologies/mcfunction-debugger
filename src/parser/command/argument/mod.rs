@@ -20,7 +20,7 @@ pub mod brigadier;
 pub mod minecraft;
 
 use self::{
-    brigadier::BrigadierStringType,
+    brigadier::{parse_unquoted_string, BrigadierStringType},
     minecraft::{
         coordinate::{MinecraftBlockPos, MinecraftRotation, MinecraftVec3},
         nbt::MinecraftNbtPath,
@@ -84,6 +84,8 @@ type MinecraftSelector = ();
 
 type MinecraftSwizzle = ();
 
+type MinecraftTeam<'l> = &'l str;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinecraftTime {
     pub time: f32,
@@ -133,6 +135,7 @@ pub enum Argument<'l> {
     MinecraftRotation(MinecraftRotation),
     MinecraftScoreHolder(MinecraftScoreHolder<'l>),
     MinecraftSwizzle(MinecraftSwizzle),
+    MinecraftTeam(MinecraftTeam<'l>),
     MinecraftTime(MinecraftTime),
     MinecraftVec3(MinecraftVec3),
     Unknown(&'l str),
@@ -338,6 +341,10 @@ impl ArgumentParser {
                 let (argument, len) = parse_minecraft_swizzle(string)?;
                 Ok((Argument::MinecraftSwizzle(argument), len))
             }
+            ArgumentParser::MinecraftTeam => {
+                let (argument, len) = parse_minecraft_team(string)?;
+                Ok((Argument::MinecraftTeam(argument), len))
+            }
             ArgumentParser::MinecraftTime => {
                 let (argument, len) = parse_minecraft_time(string)?;
                 Ok((Argument::MinecraftTime(argument), len))
@@ -527,6 +534,10 @@ fn parse_minecraft_swizzle(string: &str) -> Result<(MinecraftSwizzle, usize), St
         .ok_or("Failed to parse swizzle".to_string())?;
     let swizzle = ();
     Ok((swizzle, len))
+}
+
+fn parse_minecraft_team(string: &str) -> Result<(MinecraftTeam, usize), String> {
+    Ok(parse_unquoted_string(string))
 }
 
 fn parse_minecraft_time(string: &str) -> Result<(MinecraftTime, usize), String> {

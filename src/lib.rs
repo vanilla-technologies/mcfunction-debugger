@@ -30,7 +30,7 @@ use futures::{future::try_join_all, FutureExt};
 use multimap::MultiMap;
 use parser::command::{resource_location::ResourceLocation, CommandParser};
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     fs::File,
     io::{self, BufRead},
     iter::{repeat, FromIterator},
@@ -74,7 +74,7 @@ pub async fn generate_debug_datapack(
                 lines.len() + 1,
                 "".to_string(),
                 Line::OtherCommand {
-                    selectors: Vec::new(),
+                    selectors: BTreeSet::new(),
                 },
             ));
             Ok((name, lines))

@@ -1,5 +1,6 @@
 use super::*;
 use crate::parser::command::argument::MinecraftTimeUnit;
+use std::iter::FromIterator;
 
 #[test]
 fn test_breakpoint() {
@@ -28,7 +29,7 @@ fn test_say() {
         actual,
         (
             Line::OtherCommand {
-                selectors: vec![15]
+                selectors: BTreeSet::from_iter([15]),
             },
             None
         )
@@ -46,7 +47,12 @@ fn test_tellraw() {
 
     // then:
     // TODO support argument type: minecraft:component
-    assert_eq!(actual.0, Line::OtherCommand { selectors: vec![8] });
+    assert_eq!(
+        actual.0,
+        Line::OtherCommand {
+            selectors: BTreeSet::from_iter([8]),
+        }
+    );
 }
 
 #[test]
@@ -63,7 +69,7 @@ fn test_scoreboard_operation_selectors() {
         actual,
         (
             Line::OtherCommand {
-                selectors: vec![29, 39],
+                selectors: BTreeSet::from_iter([29, 39]),
             },
             None
         )
@@ -80,7 +86,15 @@ fn test_scoreboard_operation_names() {
     let actual = parse_line_internal(&parser, line);
 
     // then:
-    assert_eq!(actual, (Line::OtherCommand { selectors: vec![] }, None));
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([]),
+            },
+            None
+        )
+    );
 }
 
 #[test]
@@ -101,7 +115,7 @@ fn test_execute() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -126,7 +140,7 @@ fn test_execute_align() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -151,7 +165,7 @@ fn test_execute_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -176,7 +190,7 @@ fn test_execute_multiple_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -201,7 +215,7 @@ fn test_multiple_execute_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -226,7 +240,7 @@ fn test_multiple_execute_some_anchored() {
                     .unwrap()
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
-                selectors: vec![37],
+                selectors: BTreeSet::from_iter([37]),
             },
             None
         )
@@ -251,7 +265,7 @@ fn test_execute_as() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![11],
+                selectors: BTreeSet::from_iter([11]),
             },
             None
         )
@@ -276,7 +290,7 @@ fn test_execute_at() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![11],
+                selectors: BTreeSet::from_iter([11]),
             },
             None
         )
@@ -301,7 +315,7 @@ fn test_execute_facing_pos() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -326,7 +340,7 @@ fn test_execute_facing_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![22],
+                selectors: BTreeSet::from_iter([22]),
             },
             None
         )
@@ -351,7 +365,7 @@ fn test_execute_in() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -376,7 +390,7 @@ fn test_execute_in_qualified() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -401,7 +415,7 @@ fn test_execute_positioned_absolute() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -426,7 +440,7 @@ fn test_execute_positioned_local() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -451,7 +465,7 @@ fn test_execute_positioned_relative() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -476,7 +490,7 @@ fn test_execute_positioned_as() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![22],
+                selectors: BTreeSet::from_iter([22]),
             },
             None
         )
@@ -501,7 +515,7 @@ fn test_execute_rotated_absolute() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -526,7 +540,7 @@ fn test_execute_rotated_relative() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -551,7 +565,7 @@ fn test_execute_rotated_as() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![19],
+                selectors: BTreeSet::from_iter([19]),
             },
             None
         )
@@ -576,7 +590,7 @@ fn test_execute_if_block() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -602,7 +616,7 @@ fn test_execute_if_block_tag() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -628,7 +642,7 @@ fn test_execute_if_blocks() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -653,7 +667,7 @@ fn test_execute_if_data_block() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -678,7 +692,7 @@ fn test_execute_if_data_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![23],
+                selectors: BTreeSet::from_iter([23]),
             },
             None
         )
@@ -703,7 +717,7 @@ fn test_execute_if_data_storage() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -728,7 +742,7 @@ fn test_execute_if_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![18],
+                selectors: BTreeSet::from_iter([18]),
             },
             None
         )
@@ -753,7 +767,7 @@ fn test_execute_if_predicate() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -778,7 +792,7 @@ fn test_execute_if_score() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -803,7 +817,7 @@ fn test_execute_if_score_matches() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -828,7 +842,7 @@ fn test_execute_store_block() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -853,7 +867,7 @@ fn test_execute_store_bossbar() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -878,7 +892,7 @@ fn test_execute_store_entity() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![29],
+                selectors: BTreeSet::from_iter([29]),
             },
             None
         )
@@ -903,7 +917,7 @@ fn test_execute_store_score() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![28],
+                selectors: BTreeSet::from_iter([28]),
             },
             None
         )
@@ -928,7 +942,50 @@ fn test_execute_store_storage() {
                     .unwrap()
                     .to_owned(),
                 anchor: None,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_kill_selector() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "kill @s";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([5]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_kill_self() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "kill";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OptionalSelectorCommand {
+                missing_selector: 4,
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -959,7 +1016,7 @@ fn test_schedule() {
                         unit: MinecraftTimeUnit::Tick
                     }
                 },
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -990,7 +1047,7 @@ fn test_schedule_append() {
                         unit: MinecraftTimeUnit::Tick
                     }
                 },
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1016,7 +1073,7 @@ fn test_schedule_clear() {
                     .unwrap()
                     .to_owned(),
                 operation: ScheduleOperation::CLEAR,
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1047,7 +1104,7 @@ fn test_schedule_replace() {
                         unit: MinecraftTimeUnit::Tick
                     }
                 },
-                selectors: vec![],
+                selectors: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1078,7 +1135,7 @@ fn test_execute_schedule() {
                         unit: MinecraftTimeUnit::Tick
                     }
                 },
-                selectors: vec![11],
+                selectors: BTreeSet::from_iter([11]),
             },
             None
         )
@@ -1104,7 +1161,139 @@ fn test_execute_schedule_clear() {
                     .unwrap()
                     .to_owned(),
                 operation: ScheduleOperation::CLEAR,
-                selectors: vec![11],
+                selectors: BTreeSet::from_iter([11]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_team_join_selector() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "team join Foo @s";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([14])
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_team_join_self() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "team join Foo";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OptionalSelectorCommand {
+                missing_selector: 13,
+                selectors: BTreeSet::from_iter([]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_teleport_location_self() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "teleport ~ ~5 ~";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OptionalSelectorCommand {
+                missing_selector: 8,
+                selectors: BTreeSet::from_iter([]),
+            },
+            None
+        )
+    );
+}
+
+#[ignore] // TODO Fix teleport parser
+#[test]
+fn test_teleport_location_selector() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "teleport @s ~ ~5 ~";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([9]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_tp_location_self() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "tp ~ ~5 ~";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OptionalSelectorCommand {
+                missing_selector: 2,
+                selectors: BTreeSet::from_iter([]),
+            },
+            None
+        )
+    );
+}
+
+#[ignore] // TODO Fix teleport parser
+#[test]
+fn test_teleport_destination_self() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "teleport @e[type=sheep,limit=1]";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OptionalSelectorCommand {
+                missing_selector: 8,
+                selectors: BTreeSet::from_iter([9]),
             },
             None
         )

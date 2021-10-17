@@ -26,7 +26,7 @@ use self::command::{
     CommandParser, CommandParserError, CommandParserResult, ParsedNode,
 };
 use log::debug;
-use std::{convert::TryFrom, usize};
+use std::{collections::BTreeSet, convert::TryFrom, usize};
 
 #[derive(Debug, PartialEq)]
 pub enum Line {
@@ -34,16 +34,20 @@ pub enum Line {
     FunctionCall {
         name: ResourceLocation,
         anchor: Option<MinecraftEntityAnchor>,
-        selectors: Vec<usize>,
+        selectors: BTreeSet<usize>,
+    },
+    OptionalSelectorCommand {
+        missing_selector: usize,
+        selectors: BTreeSet<usize>,
     },
     Schedule {
         schedule_start: usize,
         function: ResourceLocation,
         operation: ScheduleOperation,
-        selectors: Vec<usize>,
+        selectors: BTreeSet<usize>,
     },
     OtherCommand {
-        selectors: Vec<usize>,
+        selectors: BTreeSet<usize>,
     },
 }
 
@@ -72,7 +76,7 @@ fn parse_line_internal<'l>(
     } else if line.is_empty() || line.starts_with('#') {
         (
             Line::OtherCommand {
-                selectors: Vec::new(),
+                selectors: BTreeSet::new(),
             },
             None,
         )
@@ -90,7 +94,7 @@ fn parse_command<'l>(
         error,
     } = parser.parse(command);
     let mut nodes = parsed_nodes.as_slice();
-    let mut selectors = Vec::new();
+    let mut selectors = BTreeSet::new();
     let mut maybe_anchor: Option<MinecraftEntityAnchor> = None;
 
     while let [_, tail @ ..] = nodes {
@@ -100,8 +104,9 @@ fn parse_command<'l>(
                     Argument::MinecraftEntity(..)
                     | Argument::MinecraftScoreHolder(MinecraftScoreHolder::Selector(..)),
                 index,
+                ..
             }, ..] => {
-                selectors.push(*index);
+                selectors.insert(*index);
             }
             [ParsedNode::Argument {
                 argument:
@@ -110,6 +115,7 @@ fn parse_command<'l>(
                         ..
                     }),
                 index,
+                ..
             }, ..] => {
                 selectors.extend(
                     message_selectors
@@ -151,6 +157,72 @@ fn parse_command<'l>(
             }, tail @ ..] => {
                 return parse_schedule(*index, tail, selectors, error);
             }
+            [ParsedNode::Literal {
+                literal: kill @ "kill",
+                index,
+            }] => {
+                return (
+                    Line::OptionalSelectorCommand {
+                        missing_selector: index + kill.len(),
+                        selectors,
+                    },
+                    error,
+                );
+            }
+            [ParsedNode::Literal {
+                literal: "team", ..
+            }, ParsedNode::Literal {
+                literal: "join", ..
+            }, ParsedNode::Argument {
+                argument: Argument::MinecraftTeam(..),
+                index,
+                len,
+                ..
+            }] => {
+                return (
+                    Line::OptionalSelectorCommand {
+                        missing_selector: index + len,
+                        selectors,
+                    },
+                    error,
+                );
+            }
+            [ParsedNode::Literal {
+                literal: "teleport",
+                ..
+            }
+            | ParsedNode::Redirect("teleport"), tail @ ..] => match tail {
+                [ParsedNode::Argument {
+                    name: "location",
+                    argument: Argument::MinecraftVec3(..),
+                    index,
+                    ..
+                }] => {
+                    return (
+                        Line::OptionalSelectorCommand {
+                            missing_selector: index - 1,
+                            selectors,
+                        },
+                        error,
+                    );
+                }
+                [ParsedNode::Argument {
+                    name: "destination",
+                    argument: Argument::MinecraftEntity(..),
+                    index,
+                    ..
+                }] => {
+                    selectors.insert(*index);
+                    return (
+                        Line::OptionalSelectorCommand {
+                            missing_selector: index - 1,
+                            selectors,
+                        },
+                        error,
+                    );
+                }
+                _ => {}
+            },
             _ => {}
         }
         nodes = tail;
@@ -161,7 +233,7 @@ fn parse_command<'l>(
 fn parse_schedule<'l>(
     schedule_start: usize,
     tail: &[ParsedNode],
-    selectors: Vec<usize>,
+    selectors: BTreeSet<usize>,
     error: Option<CommandParserError<'l>>,
 ) -> (Line, Option<CommandParserError<'l>>) {
     match tail {

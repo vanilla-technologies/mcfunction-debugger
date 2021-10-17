@@ -147,11 +147,11 @@ impl CommandParser {
         }
     }
 
-    fn parse_from<'c, 's>(
-        command: &'s str,
+    fn parse_from<'l>(
+        command: &'l str,
         index: usize,
-        commands: &'c HashMap<String, Command>,
-    ) -> Result<(&'c Command, ParsedNode<'s>, usize), String> {
+        commands: &'l HashMap<String, Command>,
+    ) -> Result<(&'l Command, ParsedNode<'l>, usize), String> {
         // Try to parse as literal
         let string = &command[index..];
         let len = string.find(' ').unwrap_or(string.len());
@@ -168,23 +168,28 @@ impl CommandParser {
             // try to parse as argument
             let mut parsed_arguments = commands
                 .iter()
-                .filter_map(|(_name, command)| match command {
+                .filter_map(|(name, command)| match command {
                     Command::Literal { .. } => None,
-                    Command::Argument { parser, .. } => Some((command, parser)),
+                    Command::Argument { parser, .. } => Some((name, command, parser)),
                 })
-                .map(|(command, parser)| (command, parser.parse(string)))
+                .map(|(name, command, parser)| (name, command, parser.parse(string)))
                 .collect::<Vec<_>>();
             // Prefer longest successful parsed
-            parsed_arguments.sort_by_key(|(_command, r)| match r {
+            parsed_arguments.sort_by_key(|(_name, _command, r)| match r {
                 Ok((_argument, len)) => -(*len as isize),
                 Err(_) => 1,
             });
-            let (command_spec, result) = parsed_arguments
+            let (name, command_spec, result) = parsed_arguments
                 .into_iter()
                 .next()
                 .ok_or("Unknown command".to_string())?;
             let (argument, len) = result?;
-            let parsed = ParsedNode::Argument { argument, index };
+            let parsed = ParsedNode::Argument {
+                name,
+                argument,
+                index,
+                len,
+            };
             Ok((command_spec, parsed, len))
         }
     }
@@ -221,8 +226,10 @@ pub enum ParsedNode<'l> {
         index: usize,
     },
     Argument {
+        name: &'l str,
         argument: Argument<'l>,
         index: usize,
+        len: usize,
     },
 }
 

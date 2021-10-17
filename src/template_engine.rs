@@ -20,7 +20,10 @@ use crate::parser::{
     command::{argument::MinecraftEntityAnchor, resource_location::ResourceLocationRef},
     Line, ScheduleOperation,
 };
-use std::{collections::HashMap, iter::FromIterator};
+use std::{
+    collections::{BTreeSet, HashMap},
+    iter::FromIterator,
+};
 
 pub struct TemplateEngine<'l> {
     replacements: HashMap<&'l str, &'l str>,
@@ -107,6 +110,27 @@ impl<'l> TemplateEngine<'l> {
                     .replace("# -debug_anchor-", &debug_anchor);
                 self.expand(&template)
             }
+            Line::OptionalSelectorCommand {
+                missing_selector,
+                selectors,
+            } => {
+                const SELF_SELECTOR: &str = " @s";
+                let mut line = line.to_string();
+                line.insert_str(*missing_selector, SELF_SELECTOR);
+                let mut selectors = selectors
+                    .iter()
+                    .map(|x| {
+                        if x >= missing_selector {
+                            x + SELF_SELECTOR.len()
+                        } else {
+                            *x
+                        }
+                    })
+                    .collect::<BTreeSet<_>>();
+                selectors.insert(*missing_selector + 1);
+                let line = exclude_internal_entites_from_selectors(&line, &selectors);
+                self.expand(&line)
+            }
             Line::Schedule {
                 schedule_start,
                 function,
@@ -152,7 +176,7 @@ impl<'l> TemplateEngine<'l> {
     }
 }
 
-fn exclude_internal_entites_from_selectors(line: &str, selectors: &[usize]) -> String {
+fn exclude_internal_entites_from_selectors(line: &str, selectors: &BTreeSet<usize>) -> String {
     let mut index = 0;
     let mut result = String::new();
     for selector in selectors {
