@@ -48,99 +48,72 @@ impl CommandParser {
     pub fn parse<'l>(&'l self, command: &'l str) -> CommandParserResult<'l> {
         let mut parsed_nodes = Vec::new();
         let mut commands = &self.commands;
-
         let mut index = 0;
+
+        macro_rules! Ok {
+            () => {
+                CommandParserResult {
+                    parsed_nodes,
+                    error: None,
+                }
+            };
+        }
+        macro_rules! Err {
+            ($message:expr) => {
+                CommandParserResult {
+                    parsed_nodes,
+                    error: Some(CommandParserError {
+                        message: $message,
+                        command,
+                        index,
+                    }),
+                }
+            };
+        }
+
         loop {
             let (command_spec, parsed_node, parsed_len) =
-                match CommandParser::parse_from(command, index, commands) {
+                match Self::parse_from(command, index, commands) {
                     Ok(ok) => ok,
-                    Err(message) => {
-                        return CommandParserResult {
-                            parsed_nodes,
-                            error: Some(CommandParserError {
-                                message,
-                                command,
-                                index,
-                            }),
-                        }
-                    }
+                    Err(message) => return Err!(message),
                 };
             parsed_nodes.push(parsed_node);
             index += parsed_len;
 
             if index >= command.len() {
                 if command_spec.executable() {
-                    return CommandParserResult {
-                        parsed_nodes,
-                        error: None,
-                    };
+                    return Ok!();
                 } else {
-                    return CommandParserResult {
-                        parsed_nodes,
-                        error: Some(CommandParserError {
-                            message: "Incomplete command".to_string(),
-                            command,
-                            index,
-                        }),
-                    };
+                    return Err!("Incomplete command".to_string());
                 }
             } else {
                 const SPACE: char = ' ';
                 if !command[index..].starts_with(SPACE) {
-                    return CommandParserResult {
-                        parsed_nodes,
-                        error: Some(CommandParserError {
-                            message:
-                                "Expected whitespace to end one argument, but found trailing data"
-                                    .to_string(),
-                            command,
-                            index,
-                        }),
-                    };
+                    return Err!(
+                        "Expected whitespace to end one argument, but found trailing data"
+                            .to_string()
+                    );
                 }
                 index += SPACE.len_utf8();
 
                 commands = command_spec.children();
                 let redirect = match command_spec.redirect() {
                     Ok(ok) => ok,
-                    Err(message) => {
-                        return CommandParserResult {
-                            parsed_nodes,
-                            error: Some(CommandParserError {
-                                message,
-                                command,
-                                index,
-                            }),
-                        }
-                    }
+                    Err(message) => return Err!(message),
                 };
                 if let Some(redirect) = redirect {
                     if let Some(command) = self.commands.get(redirect) {
                         parsed_nodes.push(ParsedNode::Redirect(redirect));
                         commands = command.children();
                     } else {
-                        return CommandParserResult {
-                            parsed_nodes,
-                            error: Some(CommandParserError {
-                                message: format!("Failed to resolve redirect {}", redirect),
-                                command,
-                                index,
-                            }),
-                        };
+                        return Err!(format!("Failed to resolve redirect {}", redirect));
                     }
                 } else if commands.is_empty() {
                     if !command_spec.executable() {
                         // Special case for execute run which has no redirect to root for some reason
                         commands = &self.commands;
                     } else {
-                        return CommandParserResult {
-                            parsed_nodes,
-                            error: Some(CommandParserError {
-                                message: "Incorrect argument for command".to_string(),
-                                command,
-                                index,
-                            }),
-                        };
+                        return Err!("Incorrect argument for command".to_string());
                     }
                 }
             }
