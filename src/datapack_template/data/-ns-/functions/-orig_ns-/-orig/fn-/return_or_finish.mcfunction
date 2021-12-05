@@ -16,5 +16,5 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute if score current -ns-_depth matches 0 unless entity @e[type=area_effect_cloud,tag=-ns-_schedule] run tellraw @a [{"text":"Debugging session finished.","color":"gold"}]
+execute if score current -ns-_depth matches 0 unless score -orig_ns-:-orig/fn- -ns-_invalid matches 1 unless entity @e[type=area_effect_cloud,tag=-ns-_schedule] run tellraw @a [{"text":"Debugging session finished.","color":"gold"}]
 execute unless score current -ns-_depth matches 0 run function -ns-:-orig_ns-/-orig/fn-/return

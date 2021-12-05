@@ -19,5 +19,7 @@
 scoreboard players set current -ns-_depth 0
 scoreboard players set current -ns-_anchor 0
 
+execute if score -orig_ns-:-orig/fn- -ns-_invalid matches 1 run tellraw @a [{"text": "Cannot debug function -orig_ns-:-orig/fn-, because it contains an invalid command!","color": "red"}]
+
 function -ns-:select_entity
 function -ns-:-orig_ns-/-orig/fn-/next_iteration_or_return
