@@ -108,6 +108,7 @@ fn parse_command<'l>(
             }, ..] => {
                 selectors.insert(*index);
             }
+
             [ParsedNode::Argument {
                 argument:
                     Argument::MinecraftMessage(MinecraftMessage {
@@ -123,6 +124,7 @@ fn parse_command<'l>(
                         .map(|(_selector, start, _end)| index + start),
                 );
             }
+
             [ParsedNode::Literal {
                 literal: "execute", ..
             }
@@ -135,133 +137,26 @@ fn parse_command<'l>(
             }, ..] => {
                 maybe_anchor = Some(*anchor);
             }
-            [ParsedNode::Literal {
-                literal: "function",
-                ..
-            }, ParsedNode::Argument {
-                argument: Argument::MinecraftFunction(function),
-                ..
-            }, ..] => {
-                return (
-                    Line::FunctionCall {
-                        name: function.to_owned(),
-                        anchor: maybe_anchor,
-                        selectors,
-                    },
-                    error,
-                );
-            }
-            [ParsedNode::Literal {
-                literal: "schedule",
-                index,
-            }, tail @ ..] => {
-                return parse_schedule(*index, tail, selectors, error);
-            }
-            [ParsedNode::Literal {
-                literal: kill @ "kill",
-                index,
-            }] => {
-                return (
-                    Line::OptionalSelectorCommand {
-                        missing_selector: index + kill.len(),
-                        selectors,
-                    },
-                    error,
-                );
-            }
-            [ParsedNode::Literal {
-                literal: "team", ..
-            }, ParsedNode::Literal {
-                literal: "join", ..
-            }, ParsedNode::Argument {
-                argument: Argument::MinecraftTeam(..),
-                index,
-                len,
-                ..
-            }] => {
-                return (
-                    Line::OptionalSelectorCommand {
-                        missing_selector: index + len,
-                        selectors,
-                    },
-                    error,
-                );
-            }
-            // TODO Fix teleport parser
-            [ParsedNode::Redirect("teleport")
-            | ParsedNode::Literal {
-                literal: "teleport",
-                ..
-            }, tail @ ..]
-                if error.is_none() =>
-            {
-                match tail {
-                    [ParsedNode::Argument {
-                        name: "location",
-                        argument: Argument::MinecraftVec3(..),
-                        index,
-                        ..
-                    }] => {
-                        return (
-                            Line::OptionalSelectorCommand {
-                                missing_selector: index - 1,
-                                selectors,
-                            },
-                            error,
-                        );
-                    }
-                    [ParsedNode::Argument {
-                        name: "destination",
-                        argument: Argument::MinecraftEntity(..),
-                        index,
-                        ..
-                    }] => {
-                        selectors.insert(*index);
-                        return (
-                            Line::OptionalSelectorCommand {
-                                missing_selector: index - 1,
-                                selectors,
-                            },
-                            error,
-                        );
-                    }
-                    _ => {}
-                }
-            }
+
             _ => {}
         }
+
         nodes = tail;
     }
-    (Line::OtherCommand { selectors }, error)
-}
 
-fn parse_schedule<'l>(
-    schedule_start: usize,
-    tail: &[ParsedNode],
-    selectors: BTreeSet<usize>,
-    error: Option<CommandParserError<'l>>,
-) -> (Line, Option<CommandParserError<'l>>) {
-    match tail {
-        [ParsedNode::Literal {
-            literal: "function",
-            ..
-        }, ParsedNode::Argument {
-            argument: Argument::MinecraftFunction(function),
-            ..
-        }, ParsedNode::Argument {
-            argument: Argument::MinecraftTime(time),
-            ..
-        }, tail @ ..] => {
-            let operation = match tail {
-                [ParsedNode::Literal {
-                    literal: "append", ..
-                }] => ScheduleOperation::APPEND { time: time.clone() },
-                []
-                | [ParsedNode::Literal {
-                    literal: "replace", ..
-                }] => ScheduleOperation::REPLACE { time: time.clone() },
-                _ => return (Line::OtherCommand { selectors }, error),
-            };
+    if error.is_none() {
+        if let Some(name) = as_function_call(&parsed_nodes) {
+            return (
+                Line::FunctionCall {
+                    name,
+                    anchor: maybe_anchor,
+                    selectors,
+                },
+                None,
+            );
+        }
+
+        if let Some((schedule_start, function, operation)) = as_schedule(&parsed_nodes) {
             return (
                 Line::Schedule {
                     schedule_start,
@@ -269,31 +164,132 @@ fn parse_schedule<'l>(
                     operation,
                     selectors,
                 },
-                error,
+                None,
             );
         }
-        [ParsedNode::Literal {
-            literal: "clear", ..
-        }, ParsedNode::Argument {
-            argument: Argument::BrigadierString(string),
-            ..
-        }] => {
-            // TODO Handle invalid characters in NamespacedName
-            if let Ok(function) = ResourceLocationRef::try_from(*string) {
-                return (
-                    Line::Schedule {
-                        schedule_start,
-                        function: function.to_owned(),
-                        operation: ScheduleOperation::CLEAR,
-                        selectors,
-                    },
-                    error,
-                );
-            }
+
+        if let Some(missing_selector) = find_missing_selector(&parsed_nodes) {
+            return (
+                Line::OptionalSelectorCommand {
+                    missing_selector,
+                    selectors,
+                },
+                None,
+            );
         }
-        _ => {}
     }
+
     (Line::OtherCommand { selectors }, error)
+}
+
+fn as_function_call(nodes: &[ParsedNode]) -> Option<ResourceLocation> {
+    if let [.., ParsedNode::Literal {
+        literal: "function",
+        ..
+    }, ParsedNode::Argument {
+        argument: Argument::MinecraftFunction(function),
+        ..
+    }] = nodes
+    {
+        Some(function.to_owned())
+    } else {
+        None
+    }
+}
+
+fn as_schedule(mut nodes: &[ParsedNode]) -> Option<(usize, ResourceLocation, ScheduleOperation)> {
+    while let [_, tail @ ..] = nodes {
+        match nodes {
+            [ParsedNode::Literal {
+                literal: "schedule",
+                index,
+                ..
+            }, ParsedNode::Literal {
+                literal: "function",
+                ..
+            }, ParsedNode::Argument {
+                argument: Argument::MinecraftFunction(function),
+                ..
+            }, ParsedNode::Argument {
+                argument: Argument::MinecraftTime(time),
+                ..
+            }, tail @ ..] => {
+                let op = match tail {
+                    [ParsedNode::Literal {
+                        literal: "append", ..
+                    }] => Some(ScheduleOperation::APPEND { time: time.clone() }),
+                    []
+                    | [ParsedNode::Literal {
+                        literal: "replace", ..
+                    }] => Some(ScheduleOperation::REPLACE { time: time.clone() }),
+                    _ => None,
+                };
+                if let Some(op) = op {
+                    return Some((*index, function.to_owned(), op));
+                }
+            }
+
+            [ParsedNode::Literal {
+                literal: "schedule",
+                index,
+                ..
+            }, ParsedNode::Literal {
+                literal: "clear", ..
+            }, ParsedNode::Argument {
+                argument: Argument::BrigadierString(string),
+                ..
+            }] => {
+                // TODO Handle invalid characters in NamespacedName
+                if let Ok(function) = ResourceLocationRef::try_from(*string) {
+                    return Some((*index, function.to_owned(), ScheduleOperation::CLEAR));
+                }
+            }
+            _ => {}
+        }
+
+        nodes = tail;
+    }
+
+    None
+}
+
+fn find_missing_selector(tail: &[ParsedNode]) -> Option<usize> {
+    match tail {
+        [.., ParsedNode::Literal {
+            literal: kill @ "kill",
+            index,
+        }] => Some(index + kill.len()),
+
+        [.., ParsedNode::Literal {
+            literal: "team", ..
+        }, ParsedNode::Literal {
+            literal: "join", ..
+        }, ParsedNode::Argument {
+            argument: Argument::MinecraftTeam(..),
+            index,
+            len,
+            ..
+        }] => Some(index + len),
+
+        [.., ParsedNode::Redirect("teleport")
+        | ParsedNode::Literal {
+            literal: "teleport",
+            ..
+        }, ParsedNode::Argument {
+            name: "destination",
+            argument: Argument::MinecraftEntity(..),
+            index,
+            ..
+        }
+        | ParsedNode::Argument {
+            name: "location",
+            argument: Argument::MinecraftVec3(..),
+            index,
+            ..
+        }] => Some(index - 1),
+
+        _ => None,
+    }
 }
 
 #[cfg(test)]
