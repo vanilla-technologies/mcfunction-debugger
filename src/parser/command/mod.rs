@@ -29,7 +29,7 @@ use std::{
 use self::argument::{Argument, ArgumentParser};
 
 pub struct CommandParser {
-    commands: HashMap<String, Command>,
+    specs: HashMap<String, CommandSpec>,
 }
 
 impl CommandParser {
@@ -41,14 +41,82 @@ impl CommandParser {
     pub fn from_str(json: &str) -> serde_json::Result<CommandParser> {
         let root_node: RootNode = serde_json::from_str(json)?;
         Ok(CommandParser {
-            commands: root_node.children,
+            specs: root_node.children,
         })
     }
 
     pub fn parse<'l>(&'l self, command: &'l str) -> CommandParserResult<'l> {
+        self.parse_from_specs(command, 0, &self.specs)
+    }
+
+    fn parse_from_specs<'l>(
+        &'l self,
+        command: &'l str,
+        index: usize,
+        specs: &'l HashMap<String, CommandSpec>,
+    ) -> CommandParserResult<'l> {
+        let parsed = Self::find_relevant_commands(command, index, specs)
+            .into_iter()
+            .map(|(name, spec)| (self.parse_from_single_spec(name, spec, command, index)))
+            .collect::<Vec<_>>();
+
+        let only_errors = parsed.iter().all(|parsed| parsed.error.is_some());
+        if only_errors {
+            // Return first error
+            parsed.into_iter().next().unwrap_or(CommandParserResult {
+                parsed_nodes: Vec::new(),
+                error: Some(CommandParserError {
+                    message: "Incorrect argument for command".to_string(),
+                    command,
+                    index,
+                }),
+            })
+        } else {
+            // Return first non error
+            parsed
+                .into_iter()
+                .filter(|parsed| parsed.error.is_none())
+                .next()
+                .unwrap()
+        }
+    }
+
+    /// If the next part can be parsed as a literal, arguments should be ignored.
+    fn find_relevant_commands<'l>(
+        command: &'l str,
+        index: usize,
+        specs: &'l HashMap<String, CommandSpec>,
+    ) -> Vec<(&'l String, &'l CommandSpec)> {
+        let string = &command[index..];
+        let literal_len = string.find(' ').unwrap_or(string.len());
+        let literal = &string[..literal_len];
+        if let Some((name, command)) = Self::find_literal_command(literal, specs) {
+            vec![(name, command)]
+        } else {
+            specs
+                .iter()
+                .filter(|(_name, spec)| matches!(spec, CommandSpec::Argument { .. }))
+                .collect::<Vec<_>>()
+        }
+    }
+
+    fn find_literal_command<'l>(
+        literal: &str,
+        specs: &'l HashMap<String, CommandSpec>,
+    ) -> Option<(&'l String, &'l CommandSpec)> {
+        specs
+            .iter()
+            .find(|(name, spec)| *name == literal && matches!(spec, CommandSpec::Literal { .. }))
+    }
+
+    fn parse_from_single_spec<'l>(
+        &'l self,
+        name: &'l str,
+        spec: &'l CommandSpec,
+        command: &'l str,
+        mut index: usize,
+    ) -> CommandParserResult<'l> {
         let mut parsed_nodes = Vec::new();
-        let mut commands = &self.commands;
-        let mut index = 0;
 
         macro_rules! Ok {
             () => {
@@ -71,100 +139,53 @@ impl CommandParser {
             };
         }
 
-        loop {
-            let (command_spec, parsed_node, parsed_len) =
-                match Self::parse_from(command, index, commands) {
-                    Ok(ok) => ok,
-                    Err(message) => return Err!(message),
-                };
-            parsed_nodes.push(parsed_node);
-            index += parsed_len;
+        let parsed_node = match spec.parse(name, command, index) {
+            Ok(parsed_node) => parsed_node,
+            Err(message) => return Err!(message),
+        };
+        index += parsed_node.len();
+        parsed_nodes.push(parsed_node);
 
-            if index >= command.len() {
-                if command_spec.executable() {
-                    return Ok!();
-                } else {
-                    return Err!("Incomplete command".to_string());
-                }
+        if index >= command.len() {
+            if spec.executable() {
+                return Ok!();
             } else {
-                const SPACE: char = ' ';
-                if !command[index..].starts_with(SPACE) {
-                    return Err!(
-                        "Expected whitespace to end one argument, but found trailing data"
-                            .to_string()
-                    );
-                }
-                index += SPACE.len_utf8();
-
-                commands = command_spec.children();
-                let redirect = match command_spec.redirect() {
-                    Ok(ok) => ok,
-                    Err(message) => return Err!(message),
-                };
-                if let Some(redirect) = redirect {
-                    if let Some(command) = self.commands.get(redirect) {
-                        parsed_nodes.push(ParsedNode::Redirect(redirect));
-                        commands = command.children();
-                    } else {
-                        return Err!(format!("Failed to resolve redirect {}", redirect));
-                    }
-                } else if commands.is_empty() {
-                    if !command_spec.executable() {
-                        // Special case for execute run which has no redirect to root for some reason
-                        commands = &self.commands;
-                    } else {
-                        return Err!("Incorrect argument for command".to_string());
-                    }
-                }
+                return Err!("Incomplete command".to_string());
             }
         }
-    }
 
-    fn parse_from<'l>(
-        command: &'l str,
-        index: usize,
-        commands: &'l HashMap<String, Command>,
-    ) -> Result<(&'l Command, ParsedNode<'l>, usize), String> {
-        // Try to parse as literal
-        let string = &command[index..];
-        let len = string.find(' ').unwrap_or(string.len());
-        let literal = &string[..len];
-        let command_spec = commands
-            .iter()
-            .find(|(name, command)| {
-                name.as_str() == literal && matches!(command, Command::Literal { .. })
-            })
-            .map(|(_name, command)| command);
-        if let Some(command) = command_spec {
-            Ok((command, ParsedNode::Literal { literal, index }, len))
-        } else {
-            // try to parse as argument
-            let mut parsed_arguments = commands
-                .iter()
-                .filter_map(|(name, command)| match command {
-                    Command::Literal { .. } => None,
-                    Command::Argument { parser, .. } => Some((name, command, parser)),
-                })
-                .map(|(name, command, parser)| (name, command, parser.parse(string)))
-                .collect::<Vec<_>>();
-            // Prefer longest successful parsed
-            parsed_arguments.sort_by_key(|(_name, _command, r)| match r {
-                Ok((_argument, len)) => -(*len as isize),
-                Err(_) => 1,
-            });
-            let (name, command_spec, result) = parsed_arguments
-                .into_iter()
-                .next()
-                .ok_or("Unknown command".to_string())?;
-            let (argument, len) = result?;
-            let parsed = ParsedNode::Argument {
-                name,
-                argument,
-                index,
-                len,
-            };
-            Ok((command_spec, parsed, len))
+        const SPACE: char = ' ';
+        if !command[index..].starts_with(SPACE) {
+            return Err!(
+                "Expected whitespace to end one argument, but found trailing data".to_string()
+            );
         }
+        index += SPACE.len_utf8();
+
+        // let mut children = spec.children();
+        let redirect = match spec.redirect() {
+            Ok(ok) => ok,
+            Err(message) => return Err!(message),
+        };
+        let children = if let Some(redirect) = redirect {
+            if let Some(redirected) = self.specs.get(redirect) {
+                parsed_nodes.push(ParsedNode::Redirect(redirect));
+                redirected.children()
+            } else {
+                return Err!(format!("Failed to resolve redirect {}", redirect));
+            }
+        } else if spec.has_children() {
+            spec.children()
+        } else if !spec.executable() {
+            // Special case for "execute run" which has no redirect to root for some reason
+            &self.specs
+        } else {
+            return Err!("Incorrect argument for command".to_string());
+        };
+        let mut result = self.parse_from_specs(command, index, children);
+        parsed_nodes.extend_from_slice(&result.parsed_nodes);
+        result.parsed_nodes = parsed_nodes;
+        result
     }
 }
 
@@ -206,15 +227,25 @@ pub enum ParsedNode<'l> {
     },
 }
 
+impl ParsedNode<'_> {
+    fn len(&self) -> usize {
+        match self {
+            ParsedNode::Redirect(_) => 0,
+            ParsedNode::Literal { literal, .. } => literal.len(),
+            ParsedNode::Argument { len, .. } => *len,
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "type", rename = "root")]
 struct RootNode {
-    children: HashMap<String, Command>,
+    children: HashMap<String, CommandSpec>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum Command {
+pub enum CommandSpec {
     Literal {
         #[serde(flatten)]
         node: Node,
@@ -227,35 +258,71 @@ pub enum Command {
     },
 }
 
+impl CommandSpec {
+    fn parse<'l>(
+        &self,
+        name: &'l str,
+        command: &'l str,
+        index: usize,
+    ) -> Result<ParsedNode<'l>, String> {
+        let string = &command[index..];
+        match self {
+            CommandSpec::Literal { .. } => {
+                let literal_len = string.find(' ').unwrap_or(string.len());
+                let literal = &string[..literal_len];
+                if literal == name {
+                    Ok(ParsedNode::Literal { literal, index })
+                } else {
+                    Err("Incorrect literal for command".to_string())
+                }
+            }
+            CommandSpec::Argument { parser, .. } => {
+                parser
+                    .parse(string)
+                    .map(|(argument, len)| ParsedNode::Argument {
+                        name,
+                        argument,
+                        index,
+                        len,
+                    })
+            }
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Node {
     #[serde(default)]
-    pub children: HashMap<String, Command>,
+    pub children: HashMap<String, CommandSpec>,
     #[serde(default)]
     pub executable: bool,
     #[serde(default)]
     pub redirect: Vec<String>,
 }
 
-impl Command {
-    pub fn children(&self) -> &HashMap<String, Command> {
+impl CommandSpec {
+    pub fn has_children(&self) -> bool {
+        !self.children().is_empty()
+    }
+
+    pub fn children(&self) -> &HashMap<String, CommandSpec> {
         match self {
-            Command::Literal { node, .. } => &node.children,
-            Command::Argument { node, .. } => &node.children,
+            CommandSpec::Literal { node, .. } => &node.children,
+            CommandSpec::Argument { node, .. } => &node.children,
         }
     }
 
     pub fn executable(&self) -> bool {
         match self {
-            Command::Literal { node, .. } => node.executable,
-            Command::Argument { node, .. } => node.executable,
+            CommandSpec::Literal { node, .. } => node.executable,
+            CommandSpec::Argument { node, .. } => node.executable,
         }
     }
 
     pub fn redirect(&self) -> Result<Option<&String>, String> {
         let redirect = match self {
-            Command::Literal { node, .. } => &node.redirect,
-            Command::Argument { node, .. } => &node.redirect,
+            CommandSpec::Literal { node, .. } => &node.redirect,
+            CommandSpec::Argument { node, .. } => &node.redirect,
         };
         if redirect.len() > 1 {
             Err(format!("Multi redirect is not supported: {:?}", redirect))
@@ -272,7 +339,7 @@ mod tests {
     #[test]
     fn test_parse_json() {
         // when:
-        let actual = &CommandParser::default().unwrap().commands;
+        let actual = &CommandParser::default().unwrap().specs;
 
         // then:
         assert!(

@@ -1233,7 +1233,6 @@ fn test_teleport_location_self() {
     );
 }
 
-#[ignore] // TODO Fix teleport parser
 #[test]
 fn test_teleport_location_selector() {
     // given:
@@ -1277,7 +1276,6 @@ fn test_tp_location_self() {
     );
 }
 
-#[ignore] // TODO Fix teleport parser
 #[test]
 fn test_teleport_destination_self() {
     // given:
@@ -1294,6 +1292,27 @@ fn test_teleport_destination_self() {
             Line::OptionalSelectorCommand {
                 missing_selector: 8,
                 selectors: BTreeSet::from_iter([9]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_teleport_destination_selector() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "teleport @s @e[type=sheep,limit=1]";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([9, 12]),
             },
             None
         )
