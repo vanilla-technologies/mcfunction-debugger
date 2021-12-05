@@ -30,6 +30,8 @@ use std::{collections::BTreeSet, convert::TryFrom, usize};
 
 #[derive(Debug, PartialEq)]
 pub enum Line {
+    Empty,
+    Comment,
     Breakpoint,
     FunctionCall {
         name: ResourceLocation,
@@ -71,15 +73,14 @@ fn parse_line_internal<'l>(
     line: &'l str,
 ) -> (Line, Option<CommandParserError<'l>>) {
     let line = line.trim();
-    if line == "# breakpoint" {
-        (Line::Breakpoint, None)
-    } else if line.is_empty() || line.starts_with('#') {
-        (
-            Line::OtherCommand {
-                selectors: BTreeSet::new(),
-            },
-            None,
-        )
+    if line.starts_with('#') {
+        if line == "# breakpoint" {
+            (Line::Breakpoint, None)
+        } else {
+            (Line::Comment, None)
+        }
+    } else if line.is_empty() {
+        (Line::Empty, None)
     } else {
         parse_command(parser, line)
     }

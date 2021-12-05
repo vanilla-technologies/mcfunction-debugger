@@ -16,11 +16,11 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use std::{convert::TryFrom, fmt::Display, hash::Hash};
+use std::{cmp::Ordering, convert::TryFrom, fmt::Display, hash::Hash};
 
 pub type ResourceLocation = ResourceLocationRef<String>;
 
-#[derive(Clone, Debug, Eq)]
+#[derive(Clone, Debug)]
 pub struct ResourceLocationRef<S: AsRef<str>> {
     string: S,
     namespace_len: usize,
@@ -99,6 +99,22 @@ impl<S: AsRef<str>> ResourceLocationRef<S> {
 impl<S: AsRef<str>> PartialEq for ResourceLocationRef<S> {
     fn eq(&self, other: &Self) -> bool {
         self.namespace() == other.namespace() && self.path() == other.path()
+    }
+}
+
+impl<S: AsRef<str>> Eq for ResourceLocationRef<S> {}
+
+impl<S: AsRef<str>> PartialOrd for ResourceLocationRef<S> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<S: AsRef<str>> Ord for ResourceLocationRef<S> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.namespace()
+            .cmp(other.namespace())
+            .then_with(|| self.path().cmp(other.path()))
     }
 }
 

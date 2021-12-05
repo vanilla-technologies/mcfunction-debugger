@@ -172,6 +172,8 @@ impl<'l> TemplateEngine<'l> {
                 let line = exclude_internal_entites_from_selectors(line, selectors);
                 self.expand(&line)
             }
+            Line::Comment => self.expand(&line),
+            Line::Empty => line.to_owned(),
         }
     }
 }

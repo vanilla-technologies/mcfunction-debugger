@@ -17,3 +17,4 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 function debug:install
+function -ns-:validate_all_functions

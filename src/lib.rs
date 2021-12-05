@@ -31,7 +31,7 @@ use futures::{future::try_join_all, FutureExt};
 use multimap::MultiMap;
 use parser::command::{resource_location::ResourceLocation, CommandParser};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     fs::File,
     io::{self, BufRead},
     iter::{repeat, FromIterator},
@@ -71,16 +71,10 @@ pub async fn generate_debug_datapack(
                 .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
 
             // TODO dirty hack for when the last line in a file is a function call or breakpoint
-            lines.push((
-                lines.len() + 1,
-                "".to_string(),
-                Line::OtherCommand {
-                    selectors: BTreeSet::new(),
-                },
-            ));
+            lines.push((lines.len() + 1, "".to_string(), Line::Empty));
             Ok((name, lines))
         })
-        .collect::<Result<HashMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error>>()?;
+        .collect::<Result<BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error>>()?;
 
     let engine = TemplateEngine::new(HashMap::from_iter([("-ns-", namespace)]));
     expand_templates(&engine, &function_contents, &output_path, shadow).await
@@ -139,7 +133,7 @@ fn get_functions(
 
 async fn expand_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     shadow: bool,
 ) -> io::Result<()> {
@@ -160,7 +154,7 @@ macro_rules! expand_template {
 
 async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     let output_path = output_path.as_ref();
@@ -197,6 +191,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/tick.mcfunction"),
         expand!("data/-ns-/functions/unfreeze_aec.mcfunction"),
         expand!("data/-ns-/functions/uninstall.mcfunction"),
+        expand_validate_all_functions_template(&engine, function_contents, &output_path),
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
         expand!("data/debug/functions/stop.mcfunction"),
@@ -211,10 +206,10 @@ async fn expand_global_templates(
 
 async fn expand_resume_self_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
-    let mut resume_cases = function_contents
+    let resume_cases = function_contents
         .iter()
         .flat_map(|(name, lines)| {
             repeat(name).zip(
@@ -237,9 +232,8 @@ async fn expand_resume_self_template(
                 line_number_1 = line_number + 1
             ))
         })
-        .collect::<Vec<_>>();
-    resume_cases.sort();
-    let resume_cases = resume_cases.join("\n");
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let engine = engine.extend([("# -resume_cases-", resume_cases.as_str())]);
     let path = output_path.as_ref();
@@ -248,7 +242,7 @@ async fn expand_resume_self_template(
 
 async fn expand_schedule_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     #[rustfmt::skip]
@@ -267,9 +261,30 @@ async fn expand_schedule_template(
     write(&path, &content).await
 }
 
+async fn expand_validate_all_functions_template(
+    engine: &TemplateEngine<'_>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    output_path: impl AsRef<Path>,
+) -> io::Result<()> {
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/-ns-/functions/validate_all_functions.mcfunction" }; }
+
+    let content = function_contents
+        .keys()
+        .map(|name| {
+            let engine = engine.extend_orig_name(name);
+            engine.expand(include_template!(PATH!()))
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    let path = output_path.as_ref().join(engine.expand(PATH!()));
+    write(&path, &content).await
+}
+
 async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     shadow: bool,
 ) -> io::Result<()> {
@@ -284,7 +299,7 @@ async fn expand_function_specific_templates(
 }
 
 fn create_call_tree<'l>(
-    function_contents: &'l HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &'l BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
 ) -> MultiMap<&'l ResourceLocation, (&'l ResourceLocation, &'l usize)> {
     function_contents
         .iter()
@@ -436,6 +451,26 @@ async fn expand_function_templates(
         )
         .await?;
     }
+
+    let commands = lines
+        .iter()
+        .map(|(_, line, parsed)| match parsed {
+            Line::Empty | Line::Comment | Line::Breakpoint => line.to_string(),
+            _ => {
+                format!(
+                    "execute if score 1 -ns-_constant matches 0 run {}",
+                    line.trim_start()
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expand_template!(
+        engine.extend([("# -commands-", commands.as_str())]),
+        output_path,
+        "data/-ns-/functions/-orig_ns-/-orig/fn-/validate.mcfunction"
+    )
+    .await?;
 
     Ok(())
 }
