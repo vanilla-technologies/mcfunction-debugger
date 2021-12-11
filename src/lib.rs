@@ -182,6 +182,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/freeze_aec.mcfunction"),
         expand!("data/-ns-/functions/install.mcfunction"),
         expand!("data/-ns-/functions/load.mcfunction"),
+        expand!("data/-ns-/functions/on_finish_session.mcfunction"),
         expand!("data/-ns-/functions/resume_immediately.mcfunction"),
         expand_resume_self_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
@@ -194,6 +195,7 @@ async fn expand_global_templates(
         expand_validate_all_functions_template(&engine, function_contents, &output_path),
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
+        expand_show_skipped_template(&engine, function_contents, &output_path),
         expand!("data/debug/functions/stop.mcfunction"),
         expand!("data/debug/functions/uninstall.mcfunction"),
         expand!("data/minecraft/tags/functions/load.json"),
@@ -277,6 +279,36 @@ async fn expand_validate_all_functions_template(
         })
         .collect::<Vec<_>>()
         .join("");
+
+    let path = output_path.as_ref().join(engine.expand(PATH!()));
+    write(&path, &content).await
+}
+
+async fn expand_show_skipped_template(
+    engine: &TemplateEngine<'_>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    output_path: impl AsRef<Path>,
+) -> io::Result<()> {
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/debug/functions/show_skipped.mcfunction" }; }
+
+    let mut content = concat!(
+        r#"tellraw @s [{"text":"[Warning]","color":"gold"},"#,
+        r#"{"text":" The following functions were skipped:","color":"white"}]"#,
+        '\n',
+    )
+    .to_string();
+
+    content.push_str(
+        &function_contents
+            .keys()
+            .map(|name| {
+                let engine = engine.extend_orig_name(name);
+                engine.expand(include_template!(PATH!()))
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+    );
 
     let path = output_path.as_ref().join(engine.expand(PATH!()));
     write(&path, &content).await

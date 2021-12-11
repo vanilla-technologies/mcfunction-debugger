@@ -16,9 +16,4 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute if entity @s[tag=!-ns-] run function -ns-:id/init_self
-summon area_effect_cloud ~ ~ ~ {Duration: 2147483647, Tags: [-ns-_new, -ns-, -ns-_context, -ns-_active], CustomName: '{"text":"Server"}'}
-teleport @e[type=area_effect_cloud,tag=-ns-_new] ~ ~ ~ ~ ~
-scoreboard players operation @e[type=area_effect_cloud,tag=-ns-_new] -ns-_id = @s -ns-_id
-scoreboard players operation @e[type=area_effect_cloud,tag=-ns-_new] -ns-_depth = current -ns-_depth
-tag @e[type=area_effect_cloud,tag=-ns-_new] remove -ns-_new
+execute if score -orig_ns-:-orig/fn- -ns-_skipped matches 1.. run tellraw @s [{"text":" - -orig_ns-:-orig/fn- (","color":"white"},{"score":{"name":"-orig_ns-:-orig/fn-","objective":"-ns-_skipped"},"color":"white"},{"text":"x)","color":"white"}]

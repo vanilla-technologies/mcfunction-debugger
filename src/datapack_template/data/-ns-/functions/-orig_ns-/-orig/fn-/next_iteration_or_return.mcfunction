@@ -17,6 +17,8 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 # Skip execution if function contains invalid commands
+execute if score -orig_ns-:-orig/fn- -ns-_invalid matches 1 unless score -orig_ns-:-orig/fn- -ns-_skipped matches 1.. run scoreboard players add skipped -ns-_skipped 1
+execute if score -orig_ns-:-orig/fn- -ns-_invalid matches 1 run scoreboard players add -orig_ns-:-orig/fn- -ns-_skipped 1
 execute if score -orig_ns-:-orig/fn- -ns-_invalid matches 1 as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active] if score @s -ns-_depth = current -ns-_depth run kill @s
 
 # Select next context

@@ -16,6 +16,7 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
+scoreboard players reset * -ns-_skipped
 execute unless score breakpoint -ns-_global matches 1 run tellraw @a [{"text":"[Error]","color":"red"},{"text":" Cannot resume, no function is suspended at a breakpoint!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"white"}]
 execute unless score breakpoint -ns-_global matches 1 run function -ns-:clean_up
 execute if score breakpoint -ns-_global matches 1 run function -ns-:resume_unchecked

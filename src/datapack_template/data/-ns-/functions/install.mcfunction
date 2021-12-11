@@ -24,6 +24,7 @@ scoreboard objectives add -ns-_anchor dummy
 scoreboard objectives add -ns-_depth dummy
 scoreboard objectives add -ns-_global dummy
 scoreboard objectives add -ns-_invalid dummy
+scoreboard objectives add -ns-_skipped dummy
 scoreboard objectives add -ns-_tmp dummy
 
 scoreboard objectives add -ns-_constant dummy
