@@ -17,5 +17,4 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 tellraw @a [{"text":"[Info]","color":"blue"},{"text":" Debugging session finished.","color":"white"}]
-execute if score skipped -ns-_skipped matches 1 run tellraw @a [{"text":"[Warning]","color":"gold"},{"text":" ","color":"white"},{"score":{"name":"skipped","objective":"-ns-_skipped"},"color":"white"},{"text":" invalid function was skipped.\n Show with: ","color":"white"},{"text":"/function debug:show_skipped","clickEvent":{"action":"run_command","value":"/function debug:show_skipped"},"color":"aqua"}]
-execute if score skipped -ns-_skipped matches 2.. run tellraw @a [{"text":"[Warning]","color":"gold"},{"text":" ","color":"white"},{"score":{"name":"skipped","objective":"-ns-_skipped"},"color":"white"},{"text":" invalid functions were skipped.\n Show with: ","color":"white"},{"text":"/function debug:show_skipped","clickEvent":{"action":"run_command","value":"/function debug:show_skipped"},"color":"aqua"}]
+function -ns-:skipped_functions_warning

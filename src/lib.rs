@@ -31,7 +31,7 @@ use futures::{future::try_join_all, FutureExt};
 use multimap::MultiMap;
 use parser::command::{resource_location::ResourceLocation, CommandParser};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs::File,
     io::{self, BufRead},
     iter::{repeat, FromIterator},
@@ -183,11 +183,13 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/install.mcfunction"),
         expand!("data/-ns-/functions/load.mcfunction"),
         expand!("data/-ns-/functions/on_finish_session.mcfunction"),
+        expand!("data/-ns-/functions/reset_skipped.mcfunction"),
         expand!("data/-ns-/functions/resume_immediately.mcfunction"),
         expand_resume_self_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
         expand_schedule_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
+        expand!("data/-ns-/functions/skipped_functions_warning.mcfunction"),
         expand!("data/-ns-/functions/tick_start.mcfunction"),
         expand!("data/-ns-/functions/tick.mcfunction"),
         expand!("data/-ns-/functions/unfreeze_aec.mcfunction"),
@@ -289,29 +291,54 @@ async fn expand_show_skipped_template(
     function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
-    #[rustfmt::skip]
-    macro_rules! PATH { () => { "data/debug/functions/show_skipped.mcfunction" }; }
+    // This may include calls to non-existent functions
+    let called_functions = function_contents
+        .values()
+        .flat_map(|vec| vec)
+        .filter_map(|(_, _, line)| match line {
+            Line::FunctionCall { name, .. } => Some(name),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
 
-    let mut content = concat!(
-        r#"tellraw @s [{"text":"[Warning]","color":"gold"},"#,
-        r#"{"text":" The following functions were skipped:","color":"white"}]"#,
-        '\n',
+    let execute_if_skipped = "execute if score -orig_ns-:-orig/fn- -ns-_skipped matches 1..";
+    let is_valid = "score -orig_ns-:-orig/fn- -ns-_valid matches 0";
+    let tellraw = r#"tellraw @s [{"text":" - -orig_ns-:-orig/fn- (","color":"white"},{"score":{"name":"-orig_ns-:-orig/fn-","objective":"-ns-_skipped"},"color":"white"},{"text":"x)","color":"white"}]"#;
+
+    let missing_functions = called_functions
+        .iter()
+        .map(|orig_name| {
+            engine.extend_orig_name(orig_name).expand(&format!(
+                "{} {} {} run {}",
+                execute_if_skipped, "unless", is_valid, tellraw
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let invalid_functions = called_functions
+        .iter()
+        .map(|orig_name| {
+            engine.extend_orig_name(orig_name).expand(&format!(
+                "{} {} {} run {}",
+                execute_if_skipped, "if", is_valid, tellraw
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let output_path = output_path.as_ref();
+    expand_template!(
+        engine.extend([
+            ("# -missing_functions-", missing_functions.as_str()),
+            ("# -invalid_functions-", invalid_functions.as_str()),
+        ]),
+        output_path,
+        "data/debug/functions/show_skipped.mcfunction"
     )
-    .to_string();
+    .await?;
 
-    content.push_str(
-        &function_contents
-            .keys()
-            .map(|name| {
-                let engine = engine.extend_orig_name(name);
-                engine.expand(include_template!(PATH!()))
-            })
-            .collect::<Vec<_>>()
-            .join(""),
-    );
-
-    let path = output_path.as_ref().join(engine.expand(PATH!()));
-    write(&path, &content).await
+    Ok(())
 }
 
 async fn expand_function_specific_templates(
@@ -392,26 +419,8 @@ async fn expand_function_templates(
         start_line = end_line;
 
         if first {
-            create_parent_dir(
-                output_path.join(engine.expand("data/debug/functions/-orig_ns-/-orig/fn-")),
-            )
-            .await?;
-            let mut futures = vec![
-                expand!(
-                    "data/-ns-/functions/-orig_ns-/-orig/fn-/next_iteration_or_return.mcfunction"
-                ),
-                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
-                expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
-                expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
-            ];
-            if shadow {
-                create_parent_dir(
-                    output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")),
-                )
+            expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/next_iteration_or_return.mcfunction")
                 .await?;
-                futures.push(expand!("data/-orig_ns-/functions/-orig/fn-.mcfunction"));
-            }
-            try_join_all(futures).await?;
         } else {
             expand!(
                 "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue_current_iteration.mcfunction"
@@ -454,7 +463,23 @@ async fn expand_function_templates(
     try_join!(
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return_or_finish.mcfunction"),
+        expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
+        expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
+        expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start_valid.mcfunction"),
+        create_parent_dir(
+            output_path.join(engine.expand("data/debug/functions/-orig_ns-/-orig/fn-")),
+        ),
+        expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
     )?;
+
+    if shadow {
+        try_join!(
+            create_parent_dir(
+                output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")),
+            ),
+            expand!("data/-orig_ns-/functions/-orig/fn-.mcfunction"),
+        )?;
+    }
 
     if let Some(callers) = call_tree.get_vec(fn_name) {
         let mut return_cases = callers

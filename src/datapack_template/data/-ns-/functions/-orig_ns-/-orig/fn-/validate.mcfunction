@@ -18,4 +18,4 @@
 
 # -commands-
 
-scoreboard players reset -orig_ns-:-orig/fn- -ns-_invalid
+scoreboard players set -orig_ns-:-orig/fn- -ns-_valid 1

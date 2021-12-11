@@ -96,7 +96,8 @@ impl<'l> TemplateEngine<'l> {
                         anchor_score = 1;
                     }
                     format!(
-                        "scoreboard players set current -ns-_anchor {anchor_score}",
+                        "execute if score -orig_ns-:-orig/fn- -ns-_valid matches 1 run \
+                        scoreboard players set current -ns-_anchor {anchor_score}",
                         anchor_score = anchor_score
                     )
                 });
@@ -106,6 +107,7 @@ impl<'l> TemplateEngine<'l> {
                     .replace("-call_ns-", name.namespace())
                     .replace("-call/fn-", name.path())
                     .replace("-line_number-", &line_number.to_string())
+                    .replace("-line_number_1-", &(line_number + 1).to_string())
                     .replace("execute run ", execute)
                     .replace("# -debug_anchor-", &debug_anchor);
                 self.expand(&template)

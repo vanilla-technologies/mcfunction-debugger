@@ -16,4 +16,12 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute if score -orig_ns-:-orig/fn- -ns-_skipped matches 1.. run tellraw @s [{"text":" - -orig_ns-:-orig/fn- (","color":"white"},{"score":{"name":"-orig_ns-:-orig/fn-","objective":"-ns-_skipped"},"color":"white"},{"text":"x)","color":"white"}]
+execute if score skipped_missing -ns-_global matches 0 if score skipped_invalid -ns-_global matches 0 run tellraw @s [{"text":"[Info]","color":"blue"},{"text":" No functions were skipped.","color":"white"}]
+
+execute if score skipped_missing -ns-_global matches 1.. run tellraw @s [{"text":"[Warning]","color":"gold"},{"text":" The following missing functions were skipped:","color":"white"}]
+
+# -missing_functions-
+
+execute if score skipped_invalid -ns-_global matches 1.. run tellraw @s [{"text":"[Warning]","color":"gold"},{"text":" The following invalid functions were skipped:","color":"white"}]
+
+# -invalid_functions-

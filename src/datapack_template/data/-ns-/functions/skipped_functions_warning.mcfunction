@@ -16,19 +16,4 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players set version -ns-_version 1
-scoreboard objectives add -ns-_Age dummy
-scoreboard objectives add -ns-_Duration dummy
-scoreboard objectives add -ns-_WaitTime dummy
-scoreboard objectives add -ns-_anchor dummy
-scoreboard objectives add -ns-_depth dummy
-scoreboard objectives add -ns-_global dummy
-scoreboard objectives add -ns-_skipped dummy
-scoreboard objectives add -ns-_tmp dummy
-scoreboard objectives add -ns-_valid dummy
-
-scoreboard objectives add -ns-_constant dummy
-scoreboard players set 1 -ns-_constant 1
-scoreboard players set 88 -ns-_constant 88
-
-function -ns-:id/install
+execute if score skipped_calls -ns-_global matches 1.. run tellraw @a [{"text":"[Warning]","color":"gold"},{"text":" ","color":"white"},{"score":{"name":"skipped_missing","objective":"-ns-_global"},"color":"white"},{"text":" missing and ","color":"white"},{"score":{"name":"skipped_invalid","objective":"-ns-_global"},"color":"white"},{"text":" invalid functions were skipped.\n For more details run: ","color":"white"},{"text":"/function debug:show_skipped","clickEvent":{"action":"run_command","value":"/function debug:show_skipped"},"color":"aqua"}]
