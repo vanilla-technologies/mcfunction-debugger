@@ -25,5 +25,5 @@ tag @s remove -ns-_active
 # -return_cases-
 
 execute if score found_continue_function -ns-_global matches 1 run kill @s
-execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text": "Function call at ","color": "red"},{"selector":"@s","color": "red"},{"text": " was deleted!\nStart a new debugging session with '/function debug:<your_namespace>/<your_function>'","color": "red"}]
+execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":"[Error]","color":"red"},{"text":" Function call at ","color":"white"},{"selector":"@s","color":"white"},{"text":" was deleted!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"white"}]
 execute unless score found_continue_function -ns-_global matches 1 run function -ns-:clean_up

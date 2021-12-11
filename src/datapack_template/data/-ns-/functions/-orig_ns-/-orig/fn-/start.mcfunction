@@ -16,10 +16,11 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
+execute if score -orig_ns-:-orig/fn- -ns-_invalid matches 1 run tellraw @a [{"text":"[Error]","color":"red"},{"text":" Cannot debug -orig_ns-:-orig/fn-, because it contains an invalid command!","color":"white"}]
+execute unless score -orig_ns-:-orig/fn- -ns-_invalid matches 1 run tellraw @a [{"text":"[Info]","color":"blue"},{"text":" Started debugging -orig_ns-:-orig/fn-","color":"white"}]
+
 scoreboard players set current -ns-_depth 0
 scoreboard players set current -ns-_anchor 0
-
-execute if score -orig_ns-:-orig/fn- -ns-_invalid matches 1 run tellraw @a [{"text": "Cannot debug function -orig_ns-:-orig/fn-, because it contains an invalid command!","color": "red"}]
 
 function -ns-:select_entity
 function -ns-:-orig_ns-/-orig/fn-/next_iteration_or_return
