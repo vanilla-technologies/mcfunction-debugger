@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-tellraw @a [{"text":"[Info]","color":"blue"},{"text":" Started debugging -orig_ns-:-orig/fn-","color":"white"}]
+tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Started debugging -orig_ns-:-orig/fn-"}]
 
 scoreboard players set current -ns-_depth 0
 scoreboard players set current -ns-_anchor 0

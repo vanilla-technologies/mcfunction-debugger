@@ -18,7 +18,7 @@
 
 scoreboard players reset found_context -ns-_global
 execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run scoreboard players set found_context -ns-_global 1
-execute unless score found_context -ns-_global matches 1 run tellraw @a [{"text":"[Error]","color":"red"},{"text":" Debugger context entity was killed!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"white"}]
+execute unless score found_context -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Debugger context entity was killed!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'"}]
 execute unless score found_context -ns-_global matches 1 run function -ns-:clean_up
 execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/-line_number-_continue
 

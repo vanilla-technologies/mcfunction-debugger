@@ -303,7 +303,7 @@ async fn expand_show_skipped_template(
 
     let execute_if_skipped = "execute if score -orig_ns-:-orig/fn- -ns-_skipped matches 1..";
     let is_valid = "score -orig_ns-:-orig/fn- -ns-_valid matches 0";
-    let tellraw = r#"tellraw @s [{"text":" - -orig_ns-:-orig/fn- (","color":"white"},{"score":{"name":"-orig_ns-:-orig/fn-","objective":"-ns-_skipped"},"color":"white"},{"text":"x)","color":"white"}]"#;
+    let tellraw = r#"tellraw @s [{"text":" - -orig_ns-:-orig/fn- ("},{"score":{"name":"-orig_ns-:-orig/fn-","objective":"-ns-_skipped"}},{"text":"x)"}]"#;
 
     let missing_functions = called_functions
         .iter()

@@ -16,12 +16,12 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-tellraw @a [{"text":"[Info]","color":"blue"},{"text":" Resuming debugging from ","color":"white"},{"selector":"@s","color":"white"}]
+tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Resuming debugging from "},{"selector":"@s"}]
 
 scoreboard players reset found_continue_function -ns-_global
 
 # -resume_cases-
 
 execute if score found_continue_function -ns-_global matches 1 run kill @s
-execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":"[Error]","color":"red"},{"text":" Breakpoint at ","color":"white"},{"selector":"@s","color":"white"},{"text":" was deleted!\n You can either restore this breakpoint or stop the current debugging session with ","color":"white"},{"text":"/function debug:stop","clickEvent":{"action":"suggest_command","value":"/function debug:stop"},"color":"aqua"}]
+execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Breakpoint at "},{"selector":"@s"},{"text":" was deleted!\n You can either restore this breakpoint or stop the current debugging session with "},{"text":"/function debug:stop","clickEvent":{"action":"suggest_command","value":"/function debug:stop"},"color":"aqua","hoverEvent":{"action":"show_text","contents":"Click to execute"}}]
 execute unless score found_continue_function -ns-_global matches 1 run scoreboard players set breakpoint -ns-_global 1

@@ -17,6 +17,6 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 function -ns-:reset_skipped
-execute unless score breakpoint -ns-_global matches 1 run tellraw @a [{"text":"[Error]","color":"red"},{"text":" Cannot resume, no function is suspended at a breakpoint!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'","color":"white"}]
+execute unless score breakpoint -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Cannot resume, no function is suspended at a breakpoint!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'"}]
 execute unless score breakpoint -ns-_global matches 1 run function -ns-:clean_up
 execute if score breakpoint -ns-_global matches 1 run function -ns-:resume_unchecked
