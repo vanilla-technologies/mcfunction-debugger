@@ -495,25 +495,22 @@ async fn expand_function_templates(
         };
     }
 
+    create_parent_dir(output_path.join(engine.expand("data/debug/functions/-orig_ns-/-orig/fn-")))
+        .await?;
+
     try_join!(
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return_or_finish.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start_valid.mcfunction"),
-        create_parent_dir(
-            output_path.join(engine.expand("data/debug/functions/-orig_ns-/-orig/fn-")),
-        ),
         expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
     )?;
 
     if shadow {
-        try_join!(
-            create_parent_dir(
-                output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")),
-            ),
-            expand!("data/-orig_ns-/functions/-orig/fn-.mcfunction"),
-        )?;
+        create_parent_dir(output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")))
+            .await?;
+        expand!("data/-orig_ns-/functions/-orig/fn-.mcfunction").await?;
     }
 
     if let Some(callers) = call_tree.get_vec(fn_name) {
