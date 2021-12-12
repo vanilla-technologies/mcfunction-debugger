@@ -31,4 +31,7 @@ scoreboard objectives add -ns-_constant dummy
 scoreboard players set 1 -ns-_constant 1
 scoreboard players set 88 -ns-_constant 88
 
+scoreboard objectives add -ns-_scores dummy "@s scores"
+function debug:show_scores
+
 function -ns-:id/install

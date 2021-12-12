@@ -16,7 +16,4 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Debugging session finished."}]
-function -ns-:skipped_functions_warning
-
-scoreboard players reset * -ns-_scores
+execute if score @s -objective- = @s -objective- run scoreboard players operation -objective- -ns-_scores = @s -objective-

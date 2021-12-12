@@ -105,7 +105,7 @@ pub fn parse_double(string: &str) -> Result<(f64, usize), String> {
     parse_number(string).map_err(|e| e.to_string())
 }
 
-pub fn parse_int(string: &str) -> Result<(i32, usize), String> {
+pub fn parse_integer(string: &str) -> Result<(i32, usize), String> {
     parse_number(string).map_err(|e| e.to_string())
 }
 

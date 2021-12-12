@@ -30,6 +30,7 @@ fn test_say() {
         (
             Line::OtherCommand {
                 selectors: BTreeSet::from_iter([15]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -51,7 +52,96 @@ fn test_tellraw() {
         actual.0,
         Line::OtherCommand {
             selectors: BTreeSet::from_iter([8]),
+            objectives: BTreeSet::from_iter([]),
         }
+    );
+}
+
+#[test]
+fn test_scoreboard_objectives_add() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "scoreboard objectives add test_score dummy";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter(["test_score".to_string()]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_scoreboard_objectives_setdisplay() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "scoreboard objectives setdisplay sidebar test_score";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter(["test_score".to_string()]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_scoreboard_set_objectives() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "scoreboard players set test test_score 5";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter(["test_score".to_string()]),
+            },
+            None
+        )
+    );
+}
+
+#[test]
+fn test_scoreboard_reset_objectives() {
+    // given:
+    let parser = CommandParser::default().unwrap();
+    let line = "scoreboard players reset * test";
+
+    // when:
+    let actual = parse_line_internal(&parser, line);
+
+    // then:
+    assert_eq!(
+        actual,
+        (
+            Line::OtherCommand {
+                selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter(["test".to_string()]),
+            },
+            None
+        )
     );
 }
 
@@ -70,6 +160,7 @@ fn test_scoreboard_operation_selectors() {
         (
             Line::OtherCommand {
                 selectors: BTreeSet::from_iter([29, 39]),
+                objectives: BTreeSet::from_iter(["test".to_string()]),
             },
             None
         )
@@ -91,6 +182,7 @@ fn test_scoreboard_operation_names() {
         (
             Line::OtherCommand {
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter(["test".to_string()]),
             },
             None
         )
@@ -116,6 +208,7 @@ fn test_execute() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -141,6 +234,7 @@ fn test_execute_align() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -166,6 +260,7 @@ fn test_execute_anchored() {
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -191,6 +286,7 @@ fn test_execute_multiple_anchored() {
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -216,6 +312,7 @@ fn test_multiple_execute_anchored() {
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -241,6 +338,7 @@ fn test_multiple_execute_some_anchored() {
                     .to_owned(),
                 anchor: Some(MinecraftEntityAnchor::EYES),
                 selectors: BTreeSet::from_iter([37]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -266,6 +364,7 @@ fn test_execute_as() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([11]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -291,6 +390,7 @@ fn test_execute_at() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([11]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -316,6 +416,7 @@ fn test_execute_facing_pos() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -341,6 +442,7 @@ fn test_execute_facing_entity() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([22]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -366,6 +468,7 @@ fn test_execute_in() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -391,6 +494,7 @@ fn test_execute_in_qualified() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -416,6 +520,7 @@ fn test_execute_positioned_absolute() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -441,6 +546,7 @@ fn test_execute_positioned_local() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -466,6 +572,7 @@ fn test_execute_positioned_relative() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -491,6 +598,7 @@ fn test_execute_positioned_as() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([22]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -516,6 +624,7 @@ fn test_execute_rotated_absolute() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -541,6 +650,7 @@ fn test_execute_rotated_relative() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -566,6 +676,7 @@ fn test_execute_rotated_as() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([19]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -591,6 +702,7 @@ fn test_execute_if_block() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -617,6 +729,7 @@ fn test_execute_if_block_tag() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -643,6 +756,7 @@ fn test_execute_if_blocks() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -668,6 +782,7 @@ fn test_execute_if_data_block() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -693,6 +808,7 @@ fn test_execute_if_data_entity() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([23]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -718,6 +834,7 @@ fn test_execute_if_data_storage() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -743,6 +860,7 @@ fn test_execute_if_entity() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([18]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -768,6 +886,7 @@ fn test_execute_if_predicate() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -793,6 +912,7 @@ fn test_execute_if_score() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter(["test_global".to_string()]),
             },
             None
         )
@@ -818,6 +938,7 @@ fn test_execute_if_score_matches() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter(["test_global".to_string()]),
             },
             None
         )
@@ -843,6 +964,7 @@ fn test_execute_store_block() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -868,6 +990,7 @@ fn test_execute_store_bossbar() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -893,6 +1016,7 @@ fn test_execute_store_entity() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([29]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -918,6 +1042,7 @@ fn test_execute_store_score() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([28]),
+                objectives: BTreeSet::from_iter(["test_global".to_string()]),
             },
             None
         )
@@ -943,6 +1068,7 @@ fn test_execute_store_storage() {
                     .to_owned(),
                 anchor: None,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -964,6 +1090,7 @@ fn test_kill_selector() {
         (
             Line::OtherCommand {
                 selectors: BTreeSet::from_iter([5]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -986,6 +1113,7 @@ fn test_kill_self() {
             Line::OptionalSelectorCommand {
                 missing_selector: 4,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1017,6 +1145,7 @@ fn test_schedule() {
                     }
                 },
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1048,6 +1177,7 @@ fn test_schedule_append() {
                     }
                 },
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1074,6 +1204,7 @@ fn test_schedule_clear() {
                     .to_owned(),
                 operation: ScheduleOperation::CLEAR,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1105,6 +1236,7 @@ fn test_schedule_replace() {
                     }
                 },
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1136,6 +1268,7 @@ fn test_execute_schedule() {
                     }
                 },
                 selectors: BTreeSet::from_iter([11]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1162,6 +1295,7 @@ fn test_execute_schedule_clear() {
                     .to_owned(),
                 operation: ScheduleOperation::CLEAR,
                 selectors: BTreeSet::from_iter([11]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1182,7 +1316,8 @@ fn test_team_join_selector() {
         actual,
         (
             Line::OtherCommand {
-                selectors: BTreeSet::from_iter([14])
+                selectors: BTreeSet::from_iter([14]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1205,6 +1340,7 @@ fn test_team_join_self() {
             Line::OptionalSelectorCommand {
                 missing_selector: 13,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1227,6 +1363,7 @@ fn test_teleport_location_self() {
             Line::OptionalSelectorCommand {
                 missing_selector: 8,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1248,6 +1385,7 @@ fn test_teleport_location_selector() {
         (
             Line::OtherCommand {
                 selectors: BTreeSet::from_iter([9]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1270,6 +1408,7 @@ fn test_tp_location_self() {
             Line::OptionalSelectorCommand {
                 missing_selector: 2,
                 selectors: BTreeSet::from_iter([]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1292,6 +1431,7 @@ fn test_teleport_destination_self() {
             Line::OptionalSelectorCommand {
                 missing_selector: 8,
                 selectors: BTreeSet::from_iter([9]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )
@@ -1313,6 +1453,7 @@ fn test_teleport_destination_selector() {
         (
             Line::OtherCommand {
                 selectors: BTreeSet::from_iter([9, 12]),
+                objectives: BTreeSet::from_iter([]),
             },
             None
         )

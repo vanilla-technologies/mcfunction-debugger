@@ -22,6 +22,7 @@ scoreboard objectives remove -ns-_WaitTime
 scoreboard objectives remove -ns-_anchor
 scoreboard objectives remove -ns-_depth
 scoreboard objectives remove -ns-_global
+scoreboard objectives remove -ns-_scores
 scoreboard objectives remove -ns-_skipped
 scoreboard objectives remove -ns-_tmp
 scoreboard objectives remove -ns-_valid

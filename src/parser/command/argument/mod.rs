@@ -56,6 +56,8 @@ pub struct MinecraftMessage<'l> {
 
 type MinecraftObjective<'l> = &'l str;
 
+type MinecraftObjectiveCriteria<'l> = &'l str;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MinecraftOperation {
     Assignment,     // =
@@ -77,6 +79,8 @@ pub enum MinecraftScoreHolder<'l> {
     Wildcard,
     String(&'l str),
 }
+
+type MinecraftScoreboardSlot<'l> = &'l str;
 
 type MinecraftSwizzle = ();
 
@@ -115,6 +119,7 @@ impl MinecraftTimeUnit {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Argument<'l> {
     BrigadierDouble(f64),
+    BrigadierInteger(i32),
     BrigadierString(&'l str),
     MinecraftBlockPos(MinecraftBlockPos),
     MinecraftBlockPredicate(MinecraftBlockPredicate<'l>),
@@ -126,10 +131,12 @@ pub enum Argument<'l> {
     MinecraftMessage(MinecraftMessage<'l>),
     MinecraftNbtPath(MinecraftNbtPath<'l>),
     MinecraftObjective(MinecraftObjective<'l>),
+    MinecraftObjectiveCriteria(MinecraftObjectiveCriteria<'l>),
     MinecraftOperation(MinecraftOperation),
     MinecraftResourceLocation(MinecraftResourceLocation<'l>),
     MinecraftRotation(MinecraftRotation),
     MinecraftScoreHolder(MinecraftScoreHolder<'l>),
+    MinecraftScoreboardSlot(MinecraftScoreboardSlot<'l>),
     MinecraftSwizzle(MinecraftSwizzle),
     MinecraftTeam(MinecraftTeam<'l>),
     MinecraftTime(MinecraftTime),
@@ -272,6 +279,9 @@ impl ArgumentParser {
             Self::BrigadierDouble => {
                 brigadier::parse_double(string).map(|it| it.map0(Argument::BrigadierDouble))
             }
+            Self::BrigadierInteger(..) => {
+                brigadier::parse_integer(string).map(|it| it.map0(Argument::BrigadierInteger))
+            }
             Self::BrigadierString { type_ } => {
                 brigadier::parse_string(string, *type_).map(|it| it.map0(Argument::BrigadierString))
             }
@@ -303,6 +313,8 @@ impl ArgumentParser {
             Self::MinecraftObjective => {
                 parse_minecraft_objective(string).map(|it| it.map0(Argument::MinecraftObjective))
             }
+            Self::MinecraftObjectiveCriteria => parse_minecraft_objective_criteria(string)
+                .map(|it| it.map0(Argument::MinecraftObjectiveCriteria)),
             Self::MinecraftOperation => {
                 parse_minecraft_operation(string).map(|it| it.map0(Argument::MinecraftOperation))
             }
@@ -313,6 +325,8 @@ impl ArgumentParser {
             }
             Self::MinecraftScoreHolder { .. } => parse_minecraft_score_holder(string)
                 .map(|it| it.map0(Argument::MinecraftScoreHolder)),
+            Self::MinecraftScoreboardSlot => parse_minecraft_scoreboard_slot(string)
+                .map(|it| it.map0(Argument::MinecraftScoreboardSlot)),
             Self::MinecraftSwizzle => {
                 parse_minecraft_swizzle(string).map(|it| it.map0(Argument::MinecraftSwizzle))
             }
@@ -373,6 +387,13 @@ fn parse_minecraft_objective(string: &str) -> Result<(MinecraftObjective, usize)
     Ok(brigadier::parse_unquoted_string(string))
 }
 
+fn parse_minecraft_objective_criteria(
+    string: &str,
+) -> Result<(MinecraftObjectiveCriteria, usize), String> {
+    let len = string.find(' ').unwrap_or(string.len());
+    Ok((&string[..len], len))
+}
+
 fn parse_minecraft_operation(string: &str) -> Result<(MinecraftOperation, usize), String> {
     let len = string.find(' ').unwrap_or(string.len());
     match &string[..len] {
@@ -403,6 +424,12 @@ fn parse_minecraft_score_holder(string: &str) -> Result<(MinecraftScoreHolder, u
         };
         Ok((parsed, len))
     }
+}
+
+fn parse_minecraft_scoreboard_slot(
+    string: &str,
+) -> Result<(MinecraftScoreboardSlot, usize), String> {
+    Ok(brigadier::parse_unquoted_string(string))
 }
 
 fn parse_minecraft_swizzle(string: &str) -> Result<(MinecraftSwizzle, usize), String> {

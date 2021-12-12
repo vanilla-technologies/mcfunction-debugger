@@ -20,7 +20,7 @@ use crate::{
     parser::command::{
         argument::{
             brigadier::{
-                expect, parse_bool, parse_double, parse_int, parse_possibly_quoted_string,
+                expect, parse_bool, parse_double, parse_integer, parse_possibly_quoted_string,
                 parse_unquoted_string,
             },
             minecraft::{nbt::CompoundNbt, range::MinecraftRange},
@@ -225,7 +225,7 @@ impl<'l> MinecraftSelector<'l> {
                 Ok(len)
             }
             "limit" => {
-                let (limit, len) = parse_int(string)?;
+                let (limit, len) = parse_integer(string)?;
                 self.limit = Some(limit);
                 Ok(len)
             }

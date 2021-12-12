@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::parser::command::argument::brigadier::{
-    expect, is_quote, parse_int, parse_possibly_quoted_string, parse_quoted_string,
+    expect, is_quote, parse_integer, parse_possibly_quoted_string, parse_quoted_string,
     parse_unquoted_string,
 };
 use ::nbt::{Map, Value};
@@ -78,7 +78,7 @@ impl<'l> MinecraftNbtPathNode<'l> {
                 } else if suffix.starts_with(']') {
                     Ok((Self::AllElements, "[]".len()))
                 } else {
-                    let (index, len) = parse_int(suffix)?;
+                    let (index, len) = parse_integer(suffix)?;
                     suffix = &suffix[len..];
                     suffix = expect(suffix, ']')?;
                     Ok((Self::IndexedElement(index), string.len() - suffix.len()))

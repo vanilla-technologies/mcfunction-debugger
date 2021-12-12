@@ -37,20 +37,36 @@ pub enum Line {
         name: ResourceLocation,
         anchor: Option<MinecraftEntityAnchor>,
         selectors: BTreeSet<usize>,
+        objectives: BTreeSet<String>,
     },
     OptionalSelectorCommand {
         missing_selector: usize,
         selectors: BTreeSet<usize>,
+        objectives: BTreeSet<String>,
     },
     Schedule {
         schedule_start: usize,
         function: ResourceLocation,
         operation: ScheduleOperation,
         selectors: BTreeSet<usize>,
+        objectives: BTreeSet<String>,
     },
     OtherCommand {
         selectors: BTreeSet<usize>,
+        objectives: BTreeSet<String>,
     },
+}
+
+impl Line {
+    pub fn objectives(&self) -> Option<&BTreeSet<String>> {
+        match self {
+            Line::FunctionCall { objectives, .. }
+            | Line::OptionalSelectorCommand { objectives, .. }
+            | Line::Schedule { objectives, .. }
+            | Line::OtherCommand { objectives, .. } => Some(objectives),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -96,6 +112,7 @@ fn parse_command<'l>(
     } = parser.parse(command);
     let mut nodes = parsed_nodes.as_slice();
     let mut selectors = BTreeSet::new();
+    let mut objectives = BTreeSet::new();
     let mut maybe_anchor: Option<MinecraftEntityAnchor> = None;
 
     while let [_, tail @ ..] = nodes {
@@ -126,6 +143,23 @@ fn parse_command<'l>(
                 );
             }
 
+            [ParsedNode::Argument {
+                argument: Argument::MinecraftObjective(objective),
+                ..
+            }, ..]
+            | [ParsedNode::Literal {
+                literal: "scoreboard",
+                ..
+            }, ParsedNode::Literal {
+                literal: "objectives",
+                ..
+            }, ParsedNode::Literal { literal: "add", .. }, ParsedNode::Argument {
+                argument: Argument::BrigadierString(objective),
+                ..
+            }, ..] => {
+                objectives.insert(objective.to_string());
+            }
+
             [ParsedNode::Literal {
                 literal: "execute", ..
             }
@@ -152,6 +186,7 @@ fn parse_command<'l>(
                     name,
                     anchor: maybe_anchor,
                     selectors,
+                    objectives,
                 },
                 None,
             );
@@ -164,6 +199,7 @@ fn parse_command<'l>(
                     function: function.to_owned(),
                     operation,
                     selectors,
+                    objectives,
                 },
                 None,
             );
@@ -174,13 +210,20 @@ fn parse_command<'l>(
                 Line::OptionalSelectorCommand {
                     missing_selector,
                     selectors,
+                    objectives,
                 },
                 None,
             );
         }
     }
 
-    (Line::OtherCommand { selectors }, error)
+    (
+        Line::OtherCommand {
+            selectors,
+            objectives,
+        },
+        error,
+    )
 }
 
 fn as_function_call(nodes: &[ParsedNode]) -> Option<ResourceLocation> {

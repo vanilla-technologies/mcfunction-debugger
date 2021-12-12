@@ -86,6 +86,7 @@ impl<'l> TemplateEngine<'l> {
                 name,
                 anchor,
                 selectors,
+                ..
             } => {
                 let line = exclude_internal_entites_from_selectors(line, selectors);
                 let function_call = format!("function {}", name);
@@ -115,6 +116,7 @@ impl<'l> TemplateEngine<'l> {
             Line::OptionalSelectorCommand {
                 missing_selector,
                 selectors,
+                ..
             } => {
                 const SELF_SELECTOR: &str = " @s";
                 let mut line = line.to_string();
@@ -138,6 +140,7 @@ impl<'l> TemplateEngine<'l> {
                 function,
                 operation,
                 selectors,
+                ..
             } => {
                 let schedule_fn = function.path().replace('/', "_");
                 let execute =
@@ -170,7 +173,7 @@ impl<'l> TemplateEngine<'l> {
 
                 engine.expand(template)
             }
-            Line::OtherCommand { selectors } => {
+            Line::OtherCommand { selectors, .. } => {
                 let line = exclude_internal_entites_from_selectors(line, selectors);
                 self.expand(&line)
             }

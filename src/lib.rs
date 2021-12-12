@@ -51,30 +51,8 @@ pub async fn generate_debug_datapack(
     namespace: &str,
     shadow: bool,
 ) -> io::Result<()> {
-    let parser =
-        CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let functions = find_function_files(input_path).await?;
-    let function_contents = functions
-        .iter()
-        .map(|(name, path)| {
-            //TODO async
-            let file = File::open(path)?;
-            let mut lines = io::BufReader::new(file)
-                .lines()
-                .enumerate()
-                .map(|(line_number, line)| {
-                    line.map(|line| {
-                        let command = parse_line(&parser, &line);
-                        (line_number + 1, line, command)
-                    })
-                })
-                .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
-
-            // TODO dirty hack for when the last line in a file is a function call or breakpoint
-            lines.push((lines.len() + 1, "".to_string(), Line::Empty));
-            Ok((name, lines))
-        })
-        .collect::<Result<BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error>>()?;
+    let function_contents = parse_functions(&functions).await?;
 
     let engine = TemplateEngine::new(HashMap::from_iter([("-ns-", namespace)]));
     expand_templates(&engine, &function_contents, &output_path, shadow).await
@@ -129,6 +107,34 @@ fn get_functions(
         }
         Ok(functions)
     })
+}
+
+async fn parse_functions(
+    functions: &HashMap<ResourceLocation, PathBuf>,
+) -> Result<BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error> {
+    let parser =
+        CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    functions
+        .iter()
+        .map(|(name, path)| {
+            //TODO async
+            let file = File::open(path)?;
+            let mut lines = io::BufReader::new(file)
+                .lines()
+                .enumerate()
+                .map(|(line_number, line)| {
+                    line.map(|line| {
+                        let command = parse_line(&parser, &line);
+                        (line_number + 1, line, command)
+                    })
+                })
+                .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
+
+            // TODO dirty hack for when the last line in a file is a function call or breakpoint
+            lines.push((lines.len() + 1, "".to_string(), Line::Empty));
+            Ok((name, lines))
+        })
+        .collect()
 }
 
 async fn expand_templates(
@@ -194,9 +200,11 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/tick.mcfunction"),
         expand!("data/-ns-/functions/unfreeze_aec.mcfunction"),
         expand!("data/-ns-/functions/uninstall.mcfunction"),
+        expand_update_scores_template(&engine, function_contents, &output_path),
         expand_validate_all_functions_template(&engine, function_contents, &output_path),
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
+        expand!("data/debug/functions/show_scores.mcfunction"),
         expand_show_skipped_template(&engine, function_contents, &output_path),
         expand!("data/debug/functions/stop.mcfunction"),
         expand!("data/debug/functions/uninstall.mcfunction"),
@@ -256,6 +264,33 @@ async fn expand_schedule_template(
         .keys()
         .map(|name| {
             let engine = engine.extend_orig_name(name);
+            engine.expand(include_template!(PATH!()))
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    let path = output_path.as_ref().join(engine.expand(PATH!()));
+    write(&path, &content).await
+}
+
+async fn expand_update_scores_template(
+    engine: &TemplateEngine<'_>,
+    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    output_path: impl AsRef<Path>,
+) -> io::Result<()> {
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/-ns-/functions/update_scores.mcfunction" }; }
+
+    let objectives = function_contents
+        .values()
+        .flat_map(|vec| vec)
+        .filter_map(|(_, _, line)| line.objectives())
+        .flat_map(|objectives| objectives)
+        .collect::<BTreeSet<_>>();
+    let content = objectives
+        .iter()
+        .map(|objective| {
+            let engine = engine.extend([("-objective-", objective.as_str())]);
             engine.expand(include_template!(PATH!()))
         })
         .collect::<Vec<_>>()
