@@ -20,7 +20,7 @@ execute unless score @s -ns-_id matches 0 run scoreboard players operation @e[ta
 execute unless score @s -ns-_id matches 0 as @e[tag=!-ns-_context,scores={-ns-_id=0}] run tag @s add -ns-_tmp
 execute unless score @s -ns-_id matches 0 run scoreboard players operation @e[tag=!-ns-_context] -ns-_id += @s -ns-_id
 
-execute unless score @s -ns-_id matches 0 unless entity @e[tag=!-ns-_context,tag=-ns-_tmp] run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Selected entity was killed!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'"}]
+execute unless score @s -ns-_id matches 0 unless entity @e[tag=!-ns-_context,tag=-ns-_tmp] run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Selected entity was killed!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
 execute unless score @s -ns-_id matches 0 unless entity @e[tag=!-ns-_context,tag=-ns-_tmp] run function -ns-:clean_up
 execute if score @s -ns-_id matches 0 at @s run function -ns-:-orig_ns-/-orig/fn-/-line_numbers-
 execute if score current -ns-_anchor matches 0 at @s as @e[tag=!-ns-_context,tag=-ns-_tmp] anchored feet run function -ns-:-orig_ns-/-orig/fn-/-line_numbers-

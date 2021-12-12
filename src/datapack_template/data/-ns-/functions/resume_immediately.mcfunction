@@ -16,6 +16,6 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute unless entity @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Could not find breakpoint entity!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'"}]
+execute unless entity @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Could not find breakpoint entity!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
 execute unless entity @e[type=area_effect_cloud,tag=-ns-_breakpoint] run function -ns-:clean_up
 execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run function -ns-:resume_self

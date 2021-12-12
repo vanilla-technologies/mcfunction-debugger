@@ -18,6 +18,6 @@
 
 scoreboard players reset found_function_call -ns-_global
 execute as @e[type=area_effect_cloud,tag=-ns-_function_call,tag=-ns-_active] if score @s -ns-_depth = current -ns-_depth run scoreboard players set found_function_call -ns-_global 1
-execute unless score found_function_call -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Debugger function call entity was killed!\n Start a new debugging session with '/function debug:<your_namespace>/<your_function>'"}]
+execute unless score found_function_call -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Debugger function call entity was killed!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
 execute unless score found_function_call -ns-_global matches 1 run function -ns-:clean_up
 execute as @e[type=area_effect_cloud,tag=-ns-_function_call,tag=-ns-_active] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/return_self

@@ -23,5 +23,5 @@ scoreboard players reset found_continue_function -ns-_global
 # -resume_cases-
 
 execute if score found_continue_function -ns-_global matches 1 run kill @s
-execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Breakpoint at "},{"selector":"@s"},{"text":" was deleted!\n You can either restore this breakpoint or stop the current debugging session with "},{"text":"/function debug:stop","clickEvent":{"action":"suggest_command","value":"/function debug:stop"},"color":"aqua","hoverEvent":{"action":"show_text","contents":"Click to execute"}}]
+execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Breakpoint at "},{"selector":"@s"},{"text":" was deleted!\n You can either restore this breakpoint or stop the current debugging session with "},{"text":"/function debug:stop","clickEvent":{"action":"suggest_command","value":"/function debug:stop"},"hoverEvent":{"action":"show_text","contents":"Click to execute"},"color":"aqua"}]
 execute unless score found_continue_function -ns-_global matches 1 run scoreboard players set breakpoint -ns-_global 1

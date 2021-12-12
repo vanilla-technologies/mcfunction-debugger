@@ -17,5 +17,5 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 function -ns-:reset_skipped
-execute if score breakpoint -ns-_global matches 1 run tellraw @s [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Cannot start debugging -orig_ns-:-orig/fn-, because a function is already suspended at a breakpoint!\n To resume run: "},{"text":"/function debug:resume","clickEvent":{"action":"run_command","value":"/function debug:resume"},"color":"aqua","hoverEvent":{"action":"show_text","contents":"Click to execute"}}]
+execute if score breakpoint -ns-_global matches 1 run tellraw @s [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Cannot start debugging -orig_ns-:-orig/fn-, because a function is already suspended at a breakpoint!\n To resume run: "},{"text":"/function debug:resume","clickEvent":{"action":"run_command","value":"/function debug:resume"},"hoverEvent":{"action":"show_text","contents":"Click to execute"},"color":"aqua"}]
 execute unless score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/start
