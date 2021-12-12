@@ -62,15 +62,18 @@ impl CommandParser {
 
         let only_errors = parsed.iter().all(|parsed| parsed.error.is_some());
         if only_errors {
-            // Return first error
-            parsed.into_iter().next().unwrap_or(CommandParserResult {
-                parsed_nodes: Vec::new(),
-                error: Some(CommandParserError {
-                    message: "Incorrect argument for command".to_string(),
-                    command,
-                    index,
-                }),
-            })
+            // Return deepest error
+            parsed
+                .into_iter()
+                .max_by_key(|result| result.parsed_nodes.len())
+                .unwrap_or(CommandParserResult {
+                    parsed_nodes: Vec::new(),
+                    error: Some(CommandParserError {
+                        message: "Incorrect argument for command".to_string(),
+                        command,
+                        index,
+                    }),
+                })
         } else {
             // Return first non error
             parsed
