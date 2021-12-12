@@ -150,7 +150,7 @@ pub enum ArgumentParser {
     #[serde(rename = "brigadier:bool")]
     BrigadierBool,
     #[serde(rename = "brigadier:double")]
-    BrigadierDouble,
+    BrigadierDouble(Option<BrigadierDoubleProperties>),
     #[serde(rename = "brigadier:float")]
     BrigadierFloat(Option<BrigadierFloatProperties>),
     #[serde(rename = "brigadier:integer")]
@@ -243,6 +243,12 @@ pub enum ArgumentParser {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
+pub struct BrigadierDoubleProperties {
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
 pub struct BrigadierFloatProperties {
     pub min: Option<f32>,
     pub max: Option<f32>,
@@ -276,7 +282,7 @@ impl ArgumentParser {
 
     pub fn parse<'l>(&self, string: &'l str) -> Result<(Argument<'l>, usize), String> {
         match self {
-            Self::BrigadierDouble => {
+            Self::BrigadierDouble(..) => {
                 brigadier::parse_double(string).map(|it| it.map0(Argument::BrigadierDouble))
             }
             Self::BrigadierInteger(..) => {
