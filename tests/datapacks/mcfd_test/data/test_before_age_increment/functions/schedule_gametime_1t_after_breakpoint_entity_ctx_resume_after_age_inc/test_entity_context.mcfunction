@@ -1,0 +1,3 @@
+# breakpoint
+execute store result score gametime1 test_global run time query gametime
+schedule function test_before_age_increment:schedule_gametime_1t_after_breakpoint_entity_ctx_resume_after_age_inc/scheduled 1t
