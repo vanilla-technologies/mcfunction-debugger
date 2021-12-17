@@ -39,7 +39,7 @@ const LOG_LEVELS: [LevelFilter; 6] = [
     LevelFilter::Trace,
 ];
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     let matches = App::new("mcfunction-debugger")
         .version(crate_version!())
