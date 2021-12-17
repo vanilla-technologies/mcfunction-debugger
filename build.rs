@@ -102,7 +102,9 @@ fn generate_tests(out_dir: impl AsRef<Path>) {
             writeln!(
                 writer,
                 "    expand_test_template!(\"{}\").await?;",
-                relative_path.display()
+                relative_path
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/")
             )
             .unwrap();
         }

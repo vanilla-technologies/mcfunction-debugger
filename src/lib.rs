@@ -95,7 +95,10 @@ fn get_functions(
                                 let relative_path = path.strip_prefix(&functions_path).unwrap();
                                 let name = ResourceLocation::new(
                                     namespace.to_string_lossy().as_ref(),
-                                    &relative_path.with_extension("").display().to_string(),
+                                    &relative_path
+                                        .with_extension("")
+                                        .to_string_lossy()
+                                        .replace(std::path::MAIN_SEPARATOR, "/"),
                                 );
 
                                 functions.push((name, path));
