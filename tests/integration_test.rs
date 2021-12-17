@@ -54,25 +54,30 @@ macro_rules! expand_test_template {
 }
 
 fn expand_logged_cmds(string: &str) -> String {
-    let mut expanded = String::with_capacity(string.len());
-
-    let prefix = "say [";
-    let mut expanded_until = 0;
-    for (start, _) in string.match_indices(prefix) {
-        if let Some(end) = string[start..].find("]\n") {
-            let end = start + end;
-            if let Some((executor, command)) = string[start..end]
-                .strip_prefix(prefix)
-                .and_then(|it| it.split_once(": "))
-            {
-                expanded.push_str(&string[expanded_until..start]);
-                expanded_until = end + 1;
-                expanded.push_str(&log_command(command, executor));
-            }
-        }
+    if !string.contains('\n') {
+        return string.to_string();
     }
-    expanded.push_str(&string[expanded_until..]);
+
+    let mut expanded = String::with_capacity(string.len());
+    for line in string.lines() {
+        if let Some((index, executor, command)) = find_special_say_command(line) {
+            expanded.push_str(&line[..index]);
+            expanded.push_str(&log_command(command, executor));
+        } else {
+            expanded.push_str(&line);
+        }
+        expanded.push('\n');
+    }
     expanded
+}
+
+fn find_special_say_command(line: &str) -> Option<(usize, &str, &str)> {
+    let prefix = "say [";
+    let index = line.find(prefix)?;
+    let without_closing_bracket = line.strip_suffix(']')?;
+    let content = &without_closing_bracket[index + prefix.len()..];
+    let (executor, command) = content.split_once(": ")?;
+    Some((index, executor, command))
 }
 
 fn log_command(command: &str, name: &str) -> String {
