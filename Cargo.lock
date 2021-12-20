@@ -140,6 +140,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "debug-adapter-protocol"
+version = "0.1.0"
+source = "git+ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git#6c13b9cf741ac85b58babc931649a3b392a9f005"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "doc-comment"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -530,6 +539,17 @@ name = "matches"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
+
+[[package]]
+name = "mcfunction-debug-adapter"
+version = "0.1.0"
+dependencies = [
+ "debug-adapter-protocol",
+ "mcfunction-debugger",
+ "minect",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "mcfunction-debugger"

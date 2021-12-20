@@ -1,0 +1,11 @@
+[package]
+name = "mcfunction-debug-adapter"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+mcfunction-debugger = { path = ".." }
+debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git" }
+minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
+serde_json = "1"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "parking_lot", "rt-multi-thread"] }

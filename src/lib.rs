@@ -19,7 +19,7 @@
 #[macro_use]
 mod macros;
 
-mod parser;
+pub mod parser;
 mod template_engine;
 mod utils;
 

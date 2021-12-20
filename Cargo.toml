@@ -10,6 +10,11 @@ name = "mcfunction-debugger"
 repository = "https://github.com/vanilla-technologies/mcfunction-debugger"
 version = "0.1.0"
 
+[workspace]
+members = [
+    "mcfunction-debug-adapter",
+]
+
 [dependencies]
 clap = "2"
 futures = "0.3"
