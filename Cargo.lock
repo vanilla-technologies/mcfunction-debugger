@@ -544,11 +544,13 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 name = "mcfunction-debug-adapter"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "debug-adapter-protocol",
  "mcfunction-debugger",
  "minect",
  "serde_json",
  "tokio",
+ "vergen",
 ]
 
 [[package]]

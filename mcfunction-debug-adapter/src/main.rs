@@ -16,6 +16,7 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+use clap::{crate_authors, crate_version, App};
 use debug_adapter_protocol::{
     events::Event,
     requests::{
@@ -43,6 +44,34 @@ const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    App::new("mcfunction-debug-adapter")
+        .version(crate_version!())
+        .long_version(concat!(
+            crate_version!(),
+            " (Commit: ",
+            env!("VERGEN_GIT_SHA"),
+            ")"
+        ))
+        .version_short("v")
+        .author(&*format!(
+            "
+Vanilla Technologies
+© Copyright (C) 2021 {}
+
+mcfunction-debugger is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+mcfunction-debugger is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU General Public License for more details.
+
+",
+            crate_authors!(" & ")
+        ))
+        .get_matches();
+
     match run().await {
         Err(e) => {
             let project_dir = Path::new(env!("PWD"));
