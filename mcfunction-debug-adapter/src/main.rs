@@ -88,6 +88,7 @@ async fn run() -> io::Result<()> {
     let project_dir = Path::new(env!("PWD"));
     let mut in_log = File::create(project_dir.join("in.log")).await?;
     let mut out_log = File::create(project_dir.join("out.log")).await?;
+    let mut std_log = File::create(project_dir.join("std.log")).await?;
     // let mut writer = MessageWriter::new(tokio::io::stdout(), &mut out_log);
 
     let mut adapter = DebugAdapter::new(tokio::io::stdout(), &mut out_log);
@@ -114,7 +115,7 @@ async fn run() -> io::Result<()> {
                 }
                 Request::Launch(args) => {
                     let response = adapter
-                        .launch(args)
+                        .launch(args, &mut std_log)
                         .await?
                         .map(|()| SuccessResponse::Launch)
                         .map_err(with_command("launch"));
@@ -272,9 +273,10 @@ where
     async fn launch(
         &self,
         args: LaunchRequestArguments,
+        log: &mut File,
     ) -> io::Result<Result<(), (String, Option<Message>)>> {
         if let Some(session) = &self.session {
-            session.launch(args).await
+            session.launch(args, log).await
         } else {
             Ok(Err(("uninitialized".to_string(), None)))
         }
@@ -288,6 +290,7 @@ impl Session {
     async fn launch(
         &self,
         args: LaunchRequestArguments,
+        log: &mut File,
     ) -> Result<Result<(), (String, Option<Message>)>, io::Error> {
         // FIXME: Proper launch parameters
         // let datapack = args
@@ -332,7 +335,19 @@ impl Session {
             .to_str()
             .unwrap(); // Path is known to be UTF-8
 
-        let output_path = datapack.with_file_name(format!("debug-{}", datapack_name));
+        let minecraft_world_dir = args
+            .additional_attributes
+            .get("minecraftWorldDir")
+            .ok_or_else(|| invalid_input("Missing attribute 'minecraftWorldDir'"))?
+            .as_str()
+            .ok_or_else(|| invalid_input("Attribute 'minecraftWorldDir' is not of type string"))?;
+        let minecraft_world_dir = Path::new(minecraft_world_dir);
+
+        let output_path = minecraft_world_dir
+            .join("datapacks")
+            .join(format!("debug-{}", datapack_name));
+        log.write_all(format!("output_path={}", output_path.display()).as_bytes())
+            .await?;
         generate_debug_datapack(datapack, output_path, "mcfd", false).await?;
 
         self.connection.inject_commands(vec![format!(
