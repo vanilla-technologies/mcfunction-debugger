@@ -274,7 +274,7 @@ async fn create_debug_datapack() -> io::Result<()> {
 async fn do_create_debug_datapack() -> io::Result<()> {
     let input_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
     let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug");
-    generate_debug_datapack(&input_path, &output_path, "mcfd", false).await?;
+    generate_debug_datapack(&input_path, &output_path, "mcfd", false, None).await?;
     wait_for_mount().await;
     Ok(())
 }

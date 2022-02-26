@@ -27,17 +27,20 @@ use debug_adapter_protocol::{
         ThreadsResponseBody,
     },
     types::{Breakpoint, Capabilities, Message, Thread},
-    ProtocolMessageType,
+    ProtocolMessage, ProtocolMessageType,
 };
+use log::info;
 use mcfunction_debug_adapter::{read_msg, MessageWriter};
 use mcfunction_debugger::{
     generate_debug_datapack, parser::command::resource_location::ResourceLocation,
 };
 use minect::{MinecraftConnection, MinecraftConnectionBuilder};
+use simplelog::{Config, WriteLogger};
 use std::{io, path::Path};
 use tokio::{
     fs::File,
     io::{AsyncWriteExt, BufReader},
+    select,
 };
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
@@ -72,9 +75,16 @@ See the GNU General Public License for more details.
         ))
         .get_matches();
 
+    let project_dir = Path::new(env!("PWD"));
+    WriteLogger::init(
+        log::LevelFilter::Trace,
+        Config::default(),
+        std::fs::File::create(project_dir.join("std.log"))?,
+    )
+    .unwrap();
+
     match run().await {
         Err(e) => {
-            let project_dir = Path::new(env!("PWD"));
             let mut err_log = File::create(project_dir.join("err.log")).await?;
             err_log.write_all(e.to_string().as_bytes()).await?;
             Err(e)
@@ -88,90 +98,21 @@ async fn run() -> io::Result<()> {
     let project_dir = Path::new(env!("PWD"));
     let mut in_log = File::create(project_dir.join("in.log")).await?;
     let mut out_log = File::create(project_dir.join("out.log")).await?;
-    let mut std_log = File::create(project_dir.join("std.log")).await?;
     // let mut writer = MessageWriter::new(tokio::io::stdout(), &mut out_log);
 
     let mut adapter = DebugAdapter::new(tokio::io::stdout(), &mut out_log);
 
     loop {
+        //     select! {
+        //         r = read_msg(&mut stdin, &mut in_log) => {
+        //             let msg = r?;
+        //         }
+        //    }
+
         let msg = read_msg(&mut stdin, &mut in_log).await?;
-        match msg.type_ {
-            ProtocolMessageType::Request(request) => match request {
-                Request::Initialize(args) => {
-                    let result = adapter.initialize(args).await?;
-
-                    adapter.writer.respond(msg.seq, result).await?;
-
-                    adapter
-                        .writer
-                        .write_msg(ProtocolMessageType::Event(Event::Initialized))
-                        .await?;
-                }
-                Request::ConfigurationDone => {
-                    adapter
-                        .writer
-                        .respond(msg.seq, Ok(SuccessResponse::ConfigurationDone))
-                        .await?;
-                }
-                Request::Launch(args) => {
-                    let response = adapter
-                        .launch(args, &mut std_log)
-                        .await?
-                        .map(|()| SuccessResponse::Launch)
-                        .map_err(with_command("launch"));
-
-                    adapter.writer.respond(msg.seq, response).await?;
-                }
-                Request::SetBreakpoints(SetBreakpointsRequestArguments { breakpoints, .. }) => {
-                    let breakpoints = breakpoints
-                        .iter()
-                        .map(|breakpoint| Breakpoint {
-                            id: Some(0),
-                            verified: true,
-                            message: Some("Hello".to_string()),
-                            source: None,
-                            line: Some(breakpoint.line + 1),
-                            column: None,
-                            end_line: None,
-                            end_column: None,
-                            instruction_reference: None,
-                            offset: None,
-                        })
-                        .collect();
-                    adapter
-                        .writer
-                        .respond(
-                            msg.seq,
-                            Ok(SuccessResponse::SetBreakpoints(
-                                SetBreakpointsResponseBody { breakpoints },
-                            )),
-                        )
-                        .await?;
-                }
-                Request::Threads => {
-                    adapter
-                        .writer
-                        .respond(
-                            msg.seq,
-                            Ok(SuccessResponse::Threads(ThreadsResponseBody {
-                                threads: vec![Thread {
-                                    id: 0,
-                                    name: "My Thread".to_string(),
-                                }],
-                            })),
-                        )
-                        .await?;
-                }
-                Request::Disconnect(_) => {
-                    adapter
-                        .writer
-                        .respond(msg.seq, Ok(SuccessResponse::Disconnect))
-                        .await?;
-                    break;
-                }
-                _ => {}
-            },
-            _ => {}
+        let should_continue = adapter.handle_protocol_message(msg).await?;
+        if !should_continue {
+            break;
         }
     }
 
@@ -256,11 +197,89 @@ where
         }
     }
 
+    async fn handle_protocol_message(&mut self, msg: ProtocolMessage) -> io::Result<bool> {
+        match msg.type_ {
+            ProtocolMessageType::Request(request) => match request {
+                Request::Initialize(args) => {
+                    let result = self.initialize(args).await?;
+
+                    self.writer.respond(msg.seq, result).await?;
+
+                    self.writer
+                        .write_msg(ProtocolMessageType::Event(Event::Initialized))
+                        .await?;
+                }
+                Request::ConfigurationDone => {
+                    self.writer
+                        .respond(msg.seq, Ok(SuccessResponse::ConfigurationDone))
+                        .await?;
+                }
+                Request::Launch(args) => {
+                    let response = self
+                        .launch(args)
+                        .await?
+                        .map(|()| SuccessResponse::Launch)
+                        .map_err(with_command("launch"));
+
+                    self.writer.respond(msg.seq, response).await?;
+                }
+                Request::SetBreakpoints(SetBreakpointsRequestArguments { breakpoints, .. }) => {
+                    let breakpoints = breakpoints
+                        .iter()
+                        .map(|breakpoint| Breakpoint {
+                            id: Some(0),
+                            verified: true,
+                            message: Some("Hello".to_string()),
+                            source: None,
+                            line: Some(breakpoint.line + 1),
+                            column: None,
+                            end_line: None,
+                            end_column: None,
+                            instruction_reference: None,
+                            offset: None,
+                        })
+                        .collect();
+                    self.writer
+                        .respond(
+                            msg.seq,
+                            Ok(SuccessResponse::SetBreakpoints(
+                                SetBreakpointsResponseBody { breakpoints },
+                            )),
+                        )
+                        .await?;
+                }
+                Request::Threads => {
+                    self.writer
+                        .respond(
+                            msg.seq,
+                            Ok(SuccessResponse::Threads(ThreadsResponseBody {
+                                threads: vec![Thread {
+                                    id: 0,
+                                    name: "My Thread".to_string(),
+                                }],
+                            })),
+                        )
+                        .await?;
+                }
+                Request::Disconnect(_) => {
+                    self.writer
+                        .respond(msg.seq, Ok(SuccessResponse::Disconnect))
+                        .await?;
+                    return Ok(false);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        Ok(true)
+    }
+
     async fn initialize(
         &mut self,
         arguments: InitializeRequestArguments,
     ) -> io::Result<Result<SuccessResponse, ErrorResponse>> {
         self.session = Some(Session {
+            // TODO Use world from LaunchRequestArguments
             connection: MinecraftConnectionBuilder::from_ref("dap", TEST_WORLD_DIR).build(),
         });
 
@@ -271,12 +290,11 @@ where
     }
 
     async fn launch(
-        &self,
+        &mut self,
         args: LaunchRequestArguments,
-        log: &mut File,
     ) -> io::Result<Result<(), (String, Option<Message>)>> {
-        if let Some(session) = &self.session {
-            session.launch(args, log).await
+        if let Some(session) = &mut self.session {
+            session.launch(args).await
         } else {
             Ok(Err(("uninitialized".to_string(), None)))
         }
@@ -288,9 +306,8 @@ struct Session {
 }
 impl Session {
     async fn launch(
-        &self,
+        &mut self,
         args: LaunchRequestArguments,
-        log: &mut File,
     ) -> Result<Result<(), (String, Option<Message>)>, io::Error> {
         // FIXME: Proper launch parameters
         // let datapack = args
@@ -346,15 +363,39 @@ impl Session {
         let output_path = minecraft_world_dir
             .join("datapacks")
             .join(format!("debug-{}", datapack_name));
-        log.write_all(format!("output_path={}", output_path.display()).as_bytes())
-            .await?;
-        generate_debug_datapack(datapack, output_path, "mcfd", false).await?;
+        info!("output_path={}", output_path.display());
+        let dap_listener_name = "mcfunction_debugger";
+        generate_debug_datapack(
+            datapack,
+            output_path,
+            "mcfd",
+            false,
+            Some(dap_listener_name),
+        )
+        .await?;
 
         self.connection.inject_commands(vec![format!(
             "function debug:{}/{}",
             function.namespace(),
             function.path(),
         )])?;
+        let events = self.connection.add_listener(dap_listener_name);
+        // events.
+
+        // tag @s add bla
+        // [16:47:37] [Server thread/INFO]: [Adrodoc: Added tag 'bla' to Adrodoc]
+        // scoreboard players set @s mcfd_Age 5
+        // [16:49:23] [Server thread/INFO]: [Adrodoc: Set [mcfd_Age] for Adrodoc to 5]
+        // scoreboard players add @s mcfd_Age 0
+        // [17:00:40] [Server thread/INFO]: [Adrodoc: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
+
+        // Tags allow: 0-9a-zA-Z._+-
+
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'terminated' to mcfunction_debugger]
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'stopped_at_breakpoint.-ns-_-orig_ns-_-orig_fn-_-line_number-' to mcfunction_debugger]
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.start' to mcfunction_debugger]
+        // [16:49:23] [Server thread/INFO]: [mcfunction_debugger: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.end' to mcfunction_debugger]
 
         Ok(Ok(()))
     }

@@ -175,7 +175,7 @@ See the GNU General Public License for more details.
     let pack_mcmeta_path = input_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
 
-    generate_debug_datapack(input_path, output_path, namespace, shadow).await?;
+    generate_debug_datapack(input_path, output_path, namespace, shadow, None).await?;
 
     Ok(())
 }

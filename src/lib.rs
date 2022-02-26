@@ -51,6 +51,7 @@ pub async fn generate_debug_datapack(
     output_path: impl AsRef<Path>,
     namespace: &str,
     shadow: bool,
+    dap_listener_name: Option<&str>,
 ) -> io::Result<()> {
     let functions = find_function_files(input_path).await?;
     let function_contents = parse_functions(&functions).await?;
