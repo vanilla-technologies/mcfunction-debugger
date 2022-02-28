@@ -20,6 +20,7 @@ use crate::parser::{
     command::{argument::MinecraftEntityAnchor, resource_location::ResourceLocationRef},
     Line, ScheduleOperation,
 };
+use minect::LoggedCommand;
 use std::{
     collections::{BTreeSet, HashMap},
     iter::FromIterator,
@@ -28,13 +29,18 @@ use std::{
 pub struct TemplateEngine<'l> {
     replacements: HashMap<&'l str, &'l str>,
     replacements_owned: HashMap<&'l str, String>,
+    adapter_listener_name: Option<&'l str>,
 }
 
 impl<'l> TemplateEngine<'l> {
-    pub fn new(replacements: HashMap<&'l str, &'l str>) -> TemplateEngine<'l> {
+    pub fn new(
+        replacements: HashMap<&'l str, &'l str>,
+        adapter_listener_name: Option<&'l str>,
+    ) -> TemplateEngine<'l> {
         TemplateEngine {
             replacements,
             replacements_owned: HashMap::new(),
+            adapter_listener_name,
         }
     }
 
@@ -47,6 +53,7 @@ impl<'l> TemplateEngine<'l> {
         TemplateEngine {
             replacements,
             replacements_owned: self.replacements_owned.clone(),
+            adapter_listener_name: self.adapter_listener_name,
         }
     }
 
@@ -64,13 +71,37 @@ impl<'l> TemplateEngine<'l> {
     }
 
     pub fn expand(&self, string: &str) -> String {
-        let mut result = string.to_owned();
+        let mut with_replacements_applied = string.to_owned();
         for (from, to) in &self.replacements {
-            result = result.replace(from, to);
+            with_replacements_applied = with_replacements_applied.replace(from, to);
         }
         for (from, to) in &self.replacements_owned {
-            result = result.replace(from, to);
+            with_replacements_applied = with_replacements_applied.replace(from, to);
         }
+
+        let mut result = String::new();
+
+        let mut lines = with_replacements_applied.split_inclusive('\n');
+        while let Some(line) = lines.next() {
+            if line.trim() == "# -minect_log-" {
+                if let Some(command) = lines.next() {
+                    if let Some(adapter_listener_name) = self.adapter_listener_name {
+                        result.push_str("function minect:enable_logging\n");
+                        result.push_str(
+                            &LoggedCommand::builder(command.trim().to_string())
+                                .name(adapter_listener_name)
+                                .build()
+                                .to_string(),
+                        );
+                        result.push('\n');
+                        result.push_str("function minect:disable_logging\n");
+                    }
+                }
+            } else {
+                result.push_str(line);
+            }
+        }
+
         result
     }
 

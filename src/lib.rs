@@ -51,7 +51,7 @@ pub async fn generate_debug_datapack(
     output_path: impl AsRef<Path>,
     namespace: &str,
     shadow: bool,
-    dap_listener_name: Option<&str>,
+    adapter_listener_name: Option<&str>,
 ) -> io::Result<()> {
     let functions = find_function_files(input_path).await?;
     let function_contents = parse_functions(&functions).await?;
@@ -61,10 +61,10 @@ pub async fn generate_debug_datapack(
         .file_name()
         .and_then(OsStr::to_str)
         .unwrap_or_default();
-    let engine = TemplateEngine::new(HashMap::from_iter([
-        ("-ns-", namespace),
-        ("-datapack-", output_name),
-    ]));
+    let engine = TemplateEngine::new(
+        HashMap::from_iter([("-ns-", namespace), ("-datapack-", output_name)]),
+        adapter_listener_name,
+    );
     expand_templates(&engine, &function_contents, &output_path, shadow).await
 }
 

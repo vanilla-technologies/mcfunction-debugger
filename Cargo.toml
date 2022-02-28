@@ -20,6 +20,7 @@ clap = "2"
 futures = "0.3"
 hematite-nbt = { version = "0.5" }
 log = "0.4"
+minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 multimap = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -28,7 +29,6 @@ tokio = { version = "1", features = ["fs", "macros", "parking_lot", "rt-multi-th
 walkdir = "2"
 
 [dev-dependencies]
-minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 serial_test = "0.5"
 
 [build-dependencies]

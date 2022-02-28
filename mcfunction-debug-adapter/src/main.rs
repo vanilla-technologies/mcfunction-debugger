@@ -18,7 +18,7 @@
 
 use clap::{crate_authors, crate_version, App};
 use debug_adapter_protocol::{
-    events::Event,
+    events::{Event, TerminatedEventBody},
     requests::{
         InitializeRequestArguments, LaunchRequestArguments, Request, SetBreakpointsRequestArguments,
     },
@@ -34,13 +34,14 @@ use mcfunction_debug_adapter::{read_msg, MessageWriter};
 use mcfunction_debugger::{
     generate_debug_datapack, parser::command::resource_location::ResourceLocation,
 };
-use minect::{MinecraftConnection, MinecraftConnectionBuilder};
+use minect::{log_observer::LogEvent, MinecraftConnection, MinecraftConnectionBuilder};
 use simplelog::{Config, WriteLogger};
 use std::{io, path::Path};
 use tokio::{
     fs::File,
     io::{AsyncWriteExt, BufReader},
     select,
+    sync::mpsc::UnboundedReceiver,
 };
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
@@ -103,16 +104,17 @@ async fn run() -> io::Result<()> {
     let mut adapter = DebugAdapter::new(tokio::io::stdout(), &mut out_log);
 
     loop {
-        //     select! {
-        //         r = read_msg(&mut stdin, &mut in_log) => {
-        //             let msg = r?;
-        //         }
-        //    }
-
-        let msg = read_msg(&mut stdin, &mut in_log).await?;
-        let should_continue = adapter.handle_protocol_message(msg).await?;
-        if !should_continue {
-            break;
+        select! {
+            client_msg = read_msg(&mut stdin, &mut in_log) => {
+                let client_msg = client_msg?;
+                let should_continue = adapter.handle_client_message(client_msg).await?;
+                if !should_continue {
+                    break;
+                }
+            },
+            Some(minecraft_msg) = adapter.recv_minecraft_msg() => {
+                adapter.handle_minecraft_message(minecraft_msg).await?;
+            },
         }
     }
 
@@ -197,7 +199,7 @@ where
         }
     }
 
-    async fn handle_protocol_message(&mut self, msg: ProtocolMessage) -> io::Result<bool> {
+    async fn handle_client_message(&mut self, msg: ProtocolMessage) -> io::Result<bool> {
         match msg.type_ {
             ProtocolMessageType::Request(request) => match request {
                 Request::Initialize(args) => {
@@ -274,13 +276,48 @@ where
         Ok(true)
     }
 
+    async fn recv_minecraft_msg(&mut self) -> Option<LogEvent> {
+        let session = self.session.as_mut()?;
+        session.listener.recv().await
+    }
+
+    async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<()> {
+        if msg.message == "Added tag 'terminated' to mcfunction_debugger" {
+            self.writer
+                .write_msg(ProtocolMessageType::Event(Event::Terminated(
+                    TerminatedEventBody { restart: None },
+                )))
+                .await?;
+        }
+
+        // tag @s add bla
+        // [16:47:37] [Server thread/INFO]: [Adrodoc: Added tag 'bla' to Adrodoc]
+        // scoreboard players set @s mcfd_Age 5
+        // [16:49:23] [Server thread/INFO]: [Adrodoc: Set [mcfd_Age] for Adrodoc to 5]
+        // scoreboard players add @s mcfd_Age 0
+        // [17:00:40] [Server thread/INFO]: [Adrodoc: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
+
+        // Tags allow: 0-9a-zA-Z._+-
+
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'terminated' to mcfunction_debugger]
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'stopped_at_breakpoint.-ns-_-orig_ns-_-orig_fn-_-line_number-' to mcfunction_debugger]
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.start' to mcfunction_debugger]
+        // [16:49:23] [Server thread/INFO]: [mcfunction_debugger: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
+        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.end' to mcfunction_debugger]
+
+        Ok(())
+    }
+
     async fn initialize(
         &mut self,
         arguments: InitializeRequestArguments,
     ) -> io::Result<Result<SuccessResponse, ErrorResponse>> {
+        // TODO Use world from LaunchRequestArguments
+        let mut connection = MinecraftConnectionBuilder::from_ref("dap", TEST_WORLD_DIR).build();
+        let listener = connection.add_listener("mcfunction_debugger");
         self.session = Some(Session {
-            // TODO Use world from LaunchRequestArguments
-            connection: MinecraftConnectionBuilder::from_ref("dap", TEST_WORLD_DIR).build(),
+            connection,
+            listener,
         });
 
         Ok(Ok(SuccessResponse::Initialize(Capabilities {
@@ -303,6 +340,7 @@ where
 
 struct Session {
     connection: MinecraftConnection,
+    listener: UnboundedReceiver<LogEvent>,
 }
 impl Session {
     async fn launch(
@@ -374,28 +412,14 @@ impl Session {
         )
         .await?;
 
-        self.connection.inject_commands(vec![format!(
-            "function debug:{}/{}",
-            function.namespace(),
-            function.path(),
-        )])?;
-        let events = self.connection.add_listener(dap_listener_name);
-        // events.
-
-        // tag @s add bla
-        // [16:47:37] [Server thread/INFO]: [Adrodoc: Added tag 'bla' to Adrodoc]
-        // scoreboard players set @s mcfd_Age 5
-        // [16:49:23] [Server thread/INFO]: [Adrodoc: Set [mcfd_Age] for Adrodoc to 5]
-        // scoreboard players add @s mcfd_Age 0
-        // [17:00:40] [Server thread/INFO]: [Adrodoc: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
-
-        // Tags allow: 0-9a-zA-Z._+-
-
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'terminated' to mcfunction_debugger]
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'stopped_at_breakpoint.-ns-_-orig_ns-_-orig_fn-_-line_number-' to mcfunction_debugger]
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.start' to mcfunction_debugger]
-        // [16:49:23] [Server thread/INFO]: [mcfunction_debugger: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.end' to mcfunction_debugger]
+        self.connection.inject_commands(vec![
+            // "say injecting command to start debugging".to_string(),
+            format!(
+                "function debug:{}/{}",
+                function.namespace(),
+                function.path(),
+            ),
+        ])?;
 
         Ok(Ok(()))
     }
