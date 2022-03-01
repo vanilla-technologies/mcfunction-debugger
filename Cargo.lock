@@ -537,7 +537,7 @@ dependencies = [
  "debug-adapter-protocol",
  "log",
  "mcfunction-debugger",
- "minect 0.1.0 (git+ssh://git@github.com/mcfunction-debugger/minect.git?branch=no-reload)",
+ "minect",
  "serde_json",
  "simplelog",
  "tokio",
@@ -552,7 +552,7 @@ dependencies = [
  "futures",
  "hematite-nbt",
  "log",
- "minect 0.1.0 (git+ssh://git@github.com/mcfunction-debugger/minect.git)",
+ "minect",
  "multimap",
  "serde",
  "serde_json",
@@ -575,19 +575,6 @@ version = "0.1.0"
 source = "git+ssh://git@github.com/mcfunction-debugger/minect.git?branch=no-reload#d3df8a3336316487a7acfdc176cd1ed12dfc8eec"
 dependencies = [
  "flate2",
- "fs3",
- "hematite-nbt",
- "notify",
- "num-traits",
- "serde",
- "tokio",
-]
-
-[[package]]
-name = "minect"
-version = "0.1.0"
-source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#96e2c370da10ff670c4218ee186a7c6b22154c2c"
-dependencies = [
  "fs3",
  "hematite-nbt",
  "notify",

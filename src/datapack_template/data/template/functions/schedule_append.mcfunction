@@ -16,5 +16,5 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute run summon area_effect_cloud ~ ~ ~ {Age: --ticks-, Duration: -ticks-, WaitTime: --ticks-, Tags: [-ns-, -ns-_schedule, schedule_-schedule_ns-_-schedule_fn-]}
-execute if entity @e[type=area_effect_cloud,tag=-ns-_before_age_increment] as @e[type=area_effect_cloud,tag=schedule_-schedule_ns-_-schedule_fn-,nbt={Age: --ticks-},limit=1] run function -ns-:decrement_age
+execute run summon area_effect_cloud ~ ~ ~ {Age: --ticks-, Duration: -ticks-, WaitTime: --ticks-, Tags: [-ns-, -ns-_schedule, -ns-+schedule+-schedule_ns-+-schedule+fn-]}
+execute if entity @e[type=area_effect_cloud,tag=-ns-_before_age_increment] as @e[type=area_effect_cloud,tag=-ns-+schedule+-schedule_ns-+-schedule+fn-,nbt={Age: --ticks-},limit=1] run function -ns-:decrement_age

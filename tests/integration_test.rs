@@ -3,7 +3,7 @@ use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
 use serial_test::serial;
 use std::{
     io,
-    path::Path,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, AtomicI8, Ordering},
     time::Duration,
 };
@@ -168,6 +168,7 @@ mod debugger {
 }
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
+const TEST_LOG_FILE: &str = env!("TEST_LOG_FILE");
 
 async fn run_test(
     namespace: &str,
@@ -196,6 +197,7 @@ async fn run_test(
     ];
     enable_appropriate_datapacks(&mut commands, after_age_increment, debug);
     if after_age_increment {
+        commands.push("reload".to_string());
         commands.push("scoreboard players set tick test_global 1".to_string());
     } else {
         commands.push(format!("schedule function {} 1", test_fn));
@@ -258,7 +260,9 @@ async fn do_expand_test_templates() -> io::Result<()> {
 }
 
 fn connection() -> MinecraftConnection {
-    MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR).build()
+    MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR)
+        .log_file(PathBuf::from(TEST_LOG_FILE))
+        .build()
 }
 
 fn running_test_cmd(test_name: &str) -> String {
@@ -299,7 +303,7 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
 }
 
 async fn wait_for_mount() {
-    sleep(Duration::from_secs(1)).await;
+    // sleep(Duration::from_secs(1)).await;
 }
 
 const TIMEOUT: Duration = Duration::from_secs(10);

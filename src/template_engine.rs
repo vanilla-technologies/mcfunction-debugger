@@ -61,12 +61,12 @@ impl<'l> TemplateEngine<'l> {
         &'l self,
         orig_name: &'l ResourceLocationRef<N>,
     ) -> TemplateEngine<'l> {
-        let orig_fn_tag = orig_name.path().replace('/', "_");
         let mut engine = self.extend([
             ("-orig_ns-", orig_name.namespace()),
             ("-orig/fn-", orig_name.path()),
         ]);
-        engine.replacements_owned.insert("-orig_fn-", orig_fn_tag);
+        let orig_fn_tag = orig_name.path().replace('/', "+");
+        engine.replacements_owned.insert("-orig+fn-", orig_fn_tag);
         engine
     }
 
@@ -179,12 +179,12 @@ impl<'l> TemplateEngine<'l> {
                 selectors,
                 ..
             } => {
-                let schedule_fn = function.path().replace('/', "_");
+                let schedule_fn = function.path().replace('/', "+");
                 let execute =
                     exclude_internal_entites_from_selectors(&line[..*schedule_start], selectors);
                 let mut engine = self.extend([
                     ("-schedule_ns-", function.namespace()),
-                    ("-schedule_fn-", &schedule_fn),
+                    ("-schedule+fn-", &schedule_fn),
                     ("execute run ", &execute),
                 ]);
 

@@ -18,7 +18,10 @@
 
 use clap::{crate_authors, crate_version, App};
 use debug_adapter_protocol::{
-    events::{Event, TerminatedEventBody},
+    events::{
+        BreakpointEventBody, BreakpointEventReason, Event, StoppedEventBody, StoppedEventReason,
+        TerminatedEventBody,
+    },
     requests::{
         InitializeRequestArguments, LaunchRequestArguments, Request, SetBreakpointsRequestArguments,
     },
@@ -26,7 +29,7 @@ use debug_adapter_protocol::{
         ErrorResponse, ErrorResponseBody, SetBreakpointsResponseBody, SuccessResponse,
         ThreadsResponseBody,
     },
-    types::{Breakpoint, Capabilities, Message, Thread},
+    types::{Breakpoint, Capabilities, Message, Source, Thread},
     ProtocolMessage, ProtocolMessageType,
 };
 use log::info;
@@ -39,7 +42,6 @@ use simplelog::{Config, WriteLogger};
 use std::{
     io,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 use tokio::{
     fs::File,
@@ -184,6 +186,8 @@ where
     io::Error::new(io::ErrorKind::InvalidInput, e)
 }
 
+const ADAPTER_LISTENER_NAME: &'static str = "mcfunction_debugger";
+
 struct DebugAdapter<O, L>
 where
     O: AsyncWriteExt + Unpin,
@@ -288,12 +292,69 @@ where
     }
 
     async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<()> {
-        if msg.message == "Added tag 'terminated' to mcfunction_debugger" {
-            self.writer
-                .write_msg(ProtocolMessageType::Event(Event::Terminated(
-                    TerminatedEventBody { restart: None },
-                )))
-                .await?;
+        if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
+            if let Some(tag) = suffix.strip_suffix(&format!("' to {}", ADAPTER_LISTENER_NAME)) {
+                if tag == "terminated" {
+                    self.writer
+                        .write_msg(ProtocolMessageType::Event(Event::Terminated(
+                            TerminatedEventBody { restart: None },
+                        )))
+                        .await?;
+                }
+                // -ns-+-orig_ns-+-orig_fn-+-line_number-
+                if let Some((path, line)) = parse_stopped_tag(tag) {
+                    self.writer
+                        .write_msg(ProtocolMessageType::Event(Event::Breakpoint(
+                            BreakpointEventBody {
+                                reason: BreakpointEventReason::New,
+                                breakpoint: Breakpoint {
+                                    id: Some(1),
+                                    verified: true,
+                                    message: None,
+                                    source: Some(Source {
+                                        name: Some("Hi I am a Breakpoint!".to_string()),
+                                        path: Some(
+                                            self.session
+                                                .as_ref()
+                                                .unwrap()
+                                                .datapack
+                                                .join(path)
+                                                .display()
+                                                .to_string(),
+                                        ),
+                                        source_reference: None,
+                                        presentation_hint: None,
+                                        origin: None,
+                                        sources: Vec::new(),
+                                        adapter_data: None,
+                                        checksums: Vec::new(),
+                                    }),
+                                    line: Some(line),
+                                    column: None,
+                                    end_line: None,
+                                    end_column: None,
+                                    instruction_reference: None,
+                                    offset: None,
+                                },
+                            },
+                        )))
+                        .await?;
+
+                    self.writer
+                        .write_msg(ProtocolMessageType::Event(Event::Stopped(
+                            StoppedEventBody {
+                                reason: StoppedEventReason::Breakpoint,
+                                description: None,
+                                thread_id: Some(0),
+                                preserve_focus_hint: false,
+                                text: None,
+                                all_threads_stopped: false,
+                                hit_breakpoint_ids: vec![1],
+                            },
+                        )))
+                        .await?;
+                }
+            }
         }
 
         // tag @s add bla
@@ -322,10 +383,11 @@ where
         let mut connection = MinecraftConnectionBuilder::from_ref("dap", TEST_WORLD_DIR)
             .log_file(TEST_LOG_FILE.into())
             .build();
-        let listener = connection.add_listener("mcfunction_debugger");
+        let listener = connection.add_listener(ADAPTER_LISTENER_NAME);
         self.session = Some(Session {
             connection,
             listener,
+            datapack: PathBuf::new(), // FIXME: create session in launch
         });
 
         Ok(Ok(SuccessResponse::Initialize(Capabilities {
@@ -346,9 +408,28 @@ where
     }
 }
 
+fn parse_stopped_tag(tag: &str) -> Option<(String, i32)> {
+    let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
+
+    if let [orig_ns, orig_fn @ .., line_number] =
+        breakpoint_tag.split('+').collect::<Vec<_>>().as_slice()
+    {
+        let path = format!(
+            "data/{}/functions/{}.mcfunction",
+            orig_ns,
+            orig_fn.join("/")
+        );
+        let line = line_number.parse::<i32>().ok()?;
+        Some((path, line))
+    } else {
+        None
+    }
+}
+
 struct Session {
     connection: MinecraftConnection,
     listener: UnboundedReceiver<LogEvent>,
+    datapack: PathBuf,
 }
 impl Session {
     async fn launch(
@@ -373,9 +454,10 @@ impl Session {
         let datapack = find_parent_datapack(program).ok_or_else(|| {
             invalid_input(
                 "Attribute 'program' \
-        does not denote a path in a datapack directory with a pack.mcmeta file",
+                does not denote a path in a datapack directory with a pack.mcmeta file",
             )
         })?;
+        self.datapack = datapack.to_path_buf();
 
         let data_path = program.strip_prefix(datapack.join("data")).map_err(|_| {
             invalid_input(format!(
@@ -410,13 +492,12 @@ impl Session {
             .join("datapacks")
             .join(format!("debug-{}", datapack_name));
         info!("output_path={}", output_path.display());
-        let dap_listener_name = "mcfunction_debugger";
         generate_debug_datapack(
             datapack,
             output_path,
             "mcfd",
             false,
-            Some(dap_listener_name),
+            Some(ADAPTER_LISTENER_NAME),
         )
         .await?;
 

@@ -247,12 +247,12 @@ async fn expand_resume_self_template(
         .map(|(name, line_number)| {
             engine.expand(&format!(
                 "execute \
-                if entity @s[tag=-ns-_{original_namespace}_{original_function_tag}_{line_number}] \
+                if entity @s[tag=-ns-+{original_namespace}+{original_function_tag}+{line_number}] \
                 run function -ns-:{original_namespace}/{original_function}/\
                 {line_number_1}_continue_current_iteration",
                 original_namespace = name.namespace(),
                 original_function = name.path(),
-                original_function_tag = name.path().replace("/", "_"),
+                original_function_tag = name.path().replace("/", "+"),
                 line_number = line_number,
                 line_number_1 = line_number + 1
             ))
@@ -432,13 +432,7 @@ async fn expand_function_templates(
     output_path: impl AsRef<Path>,
     shadow: bool,
 ) -> io::Result<()> {
-    let orig_fn = fn_name.path();
-    let orig_fn_tag = orig_fn.replace('/', "_");
-    let engine = engine.extend([
-        ("-orig_ns-", fn_name.namespace()),
-        ("-orig_fn-", &orig_fn_tag),
-        ("-orig/fn-", orig_fn),
-    ]);
+    let engine = engine.extend_orig_name(fn_name);
 
     let output_path = output_path.as_ref();
     let fn_dir = output_path.join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
@@ -532,12 +526,12 @@ async fn expand_function_templates(
             .map(|(caller, line_number)| {
                 engine.expand(&format!(
                     "execute if entity \
-                    @s[tag=-ns-_{caller_namespace}_{caller_function_tag}_{line_number}] run \
+                    @s[tag=-ns-+{caller_namespace}+{caller_function_tag}+{line_number}] run \
                     function -ns-:{caller_namespace}/{caller_function}/{line_number_1}\
                     _continue_current_iteration",
                     caller_namespace = caller.namespace(),
                     caller_function = caller.path(),
-                    caller_function_tag = caller.path().replace("/", "_"),
+                    caller_function_tag = caller.path().replace("/", "+"),
                     line_number = line_number,
                     line_number_1 = *line_number + 1,
                 ))

@@ -16,5 +16,5 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute if entity @s[tag=-ns-_frozen,scores={-ns-_Age=-1},tag=schedule_-orig_ns-_-orig_fn-] run schedule function -ns-:-orig_ns-/-orig/fn-/scheduled 1t
-execute if entity @s[tag=!-ns-_frozen,nbt={Age: -1},tag=schedule_-orig_ns-_-orig_fn-] run schedule function -ns-:-orig_ns-/-orig/fn-/scheduled 1t
+execute if entity @s[tag=-ns-_frozen,scores={-ns-_Age=-1},tag=-ns-+schedule+-orig_ns-+-orig+fn-] run schedule function -ns-:-orig_ns-/-orig/fn-/scheduled 1t
+execute if entity @s[tag=!-ns-_frozen,nbt={Age: -1},tag=-ns-+schedule+-orig_ns-+-orig+fn-] run schedule function -ns-:-orig_ns-/-orig/fn-/scheduled 1t

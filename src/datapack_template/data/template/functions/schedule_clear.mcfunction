@@ -16,4 +16,4 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute run kill @e[type=area_effect_cloud,tag=schedule_-schedule_ns-_-schedule_fn-]
+execute run kill @e[type=area_effect_cloud,tag=-ns-+schedule+-schedule_ns-+-schedule+fn-]
