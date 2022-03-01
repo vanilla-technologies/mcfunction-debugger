@@ -537,7 +537,7 @@ dependencies = [
  "debug-adapter-protocol",
  "log",
  "mcfunction-debugger",
- "minect",
+ "minect 0.1.0 (git+ssh://git@github.com/mcfunction-debugger/minect.git?branch=no-reload)",
  "serde_json",
  "simplelog",
  "tokio",
@@ -552,7 +552,7 @@ dependencies = [
  "futures",
  "hematite-nbt",
  "log",
- "minect",
+ "minect 0.1.0 (git+ssh://git@github.com/mcfunction-debugger/minect.git)",
  "multimap",
  "serde",
  "serde_json",
@@ -572,7 +572,21 @@ checksum = "308cc39be01b73d0d18f82a0e7b2a3df85245f84af96fdddc5d202d27e47b86a"
 [[package]]
 name = "minect"
 version = "0.1.0"
-source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#54675a7954b4274406ec66ea4add5b9c88465028"
+source = "git+ssh://git@github.com/mcfunction-debugger/minect.git?branch=no-reload#d3df8a3336316487a7acfdc176cd1ed12dfc8eec"
+dependencies = [
+ "flate2",
+ "fs3",
+ "hematite-nbt",
+ "notify",
+ "num-traits",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "minect"
+version = "0.1.0"
+source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#96e2c370da10ff670c4218ee186a7c6b22154c2c"
 dependencies = [
  "fs3",
  "hematite-nbt",
@@ -842,9 +856,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8383f39639269cde97d255a32bdb68c047337295414940c68bdd30c2e13203ff"
+checksum = "8380fe0152551244f0747b1bf41737e0f8a74f97a14ccefd1148187271634f3c"
 dependencies = [
  "bitflags",
 ]

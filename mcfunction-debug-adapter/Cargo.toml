@@ -8,7 +8,7 @@ mcfunction-debugger = { path = ".." }
 clap = "2"
 debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git" }
 log = "0.4"
-minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
+minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git", branch = "no-reload" }
 serde_json = "1"
 simplelog = "0.11"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "parking_lot", "rt-multi-thread"] }

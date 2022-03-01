@@ -36,7 +36,11 @@ use mcfunction_debugger::{
 };
 use minect::{log_observer::LogEvent, MinecraftConnection, MinecraftConnectionBuilder};
 use simplelog::{Config, WriteLogger};
-use std::{io, path::Path};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use tokio::{
     fs::File,
     io::{AsyncWriteExt, BufReader},
@@ -45,6 +49,7 @@ use tokio::{
 };
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
+const TEST_LOG_FILE: &str = env!("TEST_LOG_FILE");
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -113,6 +118,7 @@ async fn run() -> io::Result<()> {
                 }
             },
             Some(minecraft_msg) = adapter.recv_minecraft_msg() => {
+                info!("Received message from Minecraft by {}: {}", minecraft_msg.executor, minecraft_msg.message);
                 adapter.handle_minecraft_message(minecraft_msg).await?;
             },
         }
@@ -313,7 +319,9 @@ where
         arguments: InitializeRequestArguments,
     ) -> io::Result<Result<SuccessResponse, ErrorResponse>> {
         // TODO Use world from LaunchRequestArguments
-        let mut connection = MinecraftConnectionBuilder::from_ref("dap", TEST_WORLD_DIR).build();
+        let mut connection = MinecraftConnectionBuilder::from_ref("dap", TEST_WORLD_DIR)
+            .log_file(TEST_LOG_FILE.into())
+            .build();
         let listener = connection.add_listener("mcfunction_debugger");
         self.session = Some(Session {
             connection,
@@ -414,6 +422,7 @@ impl Session {
 
         self.connection.inject_commands(vec![
             // "say injecting command to start debugging".to_string(),
+            "reload".to_string(),
             format!(
                 "function debug:{}/{}",
                 function.namespace(),
