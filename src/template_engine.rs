@@ -86,7 +86,10 @@ impl<'l> TemplateEngine<'l> {
             if line.trim() == "# -minect_log-" {
                 if let Some(command) = lines.next() {
                     if let Some(adapter_listener_name) = self.adapter_listener_name {
-                        result.push_str("function minect:enable_logging\n");
+                        result.push_str(
+                            &LoggedCommand::from_str("function minect:enable_logging").to_string(),
+                        );
+                        result.push('\n');
                         result.push_str(
                             &LoggedCommand::builder(command.trim().to_string())
                                 .name(adapter_listener_name)
@@ -94,7 +97,10 @@ impl<'l> TemplateEngine<'l> {
                                 .to_string(),
                         );
                         result.push('\n');
-                        result.push_str("function minect:disable_logging\n");
+                        result.push_str(
+                            &LoggedCommand::from_str("function minect:reset_logging").to_string(),
+                        );
+                        result.push('\n');
                     }
                 }
             } else {
