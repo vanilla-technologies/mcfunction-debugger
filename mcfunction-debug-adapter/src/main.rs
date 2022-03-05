@@ -23,13 +23,16 @@ use debug_adapter_protocol::{
         TerminatedEventBody,
     },
     requests::{
-        InitializeRequestArguments, LaunchRequestArguments, Request, SetBreakpointsRequestArguments,
+        ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments, Request,
+        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
     },
     responses::{
-        ErrorResponse, ErrorResponseBody, SetBreakpointsResponseBody, SuccessResponse,
-        ThreadsResponseBody,
+        ContinueResponseBody, ErrorResponse, ErrorResponseBody, ScopesResponseBody,
+        SetBreakpointsResponseBody, StackTraceResponseBody, SuccessResponse, ThreadsResponseBody,
     },
-    types::{Breakpoint, Capabilities, Message, Source, Thread},
+    types::{
+        Breakpoint, Capabilities, Message, Source, SourcePresentationHint, StackFrame, Thread,
+    },
     ProtocolMessage, ProtocolMessageType,
 };
 use log::info;
@@ -273,6 +276,70 @@ where
                         )
                         .await?;
                 }
+                Request::StackTrace(StackTraceRequestArguments {
+                    thread_id: _,
+                    start_frame: _,
+                    levels: _,
+                    format: _, // TODO: supportsValueFormattingOptions
+                }) => {
+                    self.writer
+                        .respond(
+                            msg.seq,
+                            Ok(SuccessResponse::StackTrace(StackTraceResponseBody {
+                                stack_frames: vec![StackFrame {
+                                    id: 0,
+                                    name: "example:main".to_string(),
+                                    source: Some(Source {
+                                        name: Some("Hi I am a Breakpoint!".to_string()),
+                                        path: Some(
+                                            self.session
+                                                .as_ref()
+                                                .unwrap()
+                                                .datapack
+                                                .join("data/sample/functions/main.mcfunction")
+                                                .display()
+                                                .to_string(),
+                                        ),
+                                        source_reference: None,
+                                        presentation_hint: None,
+                                        origin: None,
+                                        sources: Vec::new(),
+                                        adapter_data: None,
+                                        checksums: Vec::new(),
+                                    }),
+                                    line: 2,
+                                    column: 0,
+                                    end_line: None,
+                                    end_column: None,
+                                    can_restart: None,
+                                    instruction_pointer_reference: None,
+                                    module_id: None,
+                                    presentation_hint: None,
+                                }],
+                                total_frames: Some(1),
+                            })),
+                        )
+                        .await?;
+                }
+                Request::Scopes(ScopesRequestArguments { frame_id: _ }) => {
+                    self.writer
+                        .respond(
+                            msg.seq,
+                            Ok(SuccessResponse::Scopes(ScopesResponseBody {
+                                scopes: Vec::new(),
+                            })),
+                        )
+                        .await?;
+                }
+                Request::Continue(args) => {
+                    let response = self
+                        .resume(args)
+                        .await?
+                        .map(|body| SuccessResponse::Continue(body))
+                        .map_err(with_command("continue"));
+
+                    self.writer.respond(msg.seq, response).await?;
+                }
                 Request::Disconnect(_) => {
                     self.writer
                         .respond(msg.seq, Ok(SuccessResponse::Disconnect))
@@ -303,42 +370,42 @@ where
                 }
                 // -ns-+-orig_ns-+-orig_fn-+-line_number-
                 if let Some((path, line)) = parse_stopped_tag(tag) {
-                    self.writer
-                        .write_msg(ProtocolMessageType::Event(Event::Breakpoint(
-                            BreakpointEventBody {
-                                reason: BreakpointEventReason::New,
-                                breakpoint: Breakpoint {
-                                    id: Some(1),
-                                    verified: true,
-                                    message: None,
-                                    source: Some(Source {
-                                        name: Some("Hi I am a Breakpoint!".to_string()),
-                                        path: Some(
-                                            self.session
-                                                .as_ref()
-                                                .unwrap()
-                                                .datapack
-                                                .join(path)
-                                                .display()
-                                                .to_string(),
-                                        ),
-                                        source_reference: None,
-                                        presentation_hint: None,
-                                        origin: None,
-                                        sources: Vec::new(),
-                                        adapter_data: None,
-                                        checksums: Vec::new(),
-                                    }),
-                                    line: Some(line),
-                                    column: None,
-                                    end_line: None,
-                                    end_column: None,
-                                    instruction_reference: None,
-                                    offset: None,
-                                },
-                            },
-                        )))
-                        .await?;
+                    // self.writer
+                    //     .write_msg(ProtocolMessageType::Event(Event::Breakpoint(
+                    //         BreakpointEventBody {
+                    //             reason: BreakpointEventReason::New,
+                    //             breakpoint: Breakpoint {
+                    //                 id: Some(1),
+                    //                 verified: true,
+                    //                 message: None,
+                    //                 source: Some(Source {
+                    //                     name: Some("Hi I am a Breakpoint!".to_string()),
+                    //                     path: Some(
+                    //                         self.session
+                    //                             .as_ref()
+                    //                             .unwrap()
+                    //                             .datapack
+                    //                             .join(path)
+                    //                             .display()
+                    //                             .to_string(),
+                    //                     ),
+                    //                     source_reference: None,
+                    //                     presentation_hint: None,
+                    //                     origin: None,
+                    //                     sources: Vec::new(),
+                    //                     adapter_data: None,
+                    //                     checksums: Vec::new(),
+                    //                 }),
+                    //                 line: Some(line),
+                    //                 column: None,
+                    //                 end_line: None,
+                    //                 end_column: None,
+                    //                 instruction_reference: None,
+                    //                 offset: None,
+                    //             },
+                    //         },
+                    //     )))
+                    //     .await?;
 
                     self.writer
                         .write_msg(ProtocolMessageType::Event(Event::Stopped(
@@ -402,6 +469,17 @@ where
     ) -> io::Result<Result<(), (String, Option<Message>)>> {
         if let Some(session) = &mut self.session {
             session.launch(args).await
+        } else {
+            Ok(Err(("uninitialized".to_string(), None)))
+        }
+    }
+
+    async fn resume(
+        &mut self,
+        args: ContinueRequestArguments,
+    ) -> io::Result<Result<ContinueResponseBody, (String, Option<Message>)>> {
+        if let Some(session) = &mut self.session {
+            session.resume(args).await
         } else {
             Ok(Err(("uninitialized".to_string(), None)))
         }
@@ -512,5 +590,15 @@ impl Session {
         ])?;
 
         Ok(Ok(()))
+    }
+    async fn resume(
+        &mut self,
+        args: ContinueRequestArguments,
+    ) -> Result<Result<ContinueResponseBody, (String, Option<Message>)>, io::Error> {
+        self.connection
+            .inject_commands(vec!["function debug:resume".to_string()])?;
+        Ok(Ok(ContinueResponseBody {
+            all_threads_continued: false,
+        }))
     }
 }
