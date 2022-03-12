@@ -18,10 +18,7 @@
 
 use clap::{crate_authors, crate_version, App};
 use debug_adapter_protocol::{
-    events::{
-        BreakpointEventBody, BreakpointEventReason, Event, StoppedEventBody, StoppedEventReason,
-        TerminatedEventBody,
-    },
+    events::{Event, StoppedEventBody, StoppedEventReason, TerminatedEventBody},
     requests::{
         ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments, Request,
         ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
@@ -30,17 +27,17 @@ use debug_adapter_protocol::{
         ContinueResponseBody, ErrorResponse, ErrorResponseBody, ScopesResponseBody,
         SetBreakpointsResponseBody, StackTraceResponseBody, SuccessResponse, ThreadsResponseBody,
     },
-    types::{
-        Breakpoint, Capabilities, Message, Source, SourcePresentationHint, StackFrame, Thread,
-    },
+    types::{Breakpoint, Capabilities, Message, Source, StackFrame, Thread},
     ProtocolMessage, ProtocolMessageType,
 };
-use log::info;
+use log::{info, trace};
 use mcfunction_debug_adapter::{read_msg, MessageWriter};
 use mcfunction_debugger::{
     generate_debug_datapack, parser::command::resource_location::ResourceLocation,
 };
-use minect::{log_observer::LogEvent, MinecraftConnection, MinecraftConnectionBuilder};
+use minect::{
+    log_observer::LogEvent, LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder,
+};
 use simplelog::{Config, WriteLogger};
 use std::{
     io,
@@ -276,50 +273,13 @@ where
                         )
                         .await?;
                 }
-                Request::StackTrace(StackTraceRequestArguments {
-                    thread_id: _,
-                    start_frame: _,
-                    levels: _,
-                    format: _, // TODO: supportsValueFormattingOptions
-                }) => {
-                    self.writer
-                        .respond(
-                            msg.seq,
-                            Ok(SuccessResponse::StackTrace(StackTraceResponseBody {
-                                stack_frames: vec![StackFrame {
-                                    id: 0,
-                                    name: "example:main".to_string(),
-                                    source: Some(Source {
-                                        name: Some("Hi I am a Breakpoint!".to_string()),
-                                        path: Some(
-                                            self.session
-                                                .as_ref()
-                                                .unwrap()
-                                                .datapack
-                                                .join("data/sample/functions/main.mcfunction")
-                                                .display()
-                                                .to_string(),
-                                        ),
-                                        source_reference: None,
-                                        presentation_hint: None,
-                                        origin: None,
-                                        sources: Vec::new(),
-                                        adapter_data: None,
-                                        checksums: Vec::new(),
-                                    }),
-                                    line: 2,
-                                    column: 0,
-                                    end_line: None,
-                                    end_column: None,
-                                    can_restart: None,
-                                    instruction_pointer_reference: None,
-                                    module_id: None,
-                                    presentation_hint: None,
-                                }],
-                                total_frames: Some(1),
-                            })),
-                        )
-                        .await?;
+                Request::StackTrace(args) => {
+                    let response = self
+                        .stack_trace(args)
+                        .await?
+                        .map(|body| SuccessResponse::StackTrace(body))
+                        .map_err(with_command("stackTrace"));
+                    self.writer.respond(msg.seq, response).await?;
                 }
                 Request::Scopes(ScopesRequestArguments { frame_id: _ }) => {
                     self.writer
@@ -368,45 +328,7 @@ where
                         )))
                         .await?;
                 }
-                // -ns-+-orig_ns-+-orig_fn-+-line_number-
-                if let Some((path, line)) = parse_stopped_tag(tag) {
-                    // self.writer
-                    //     .write_msg(ProtocolMessageType::Event(Event::Breakpoint(
-                    //         BreakpointEventBody {
-                    //             reason: BreakpointEventReason::New,
-                    //             breakpoint: Breakpoint {
-                    //                 id: Some(1),
-                    //                 verified: true,
-                    //                 message: None,
-                    //                 source: Some(Source {
-                    //                     name: Some("Hi I am a Breakpoint!".to_string()),
-                    //                     path: Some(
-                    //                         self.session
-                    //                             .as_ref()
-                    //                             .unwrap()
-                    //                             .datapack
-                    //                             .join(path)
-                    //                             .display()
-                    //                             .to_string(),
-                    //                     ),
-                    //                     source_reference: None,
-                    //                     presentation_hint: None,
-                    //                     origin: None,
-                    //                     sources: Vec::new(),
-                    //                     adapter_data: None,
-                    //                     checksums: Vec::new(),
-                    //                 }),
-                    //                 line: Some(line),
-                    //                 column: None,
-                    //                 end_line: None,
-                    //                 end_column: None,
-                    //                 instruction_reference: None,
-                    //                 offset: None,
-                    //             },
-                    //         },
-                    //     )))
-                    //     .await?;
-
+                if let Some(_) = parse_stopped_tag(tag) {
                     self.writer
                         .write_msg(ProtocolMessageType::Event(Event::Stopped(
                             StoppedEventBody {
@@ -423,28 +345,12 @@ where
                 }
             }
         }
-
-        // tag @s add bla
-        // [16:47:37] [Server thread/INFO]: [Adrodoc: Added tag 'bla' to Adrodoc]
-        // scoreboard players set @s mcfd_Age 5
-        // [16:49:23] [Server thread/INFO]: [Adrodoc: Set [mcfd_Age] for Adrodoc to 5]
-        // scoreboard players add @s mcfd_Age 0
-        // [17:00:40] [Server thread/INFO]: [Adrodoc: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
-
-        // Tags allow: 0-9a-zA-Z._+-
-
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'terminated' to mcfunction_debugger]
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'stopped_at_breakpoint.-ns-_-orig_ns-_-orig_fn-_-line_number-' to mcfunction_debugger]
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.start' to mcfunction_debugger]
-        // [16:49:23] [Server thread/INFO]: [mcfunction_debugger: Added 0 to [mcfd_Age] for Adrodoc (now 5)]
-        // [16:47:37] [Server thread/INFO]: [mcfunction_debugger: Added tag 'scores.end' to mcfunction_debugger]
-
         Ok(())
     }
 
     async fn initialize(
         &mut self,
-        arguments: InitializeRequestArguments,
+        _arguments: InitializeRequestArguments,
     ) -> io::Result<Result<SuccessResponse, ErrorResponse>> {
         // TODO Use world from LaunchRequestArguments
         let mut connection = MinecraftConnectionBuilder::from_ref("dap", TEST_WORLD_DIR)
@@ -455,6 +361,7 @@ where
             connection,
             listener,
             datapack: PathBuf::new(), // FIXME: create session in launch
+            namespace: "mcfd".to_string(),
         });
 
         Ok(Ok(SuccessResponse::Initialize(Capabilities {
@@ -469,6 +376,17 @@ where
     ) -> io::Result<Result<(), (String, Option<Message>)>> {
         if let Some(session) = &mut self.session {
             session.launch(args).await
+        } else {
+            Ok(Err(("uninitialized".to_string(), None)))
+        }
+    }
+
+    async fn stack_trace(
+        &mut self,
+        args: StackTraceRequestArguments,
+    ) -> io::Result<Result<StackTraceResponseBody, (String, Option<Message>)>> {
+        if let Some(session) = &mut self.session {
+            session.stack_trace(args).await
         } else {
             Ok(Err(("uninitialized".to_string(), None)))
         }
@@ -489,6 +407,7 @@ where
 fn parse_stopped_tag(tag: &str) -> Option<(String, i32)> {
     let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
 
+    // -ns-+-orig_ns-+-orig_fn-+-line_number-
     if let [orig_ns, orig_fn @ .., line_number] =
         breakpoint_tag.split('+').collect::<Vec<_>>().as_slice()
     {
@@ -508,6 +427,7 @@ struct Session {
     connection: MinecraftConnection,
     listener: UnboundedReceiver<LogEvent>,
     datapack: PathBuf,
+    namespace: String,
 }
 impl Session {
     async fn launch(
@@ -573,7 +493,7 @@ impl Session {
         generate_debug_datapack(
             datapack,
             output_path,
-            "mcfd",
+            &self.namespace,
             false,
             Some(ADAPTER_LISTENER_NAME),
         )
@@ -591,9 +511,154 @@ impl Session {
 
         Ok(Ok(()))
     }
+
+    async fn stack_trace(
+        &mut self,
+        _args: StackTraceRequestArguments,
+    ) -> Result<Result<StackTraceResponseBody, (String, Option<Message>)>, io::Error> {
+        let mut listener = self.connection.add_general_listener();
+
+        let stack_trace_tag = format!("{}_stack_trace", self.namespace);
+        const STACK_TRACE_START_TAG: &str = "stack_trace.start";
+        const STACK_TRACE_END_TAG: &str = "stack_trace.end";
+
+        self.connection.inject_commands(vec![
+            LoggedCommand::from_str("function minect:enable_logging").to_string(),
+            LoggedCommand::builder(format!("tag @s add {}", STACK_TRACE_START_TAG))
+                .name(ADAPTER_LISTENER_NAME)
+                .build()
+                .to_string(),
+            LoggedCommand::from(format!(
+                "execute as @e[type=area_effect_cloud,tag={0}_function_call] \
+                run scoreboard players add @s {0}_depth 0",
+                self.namespace
+            ))
+            .to_string(),
+            LoggedCommand::from(format!(
+                "execute as @e[type=area_effect_cloud,tag={}_breakpoint] run tag @s add {}",
+                self.namespace, stack_trace_tag
+            ))
+            .to_string(),
+            LoggedCommand::from(format!(
+                "execute as @e[type=area_effect_cloud,tag={}_breakpoint] run tag @s remove {}",
+                self.namespace, stack_trace_tag
+            ))
+            .to_string(),
+            LoggedCommand::builder(format!("tag @s add {}", STACK_TRACE_END_TAG))
+                .name(ADAPTER_LISTENER_NAME)
+                .build()
+                .to_string(),
+            LoggedCommand::from_str("function minect:reset_logging").to_string(),
+        ])?;
+
+        trace!(
+            "Waiting for tag '{}' on {}",
+            STACK_TRACE_START_TAG,
+            ADAPTER_LISTENER_NAME
+        );
+        loop {
+            let event = listener.recv().await.unwrap(); // TODO unwrap
+            trace!("Got message: {}", event.message);
+            if event.executor == ADAPTER_LISTENER_NAME
+                && event.message
+                    == format!(
+                        "Added tag '{1}' to {0}",
+                        ADAPTER_LISTENER_NAME, STACK_TRACE_START_TAG
+                    )
+            {
+                break;
+            }
+        }
+
+        let mut stack_trace = Vec::new();
+
+        trace!(
+            "Waiting for tag '{}' on {}",
+            STACK_TRACE_END_TAG,
+            ADAPTER_LISTENER_NAME
+        );
+        loop {
+            let event = listener.recv().await.unwrap(); // TODO unwrap
+            if event.executor == ADAPTER_LISTENER_NAME
+                && event.message
+                    == format!(
+                        "Added tag '{1}' to {0}",
+                        ADAPTER_LISTENER_NAME, STACK_TRACE_END_TAG
+                    )
+            {
+                break;
+            }
+
+            trace!("Got message: {}", event.message);
+            if let [orig_ns, orig_fn, line_number] =
+                event.executor.split(':').collect::<Vec<_>>().as_slice()
+            {
+                if let Some(line) = line_number.parse().ok() {
+                    if let Some(depth) =
+                        parse_scoreboard_value(&event, &(format!("{}_depth", self.namespace)))
+                    {
+                        stack_trace
+                            .push((depth, self.new_stack_frame(depth, orig_ns, orig_fn, line)));
+                    }
+                    if let Some(tag) = parse_added_tag(&event) {
+                        if tag == stack_trace_tag {
+                            stack_trace.push((
+                                i32::MAX,
+                                self.new_stack_frame(i32::MAX, orig_ns, orig_fn, line),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        trace!("Sending stack trace response");
+
+        stack_trace.sort_by_key(|it| -it.0);
+
+        let total_frames = Some(stack_trace.len() as i32);
+        Ok(Ok(StackTraceResponseBody {
+            stack_frames: stack_trace.into_iter().map(|it| it.1).collect(),
+            total_frames,
+        }))
+    }
+
+    fn new_stack_frame(&self, id: i32, orig_ns: &&str, orig_fn: &&str, line: i32) -> StackFrame {
+        StackFrame {
+            id,
+            name: format!("{}:{}:{}", orig_ns, orig_fn, line),
+            source: Some(Source {
+                name: None,
+                path: Some(
+                    self.datapack
+                        .join(&format!(
+                            "data/{}/functions/{}.mcfunction",
+                            orig_ns, orig_fn
+                        ))
+                        .display()
+                        .to_string(),
+                ),
+                source_reference: None,
+                presentation_hint: None,
+                origin: None,
+                sources: Vec::new(),
+                adapter_data: None,
+                checksums: Vec::new(),
+            }),
+            line,
+            column: 0,
+            end_line: None,
+            end_column: None,
+            can_restart: None,
+            instruction_pointer_reference: None,
+            module_id: None,
+            presentation_hint: None,
+        }
+    }
+
     async fn resume(
         &mut self,
-        args: ContinueRequestArguments,
+        _args: ContinueRequestArguments,
     ) -> Result<Result<ContinueResponseBody, (String, Option<Message>)>, io::Error> {
         self.connection
             .inject_commands(vec!["function debug:resume".to_string()])?;
@@ -601,4 +666,28 @@ impl Session {
             all_threads_continued: false,
         }))
     }
+}
+
+/// Parse an event in the following format:
+///
+/// `[15:58:32] [Server thread/INFO]: [sample:main:2: Added 0 to [mcfd_depth] for 22466a74-94bd-458b-af97-3333c36d7b0b (now 1)]`
+fn parse_scoreboard_value(event: &LogEvent, scoreboard: &str) -> Option<i32> {
+    let suffix = event
+        .message
+        .strip_prefix(&format!("Added 0 to [{}] for ", scoreboard))?;
+    const NOW: &str = " (now ";
+    let index = suffix.find(NOW)?;
+    let suffix = &suffix[index + NOW.len()..];
+    let scoreboard_value = suffix.strip_suffix(')')?;
+    scoreboard_value.parse().ok()
+}
+
+/// Parse an event in the following format:
+///
+/// `[16:09:59] [Server thread/INFO]: [sample:foo:2: Added tag 'mcfd_breakpoint' to sample:foo:2]`
+fn parse_added_tag(event: &LogEvent) -> Option<&str> {
+    let suffix = event.message.strip_prefix("Added tag '")?;
+    const TO: &str = "' to ";
+    let index = suffix.find(TO)?;
+    Some(&suffix[..index])
 }

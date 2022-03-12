@@ -10,7 +10,7 @@ use std::{
 use tokio::{
     fs::{create_dir_all, write},
     sync::OnceCell,
-    time::{sleep, timeout},
+    time::timeout,
     try_join,
 };
 
@@ -255,7 +255,6 @@ async fn expand_test_templates() -> io::Result<()> {
 
 async fn do_expand_test_templates() -> io::Result<()> {
     include!(concat!(env!("OUT_DIR"), "/tests/expand_test_templates.rs"));
-    wait_for_mount().await;
     Ok(())
 }
 
@@ -279,7 +278,6 @@ async fn do_create_debug_datapack() -> io::Result<()> {
     let input_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
     let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug");
     generate_debug_datapack(&input_path, &output_path, "mcfd", false, None).await?;
-    wait_for_mount().await;
     Ok(())
 }
 
@@ -298,12 +296,7 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
         create_tick_template!("data/test/functions/tick/on_breakpoint.mcfunction"),
         create_tick_template!("pack.mcmeta"),
     )?;
-    wait_for_mount().await;
     Ok(())
-}
-
-async fn wait_for_mount() {
-    // sleep(Duration::from_secs(1)).await;
 }
 
 const TIMEOUT: Duration = Duration::from_secs(10);
