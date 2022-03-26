@@ -169,6 +169,7 @@ mod debugger {
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 const TEST_LOG_FILE: &str = env!("TEST_LOG_FILE");
+const TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn run_test(
     namespace: &str,
@@ -177,34 +178,16 @@ async fn run_test(
     debug: bool,
 ) -> io::Result<()> {
     // given:
-    expand_test_templates().await?;
-
-    let test_fn = if !debug {
-        format!("{}:{}/test", namespace, name)
-    } else {
-        create_debug_datapack().await?;
+    let test_fn = if debug {
         format!("debug:{}/{}/test", namespace, name)
-    };
-
-    if after_age_increment || debug {
-        let on_breakpoint_fn = format!("{}:{}/on_breakpoint", namespace, name);
-        create_tick_datapack(&test_fn, &on_breakpoint_fn).await?;
-    }
-
-    let mut commands = vec![
-        running_test_cmd(&test_fn),
-        "function mcfd:clean_up".to_string(),
-    ];
-    enable_appropriate_datapacks(&mut commands, after_age_increment, debug);
-    if after_age_increment {
-        commands.push("reload".to_string());
-        commands.push("scoreboard players set tick test_global 1".to_string());
     } else {
-        commands.push(format!("schedule function {} 1", test_fn));
-    }
+        format!("{}:{}/test", namespace, name)
+    };
+    create_datapacks(namespace, name, &test_fn, after_age_increment, debug).await?;
 
     let mut connection = connection();
     let mut events = connection.add_listener("test");
+    let commands = get_commands(&test_fn, after_age_increment, debug);
 
     // when:
     connection.inject_commands(commands)?;
@@ -216,35 +199,21 @@ async fn run_test(
     Ok(())
 }
 
-fn enable_appropriate_datapacks(
-    commands: &mut Vec<String>,
+async fn create_datapacks(
+    namespace: &str,
+    name: &str,
+    test_fn: &str,
     after_age_increment: bool,
     debug: bool,
-) {
-    const UNKNOWN: i8 = -1;
-    const FALSE: i8 = 0;
-    const TRUE: i8 = 1;
-    static DEBUG_DATAPACK_ENABLED: AtomicI8 = AtomicI8::new(UNKNOWN);
-    static TICK_DATAPACK_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
+) -> io::Result<()> {
+    expand_test_templates().await?;
     if debug {
-        if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::SeqCst) != TRUE {
-            commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
-        }
-        if after_age_increment {
-            if TICK_DATAPACK_INITIALIZED.swap(true, Ordering::SeqCst) != true {
-                // Must run before debugger tick.json
-                commands.extend([
-                    r#"datapack disable "file/mcfd_tick""#.to_string(),
-                    r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#.to_string(),
-                ]);
-            }
-        }
-    } else {
-        if DEBUG_DATAPACK_ENABLED.swap(FALSE, Ordering::SeqCst) != FALSE {
-            commands.push(r#"datapack disable "file/mcfd_test_debug""#.to_string());
-        }
+        create_debug_datapack().await?;
     }
+    Ok(if after_age_increment || debug {
+        let on_breakpoint_fn = format!("{}:{}/on_breakpoint", namespace, name);
+        create_tick_datapack(test_fn, &on_breakpoint_fn).await?;
+    })
 }
 
 async fn expand_test_templates() -> io::Result<()> {
@@ -256,16 +225,6 @@ async fn expand_test_templates() -> io::Result<()> {
 async fn do_expand_test_templates() -> io::Result<()> {
     include!(concat!(env!("OUT_DIR"), "/tests/expand_test_templates.rs"));
     Ok(())
-}
-
-fn connection() -> MinecraftConnection {
-    MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR)
-        .log_file(PathBuf::from(TEST_LOG_FILE))
-        .build()
-}
-
-fn running_test_cmd(test_name: &str) -> String {
-    format!("tellraw @a {{\"text\": \"Running test {}\"}}", test_name)
 }
 
 async fn create_debug_datapack() -> io::Result<()> {
@@ -299,4 +258,66 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
     Ok(())
 }
 
-const TIMEOUT: Duration = Duration::from_secs(10);
+fn connection() -> MinecraftConnection {
+    MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR)
+        .log_file(PathBuf::from(TEST_LOG_FILE))
+        .build()
+}
+
+fn get_commands(test_fn: &str, after_age_increment: bool, debug: bool) -> Vec<String> {
+    let mut commands = vec![
+        running_test_cmd(&test_fn),
+        "function mcfd:clean_up".to_string(),
+    ];
+
+    static SCOREBOARD_ADDED: AtomicBool = AtomicBool::new(false);
+    if SCOREBOARD_ADDED.swap(true, Ordering::SeqCst) != true {
+        commands.push("scoreboard objectives add test_global dummy".to_string());
+    }
+
+    enable_appropriate_datapacks(&mut commands, after_age_increment, debug);
+
+    if after_age_increment {
+        commands.push("reload".to_string());
+        commands.push("scoreboard players set tick test_global 1".to_string());
+    } else {
+        commands.push(format!("schedule function {} 1", test_fn));
+    }
+
+    commands
+}
+
+fn running_test_cmd(test_name: &str) -> String {
+    format!("tellraw @a {{\"text\": \"Running test {}\"}}", test_name)
+}
+
+fn enable_appropriate_datapacks(
+    commands: &mut Vec<String>,
+    after_age_increment: bool,
+    debug: bool,
+) {
+    const UNKNOWN: i8 = -1;
+    const FALSE: i8 = 0;
+    const TRUE: i8 = 1;
+    static DEBUG_DATAPACK_ENABLED: AtomicI8 = AtomicI8::new(UNKNOWN);
+    static TICK_DATAPACK_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    if debug {
+        if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::SeqCst) != TRUE {
+            commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
+        }
+        if after_age_increment {
+            if TICK_DATAPACK_INITIALIZED.swap(true, Ordering::SeqCst) != true {
+                // Must run before debugger tick.json
+                commands.extend([
+                    r#"datapack disable "file/mcfd_tick""#.to_string(),
+                    r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#.to_string(),
+                ]);
+            }
+        }
+    } else {
+        if DEBUG_DATAPACK_ENABLED.swap(FALSE, Ordering::SeqCst) != FALSE {
+            commands.push(r#"datapack disable "file/mcfd_test_debug""#.to_string());
+        }
+    }
+}
