@@ -20,39 +20,36 @@ use debug_adapter_protocol::{
     responses::{ErrorResponse, Response, SuccessResponse},
     ProtocolMessage, ProtocolMessageType, SequenceNumber,
 };
+use log::trace;
 use std::{collections::HashMap, io};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 const CONTENT_LENGTH: &str = "Content-Length";
 
-pub async fn read_msg<I, L>(input: &mut I, log: &mut L) -> io::Result<ProtocolMessage>
+pub async fn read_msg<I>(input: &mut I) -> io::Result<ProtocolMessage>
 where
     I: AsyncBufReadExt + Unpin,
-    L: AsyncWriteExt + Unpin,
 {
-    let header = read_header(input, log).await?;
+    let header = read_header(input).await?;
     let content_length = get_content_length(&header)?;
 
     let mut buf = vec![0; content_length];
     input.read_exact(&mut buf).await?;
-    log.write_all(&buf).await?;
-    log.flush().await?;
 
     let msg = serde_json::from_slice(&buf)?;
+    trace!("Received message from client: {}", msg);
     Ok(msg)
 }
 
-async fn read_header<I, L>(input: &mut I, log: &mut L) -> io::Result<HashMap<String, String>>
+async fn read_header<I>(input: &mut I) -> io::Result<HashMap<String, String>>
 where
     I: AsyncBufReadExt + Unpin,
-    L: AsyncWriteExt + Unpin,
 {
     let mut header = HashMap::new();
     let mut line = String::new();
     loop {
         input.read_line(&mut line).await?;
         if line.ends_with("\r\n") {
-            log.write_all(line.as_bytes()).await?;
             line.pop(); // Pop \n
             line.pop(); // Pop \r
             if line.is_empty() {
@@ -79,27 +76,20 @@ fn get_content_length(header: &HashMap<String, String>) -> io::Result<usize> {
     Ok(content_length)
 }
 
-pub struct MessageWriter<O, L>
+pub struct MessageWriter<O>
 where
     O: AsyncWriteExt + Unpin,
-    L: AsyncWriteExt + Unpin,
 {
     seq: SequenceNumber,
     output: O,
-    log: L,
 }
 
-impl<O, L> MessageWriter<O, L>
+impl<O> MessageWriter<O>
 where
     O: AsyncWriteExt + Unpin,
-    L: AsyncWriteExt + Unpin,
 {
-    pub fn new(output: O, log: L) -> MessageWriter<O, L> {
-        MessageWriter {
-            seq: 0,
-            output,
-            log,
-        }
+    pub fn new(output: O) -> MessageWriter<O> {
+        MessageWriter { seq: 0, output }
     }
 
     pub async fn respond(
@@ -120,26 +110,11 @@ where
             seq: self.seq,
             type_: msg_type,
         };
-        let json = serde_json::to_string(&msg).unwrap();
 
-        self.output.write_all("Content-Length: ".as_bytes()).await?;
-        self.log.write_all("Content-Length: ".as_bytes()).await?;
-
-        self.output
-            .write_all(json.len().to_string().as_bytes())
-            .await?;
-        self.log
-            .write_all(json.len().to_string().as_bytes())
-            .await?;
-
-        self.output.write_all("\r\n\r\n".as_bytes()).await?;
-        self.log.write_all("\r\n\r\n".as_bytes()).await?;
-
-        self.output.write_all(json.as_bytes()).await?;
-        self.log.write_all(json.as_bytes()).await?;
-
+        let msg = msg.to_string();
+        trace!("Sending message to client: {}", msg);
+        self.output.write_all(msg.as_bytes()).await?;
         self.output.flush().await?;
-        self.log.flush().await?;
 
         Ok(())
     }
