@@ -201,7 +201,8 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/freeze_aec.mcfunction"),
         expand!("data/-ns-/functions/install.mcfunction"),
         expand!("data/-ns-/functions/load.mcfunction"),
-        expand!("data/-ns-/functions/on_finish_session.mcfunction"),
+        expand!("data/-ns-/functions/on_session_exit_successful.mcfunction"),
+        expand!("data/-ns-/functions/on_session_exit.mcfunction"),
         expand!("data/-ns-/functions/reset_skipped.mcfunction"),
         expand!("data/-ns-/functions/resume_immediately.mcfunction"),
         expand_resume_self_template(&engine, function_contents, &output_path),
@@ -507,7 +508,7 @@ async fn expand_function_templates(
 
     try_join!(
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return.mcfunction"),
-        expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return_or_finish.mcfunction"),
+        expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/return_or_exit.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/scheduled.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start.mcfunction"),
         expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/start_valid.mcfunction"),

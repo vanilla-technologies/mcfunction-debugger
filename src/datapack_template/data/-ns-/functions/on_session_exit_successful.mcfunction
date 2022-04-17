@@ -19,7 +19,4 @@
 function -ns-:skipped_functions_warning
 tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Debugging session finished."}]
 
-# -minect_log-
-tag @s add terminated
-
-scoreboard players reset * -ns-_scores
+function -ns-:on_session_exit

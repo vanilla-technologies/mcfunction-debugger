@@ -16,5 +16,7 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute if score current -ns-_depth matches 0 if score -orig_ns-:-orig/fn- -ns-_valid matches 1 unless entity @e[type=area_effect_cloud,tag=-ns-_schedule] run function -ns-:on_finish_session
-execute unless score current -ns-_depth matches 0 run function -ns-:-orig_ns-/-orig/fn-/return
+scoreboard players reset * -ns-_scores
+
+# -minect_log-
+tag @s add exited

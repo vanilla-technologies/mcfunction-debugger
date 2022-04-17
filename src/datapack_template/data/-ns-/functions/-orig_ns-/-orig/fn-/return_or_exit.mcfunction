@@ -16,16 +16,5 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-# Select next context
-execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active] if score @s -ns-_depth = current -ns-_depth run tag @s add -ns-_tmp
-execute as @e[type=area_effect_cloud,tag=-ns-_tmp,limit=1] run tag @s add -ns-_current
-
-# If there is no entity with -ns-_tmp, we return.
-execute unless entity @e[type=area_effect_cloud,tag=-ns-_tmp] run function -ns-:-orig_ns-/-orig/fn-/return_or_exit
-
-tag @e[type=area_effect_cloud] remove -ns-_tmp
-
-# If we returned above, the program is now either
-# 1. suspended at a breakpoint or
-# 2. terminated, in which case there is no entity with tag=-ns-_current
-execute unless score breakpoint -ns-_global matches 1 as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run function -ns-:-orig_ns-/-orig/fn-/-line_number-_continue
+execute if score current -ns-_depth matches 0 if score -orig_ns-:-orig/fn- -ns-_valid matches 1 unless entity @e[type=area_effect_cloud,tag=-ns-_schedule] run function -ns-:on_session_exit_successful
+execute unless score current -ns-_depth matches 0 run function -ns-:-orig_ns-/-orig/fn-/return

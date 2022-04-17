@@ -22,6 +22,7 @@ use debug_adapter_protocol::{
     requests::{
         ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments, Request,
         ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
+        TerminateRequestArguments,
     },
     responses::{
         ContinueResponseBody, ErrorResponse, ErrorResponseBody, ScopesResponseBody,
@@ -288,6 +289,10 @@ where
                 }))
             }
             Request::Continue(args) => self.continue_(args).await.map(SuccessResponse::Continue),
+            Request::Terminate(args) => self
+                .terminate(args)
+                .await
+                .map(|()| SuccessResponse::Terminate),
             _ => {
                 let command = get_command(&request);
                 Err(DapError::Respond(PartialErrorResponse::new(format!(
@@ -307,7 +312,7 @@ where
     async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<()> {
         if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
             if let Some(tag) = suffix.strip_suffix(&format!("' to {}", ADAPTER_LISTENER_NAME)) {
-                if tag == "terminated" {
+                if tag == "exited" {
                     self.writer
                         .write_msg(ProtocolMessageType::Event(Event::Terminated(
                             TerminatedEventBody { restart: None },
@@ -350,6 +355,7 @@ where
         Ok(Capabilities {
             supports_configuration_done_request: true,
             supports_cancel_request: true,
+            supports_terminate_request: true,
             ..Default::default()
         })
     }
@@ -370,6 +376,10 @@ where
         args: ContinueRequestArguments,
     ) -> Result<ContinueResponseBody, DapError> {
         self.get_mut_minecraft_session()?.resume(args).await
+    }
+
+    async fn terminate(&mut self, args: TerminateRequestArguments) -> Result<(), DapError> {
+        self.get_mut_minecraft_session()?.terminate(args).await
     }
 }
 
@@ -773,6 +783,11 @@ impl MinecraftSession {
         Ok(ContinueResponseBody {
             all_threads_continued: false,
         })
+    }
+
+    async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
+        self.inject_commands(vec!["function debug:stop".to_string()])?;
+        Ok(())
     }
 
     fn inject_commands(&mut self, commands: Vec<String>) -> Result<(), PartialErrorResponse> {
