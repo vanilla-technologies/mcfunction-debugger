@@ -19,3 +19,5 @@
 scoreboard players set breakpoint -ns-_global 0
 kill @e[tag=-ns-,tag=!-ns-_before_age_increment]
 execute as @e[type=area_effect_cloud,tag=-ns-_frozen] run function -ns-:unfreeze_aec
+
+function -ns-:on_session_exit

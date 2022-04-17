@@ -18,5 +18,4 @@
 
 function -ns-:reset_skipped
 execute unless score breakpoint -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Cannot resume, no function is suspended at a breakpoint!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
-execute unless score breakpoint -ns-_global matches 1 run function -ns-:clean_up
 execute if score breakpoint -ns-_global matches 1 run function -ns-:resume_unchecked
