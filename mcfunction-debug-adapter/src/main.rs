@@ -248,14 +248,22 @@ where
         request: Request,
     ) -> Result<SuccessResponse, DapError> {
         match request {
+            Request::ConfigurationDone => Ok(SuccessResponse::ConfigurationDone),
+            Request::Continue(args) => self.continue_(args).await.map(SuccessResponse::Continue),
+            Request::Evaluate(_args) => Err(DapError::Respond(PartialErrorResponse::new(
+                "Not supported yet, see: \
+                https://github.com/vanilla-technologies/mcfunction-debugger/issues/68"
+                    .to_string(),
+            ))),
             Request::Initialize(args) => {
                 self.initialize(args).await.map(SuccessResponse::Initialize)
             }
-            Request::ConfigurationDone => Ok(SuccessResponse::ConfigurationDone),
-            Request::Evaluate(_args) => Err(DapError::Respond(PartialErrorResponse::new(
-                "Not supported yet, see: https://github.com/vanilla-technologies/mcfunction-debugger/issues/68".to_string(),
-            ))),
             Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
+            Request::Scopes(ScopesRequestArguments { frame_id: _ }) => {
+                Ok(SuccessResponse::Scopes(ScopesResponseBody {
+                    scopes: Vec::new(),
+                }))
+            }
             Request::SetBreakpoints(SetBreakpointsRequestArguments { breakpoints, .. }) => {
                 let breakpoints = breakpoints
                     .iter()
@@ -276,26 +284,20 @@ where
                     SetBreakpointsResponseBody { breakpoints },
                 ))
             }
+            Request::StackTrace(args) => self
+                .stack_trace(args)
+                .await
+                .map(SuccessResponse::StackTrace),
+            Request::Terminate(args) => self
+                .terminate(args)
+                .await
+                .map(|()| SuccessResponse::Terminate),
             Request::Threads => Ok(SuccessResponse::Threads(ThreadsResponseBody {
                 threads: vec![Thread {
                     id: 0,
                     name: "My Thread".to_string(),
                 }],
             })),
-            Request::StackTrace(args) => self
-                .stack_trace(args)
-                .await
-                .map(SuccessResponse::StackTrace),
-            Request::Scopes(ScopesRequestArguments { frame_id: _ }) => {
-                Ok(SuccessResponse::Scopes(ScopesResponseBody {
-                    scopes: Vec::new(),
-                }))
-            }
-            Request::Continue(args) => self.continue_(args).await.map(SuccessResponse::Continue),
-            Request::Terminate(args) => self
-                .terminate(args)
-                .await
-                .map(|()| SuccessResponse::Terminate),
             _ => {
                 let command = get_command(&request);
                 Err(DapError::Respond(PartialErrorResponse::new(format!(
