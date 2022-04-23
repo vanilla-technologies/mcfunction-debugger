@@ -23,16 +23,21 @@ use debug_adapter_protocol::{
         TerminatedEventBody,
     },
     requests::{
-        ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments,
-        PauseRequestArguments, Request, ScopesRequestArguments, SetBreakpointsRequestArguments,
-        StackTraceRequestArguments, TerminateRequestArguments,
+        ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
+        LaunchRequestArguments, PauseRequestArguments, Request, ScopesRequestArguments,
+        SetBreakpointsRequestArguments, StackTraceRequestArguments, TerminateRequestArguments,
     },
     responses::{
-        ContinueResponseBody, ErrorResponse, ErrorResponseBody, ScopesResponseBody,
-        SetBreakpointsResponseBody, StackTraceResponseBody, SuccessResponse, ThreadsResponseBody,
+        ContinueResponseBody, ErrorResponse, ErrorResponseBody, EvaluateResponseBody,
+        ScopesResponseBody, SetBreakpointsResponseBody, StackTraceResponseBody, SuccessResponse,
+        ThreadsResponseBody,
     },
-    types::{Breakpoint, Capabilities, Message, Source, StackFrame, Thread},
+    types::{Breakpoint, Capabilities, Message as ErrorMessage, Source, StackFrame, Thread},
     ProtocolMessage, ProtocolMessageType,
+};
+use futures::{
+    stream::{select_all, SelectAll},
+    Stream, StreamExt,
 };
 use log::{error, info, trace};
 use mcfunction_debug_adapter::{read_msg, MessageWriter};
@@ -47,12 +52,10 @@ use simplelog::{Config, WriteLogger};
 use std::{
     io,
     path::{Path, PathBuf},
+    pin::Pin,
 };
-use tokio::{
-    io::{AsyncWriteExt, BufReader},
-    select,
-    sync::mpsc::UnboundedReceiver,
-};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -94,38 +97,14 @@ See the GNU General Public License for more details.
     )
     .unwrap();
 
-    match run().await {
+    let mut adapter = DebugAdapter::new(BufReader::new(tokio::io::stdin()), tokio::io::stdout());
+    match adapter.run().await {
         Err(e) => {
             error!("Stopping due to: {}", e);
             Err(e)
         }
         _ => Ok(()),
     }
-}
-
-async fn run() -> io::Result<()> {
-    let mut stdin = BufReader::new(tokio::io::stdin());
-
-    let mut adapter = DebugAdapter::new(tokio::io::stdout());
-
-    loop {
-        // FIXME: canceling requests does not work with select like this
-        select! {
-            client_msg = read_msg(&mut stdin) => {
-                let client_msg = client_msg?;
-                let should_continue = adapter.handle_client_message(client_msg).await?;
-                if !should_continue {
-                    break;
-                }
-            },
-            Some(minecraft_msg) = adapter.recv_minecraft_msg() => {
-                info!("Received message from Minecraft by {}: {}", minecraft_msg.executor, minecraft_msg.message);
-                adapter.handle_minecraft_message(minecraft_msg).await?;
-            },
-        }
-    }
-
-    Ok(())
 }
 
 enum DapError {
@@ -141,7 +120,7 @@ impl From<PartialErrorResponse> for DapError {
 
 struct PartialErrorResponse {
     message: String,
-    details: Option<Message>,
+    details: Option<ErrorMessage>,
 }
 
 impl PartialErrorResponse {
@@ -172,23 +151,19 @@ impl From<io::Error> for PartialErrorResponse {
     }
 }
 
-fn find_parent_datapack(mut path: &Path) -> Option<&Path> {
-    while let Some(p) = path.parent() {
-        path = p;
-        let pack_mcmeta_path = path.join("pack.mcmeta");
-        if pack_mcmeta_path.is_file() {
-            return Some(path);
-        }
-    }
-    None
-}
-
 const ADAPTER_LISTENER_NAME: &'static str = "mcfunction_debugger";
+
+#[derive(Debug)]
+enum Message {
+    Client(io::Result<ProtocolMessage>),
+    Minecraft(LogEvent),
+}
 
 struct DebugAdapter<O>
 where
     O: AsyncWriteExt + Unpin,
 {
+    message_streams: SelectAll<Pin<Box<dyn Stream<Item = Message>>>>,
     writer: MessageWriter<O>,
     client_session: Option<ClientSession>,
 }
@@ -197,25 +172,43 @@ impl<O> DebugAdapter<O>
 where
     O: AsyncWriteExt + Unpin,
 {
-    fn new(output: O) -> DebugAdapter<O> {
+    fn new<I>(mut input: I, output: O) -> DebugAdapter<O>
+    where
+        I: AsyncBufReadExt + Unpin + 'static,
+    {
+        let client_messages: Pin<Box<dyn Stream<Item = Message>>> =
+            Box::pin(async_stream::stream! {
+                loop { yield Message::Client(read_msg(&mut input).await); }
+            });
         DebugAdapter {
+            message_streams: select_all([client_messages]),
             writer: MessageWriter::new(output),
             client_session: None,
         }
     }
 
-    fn get_mut_client_session(&mut self) -> Result<&mut ClientSession, PartialErrorResponse> {
-        self.client_session
-            .as_mut()
-            .ok_or_else(|| PartialErrorResponse {
-                message: "Not initialized".to_string(),
-                details: None,
-            })
-    }
-
-    fn get_mut_minecraft_session(&mut self) -> Result<&mut MinecraftSession, PartialErrorResponse> {
-        let client_session = self.get_mut_client_session()?;
-        client_session.get_mut_minecraft_session()
+    async fn run(&mut self) -> io::Result<()> {
+        trace!("Starting debug adapter");
+        while let Some(msg) = self.message_streams.next().await {
+            match msg {
+                Message::Client(client_msg) => {
+                    let client_msg = client_msg?;
+                    let should_continue = self.handle_client_message(client_msg).await?;
+                    if !should_continue {
+                        break;
+                    }
+                }
+                Message::Minecraft(minecraft_msg) => {
+                    info!(
+                        "Received message from Minecraft by {}: {}",
+                        minecraft_msg.executor, minecraft_msg.message
+                    );
+                    self.handle_minecraft_message(minecraft_msg).await?;
+                }
+            }
+        }
+        trace!("Debug adapter finished");
+        Ok(())
     }
 
     async fn handle_client_message(&mut self, msg: ProtocolMessage) -> io::Result<bool> {
@@ -253,21 +246,12 @@ where
         match request {
             Request::ConfigurationDone => Ok(SuccessResponse::ConfigurationDone),
             Request::Continue(args) => self.continue_(args).await.map(SuccessResponse::Continue),
-            Request::Evaluate(_args) => Err(DapError::Respond(PartialErrorResponse::new(
-                "Not supported yet, see: \
-                https://github.com/vanilla-technologies/mcfunction-debugger/issues/68"
-                    .to_string(),
-            ))),
+            Request::Evaluate(args) => self.evaluate(args).await.map(SuccessResponse::Evaluate),
             Request::Initialize(args) => {
                 self.initialize(args).await.map(SuccessResponse::Initialize)
             }
             Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
-            Request::Pause(args) => {
-                self.pause(args).await?;
-                Err(DapError::Respond(PartialErrorResponse::new(
-                    "Minecraft cannot be paused".to_string(),
-                )))
-            }
+            Request::Pause(args) => self.pause(args).await.map(|()| SuccessResponse::Pause),
             Request::Scopes(ScopesRequestArguments { frame_id: _ }) => {
                 Ok(SuccessResponse::Scopes(ScopesResponseBody {
                     scopes: Vec::new(),
@@ -317,12 +301,6 @@ where
         }
     }
 
-    async fn recv_minecraft_msg(&mut self) -> Option<LogEvent> {
-        let client_session = self.client_session.as_mut()?;
-        let minecraft_session = client_session.minecraft_session.as_mut()?;
-        minecraft_session.listener.recv().await
-    }
-
     async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<()> {
         if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
             if let Some(tag) = suffix.strip_suffix(&format!("' to {}", ADAPTER_LISTENER_NAME)) {
@@ -353,6 +331,26 @@ where
         Ok(())
     }
 
+    fn unwrap_client_session(
+        client_session: &mut Option<ClientSession>,
+    ) -> Result<&mut ClientSession, PartialErrorResponse> {
+        client_session.as_mut().ok_or_else(|| PartialErrorResponse {
+            message: "Not initialized".to_string(),
+            details: None,
+        })
+    }
+
+    fn unwrap_minecraft_session(
+        minecraft_session: &mut Option<MinecraftSession>,
+    ) -> Result<&mut MinecraftSession, PartialErrorResponse> {
+        minecraft_session
+            .as_mut()
+            .ok_or_else(|| PartialErrorResponse {
+                message: "Not launched or attached".to_string(),
+                details: None,
+            })
+    }
+
     async fn initialize(
         &mut self,
         _arguments: InitializeRequestArguments,
@@ -375,91 +373,8 @@ where
     }
 
     async fn launch(&mut self, args: LaunchRequestArguments) -> Result<(), DapError> {
-        self.get_mut_client_session()?.launch(args).await
-    }
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
 
-    async fn stack_trace(
-        &mut self,
-        args: StackTraceRequestArguments,
-    ) -> Result<StackTraceResponseBody, DapError> {
-        self.get_mut_minecraft_session()?.stack_trace(args).await
-    }
-
-    async fn continue_(
-        &mut self,
-        args: ContinueRequestArguments,
-    ) -> Result<ContinueResponseBody, DapError> {
-        self.get_mut_minecraft_session()?.resume(args).await
-    }
-
-    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
-        self.writer
-            .write_msg(ProtocolMessageType::Event(Event::Output(OutputEventBody {
-                category: OutputCategory::Important,
-                output: "Minecraft cannot be paused".to_string(),
-                group: None,
-                variables_reference: None,
-                source: None,
-                line: None,
-                column: None,
-                data: None,
-            })))
-            .await
-            .map_err(|e| DapError::Terminate(e))
-    }
-
-    async fn terminate(&mut self, args: TerminateRequestArguments) -> Result<(), DapError> {
-        self.get_mut_minecraft_session()?.terminate(args).await
-    }
-}
-
-fn get_command(request: &Request) -> String {
-    let value = serde_json::to_value(request).unwrap();
-    if let Value::Object(mut object) = value {
-        let command = object.remove("command").unwrap();
-        if let Value::String(command) = command {
-            command
-        } else {
-            panic!("command must be a string");
-        }
-    } else {
-        panic!("value must be an object");
-    }
-}
-
-fn parse_stopped_tag(tag: &str) -> Option<(String, i32)> {
-    let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
-
-    // -ns-+-orig_ns-+-orig_fn-+-line_number-
-    if let [orig_ns, orig_fn @ .., line_number] =
-        breakpoint_tag.split('+').collect::<Vec<_>>().as_slice()
-    {
-        let path = format!(
-            "data/{}/functions/{}.mcfunction",
-            orig_ns,
-            orig_fn.join("/")
-        );
-        let line = line_number.parse::<i32>().ok()?;
-        Some((path, line))
-    } else {
-        None
-    }
-}
-
-struct ClientSession {
-    minecraft_session: Option<MinecraftSession>,
-}
-impl ClientSession {
-    fn get_mut_minecraft_session(&mut self) -> Result<&mut MinecraftSession, PartialErrorResponse> {
-        self.minecraft_session
-            .as_mut()
-            .ok_or_else(|| PartialErrorResponse {
-                message: "Not launched or attached".to_string(),
-                details: None,
-            })
-    }
-
-    async fn launch(&mut self, args: LaunchRequestArguments) -> Result<(), DapError> {
         //     self.writer
         //     .write_msg(ProtocolMessageType::Event(Event::Output(OutputEventBody {
         //         category: OutputCategory::Important,
@@ -508,9 +423,9 @@ impl ClientSession {
         //     .as_str()
         //     .ok_or_else(|| invalid_data("Attribute 'datapack' is not of type string"))?;
 
-        let program = get_path(&args, "program")?;
+        let program = Self::get_path(&args, "program")?;
 
-        let datapack = find_parent_datapack(program).ok_or_else(|| {
+        let datapack = Self::find_parent_datapack(program).ok_or_else(|| {
             PartialErrorResponse::new(format!(
                 "Attribute 'program' \
                 does not denote a path in a datapack directory with a pack.mcmeta file: {}",
@@ -521,7 +436,7 @@ impl ClientSession {
 
         let data_path = program.strip_prefix(datapack.join("data")).unwrap();
 
-        let function = get_function_name(data_path, program)?;
+        let function = Self::get_function_name(data_path, program)?;
 
         let datapack_name = datapack
             .file_name()
@@ -534,8 +449,8 @@ impl ClientSession {
             .to_str()
             .unwrap(); // Path is known to be UTF-8
 
-        let minecraft_world_dir = get_path(&args, "minecraftWorldDir")?;
-        let minecraft_log_file = get_path(&args, "minecraftLogFile")?;
+        let minecraft_world_dir = Self::get_path(&args, "minecraftWorldDir")?;
+        let minecraft_log_file = Self::get_path(&args, "minecraftLogFile")?;
 
         let output_path = minecraft_world_dir
             .join("datapacks")
@@ -567,6 +482,8 @@ impl ClientSession {
             .log_file(minecraft_log_file.into())
             .build();
         let listener = connection.add_listener(ADAPTER_LISTENER_NAME);
+        let stream = UnboundedReceiverStream::new(listener).map(Message::Minecraft);
+        self.message_streams.push(Box::pin(stream));
 
         // Install procedure
         // create_installer_datapack
@@ -595,82 +512,87 @@ impl ClientSession {
             ],
         )?;
 
-        self.minecraft_session = Some(MinecraftSession {
+        client_session.minecraft_session = Some(MinecraftSession {
             connection,
-            listener,
             datapack,
             namespace,
         });
 
         Ok(())
     }
-}
 
-fn get_path<'a>(
-    args: &'a LaunchRequestArguments,
-    key: &str,
-) -> Result<&'a Path, PartialErrorResponse> {
-    let value = args
-        .additional_attributes
-        .get(key)
-        .ok_or_else(|| PartialErrorResponse::new(format!("Missing attribute '{}'", key)))?
-        .as_str()
-        .ok_or_else(|| {
-            PartialErrorResponse::new(format!("Attribute '{}' is not of type string", key))
-        })?;
-    let value = Path::new(value);
-    Ok(value)
-}
+    fn get_path<'a>(
+        args: &'a LaunchRequestArguments,
+        key: &str,
+    ) -> Result<&'a Path, PartialErrorResponse> {
+        let value = args
+            .additional_attributes
+            .get(key)
+            .ok_or_else(|| PartialErrorResponse::new(format!("Missing attribute '{}'", key)))?
+            .as_str()
+            .ok_or_else(|| {
+                PartialErrorResponse::new(format!("Attribute '{}' is not of type string", key))
+            })?;
+        let value = Path::new(value);
+        Ok(value)
+    }
 
-fn get_function_name(
-    data_path: &Path,
-    program: &Path,
-) -> Result<ResourceLocation, PartialErrorResponse> {
-    let namespace = data_path
-        .iter()
-        .next()
-        .ok_or_else(|| {
-            PartialErrorResponse::new(format!(
-                "Attribute 'program' contains an invalid path: {}",
-                program.display()
-            ))
-        })?
-        .to_str()
-        .unwrap() // Path is known to be UTF-8
-        ;
-    let fn_path = data_path
-        .strip_prefix(Path::new(namespace).join("functions"))
-        .map_err(|_| {
-            PartialErrorResponse::new(format!(
-                "Attribute 'program' contains an invalid path: {}",
-                program.display()
-            ))
-        })?
-        .with_extension("")
-        .to_str()
-        .unwrap() // Path is known to be UTF-8
-        .replace(std::path::MAIN_SEPARATOR, "/");
-    Ok(ResourceLocation::new(&namespace, &fn_path))
-}
+    fn find_parent_datapack(mut path: &Path) -> Option<&Path> {
+        while let Some(p) = path.parent() {
+            path = p;
+            let pack_mcmeta_path = path.join("pack.mcmeta");
+            if pack_mcmeta_path.is_file() {
+                return Some(path);
+            }
+        }
+        None
+    }
 
-struct MinecraftSession {
-    connection: MinecraftConnection,
-    listener: UnboundedReceiver<LogEvent>,
-    datapack: PathBuf,
-    namespace: String,
-}
-impl MinecraftSession {
+    fn get_function_name(
+        data_path: &Path,
+        program: &Path,
+    ) -> Result<ResourceLocation, PartialErrorResponse> {
+        let namespace = data_path
+            .iter()
+            .next()
+            .ok_or_else(|| {
+                PartialErrorResponse::new(format!(
+                    "Attribute 'program' contains an invalid path: {}",
+                    program.display()
+                ))
+            })?
+            .to_str()
+            .unwrap() // Path is known to be UTF-8
+            ;
+        let fn_path = data_path
+            .strip_prefix(Path::new(namespace).join("functions"))
+            .map_err(|_| {
+                PartialErrorResponse::new(format!(
+                    "Attribute 'program' contains an invalid path: {}",
+                    program.display()
+                ))
+            })?
+            .with_extension("")
+            .to_str()
+            .unwrap() // Path is known to be UTF-8
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        Ok(ResourceLocation::new(&namespace, &fn_path))
+    }
+
     async fn stack_trace(
         &mut self,
         _args: StackTraceRequestArguments,
     ) -> Result<StackTraceResponseBody, DapError> {
-        let mut listener = self.connection.add_general_listener();
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        let stack_trace_tag = format!("{}_stack_trace", self.namespace);
+        let mut listener = mc_session.connection.add_general_listener();
+
+        let stack_trace_tag = format!("{}_stack_trace", mc_session.namespace);
         const STACK_TRACE_START_TAG: &str = "stack_trace.start";
         const STACK_TRACE_END_TAG: &str = "stack_trace.end";
 
-        self.inject_commands(vec![
+        mc_session.inject_commands(vec![
             LoggedCommand::from_str("function minect:enable_logging").to_string(),
             LoggedCommand::builder(format!("tag @s add {}", STACK_TRACE_START_TAG))
                 .name(ADAPTER_LISTENER_NAME)
@@ -679,17 +601,17 @@ impl MinecraftSession {
             LoggedCommand::from(format!(
                 "execute as @e[type=area_effect_cloud,tag={0}_function_call] \
                 run scoreboard players add @s {0}_depth 0",
-                self.namespace
+                mc_session.namespace
             ))
             .to_string(),
             LoggedCommand::from(format!(
                 "execute as @e[type=area_effect_cloud,tag={}_breakpoint] run tag @s add {}",
-                self.namespace, stack_trace_tag
+                mc_session.namespace, stack_trace_tag
             ))
             .to_string(),
             LoggedCommand::from(format!(
                 "execute as @e[type=area_effect_cloud,tag={}_breakpoint] run tag @s remove {}",
-                self.namespace, stack_trace_tag
+                mc_session.namespace, stack_trace_tag
             ))
             .to_string(),
             LoggedCommand::builder(format!("tag @s add {}", STACK_TRACE_END_TAG))
@@ -738,21 +660,36 @@ impl MinecraftSession {
             }
 
             trace!("Got message: {}", event.message);
+
             if let [orig_ns, orig_fn, line_number] =
                 event.executor.split(':').collect::<Vec<_>>().as_slice()
             {
                 if let Some(line) = line_number.parse().ok() {
                     if let Some(depth) =
-                        parse_scoreboard_value(&event, &(format!("{}_depth", self.namespace)))
+                        parse_scoreboard_value(&event, &(format!("{}_depth", mc_session.namespace)))
                     {
-                        stack_trace
-                            .push((depth, self.new_stack_frame(depth, orig_ns, orig_fn, line)));
+                        stack_trace.push((
+                            depth,
+                            Self::new_stack_frame(
+                                depth,
+                                orig_ns,
+                                orig_fn,
+                                line,
+                                &mc_session.datapack,
+                            ),
+                        ));
                     }
                     if let Some(tag) = parse_added_tag(&event) {
                         if tag == stack_trace_tag {
                             stack_trace.push((
                                 i32::MAX,
-                                self.new_stack_frame(i32::MAX, orig_ns, orig_fn, line),
+                                Self::new_stack_frame(
+                                    i32::MAX,
+                                    orig_ns,
+                                    orig_fn,
+                                    line,
+                                    &mc_session.datapack,
+                                ),
                             ));
                         }
                     }
@@ -771,14 +708,21 @@ impl MinecraftSession {
         })
     }
 
-    fn new_stack_frame(&self, id: i32, orig_ns: &&str, orig_fn: &&str, line: i32) -> StackFrame {
+    fn new_stack_frame(
+        id: i32,
+        orig_ns: &str,
+        orig_fn: &str,
+        line: i32,
+        datapack: impl AsRef<Path>,
+    ) -> StackFrame {
         StackFrame {
             id,
             name: format!("{}:{}:{}", orig_ns, orig_fn, line),
             source: Some(Source {
                 name: None,
                 path: Some(
-                    self.datapack
+                    datapack
+                        .as_ref()
                         .join(&format!(
                             "data/{}/functions/{}.mcfunction",
                             orig_ns, orig_fn
@@ -804,22 +748,108 @@ impl MinecraftSession {
         }
     }
 
-    async fn resume(
+    async fn continue_(
         &mut self,
         _args: ContinueRequestArguments,
     ) -> Result<ContinueResponseBody, DapError> {
-        self.inject_commands(vec!["function debug:resume".to_string()])?;
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        mc_session.inject_commands(vec!["function debug:resume".to_string()])?;
 
         Ok(ContinueResponseBody {
             all_threads_continued: false,
         })
     }
 
-    async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
-        self.inject_commands(vec!["function debug:stop".to_string()])?;
-        Ok(())
+    async fn evaluate(
+        &mut self,
+        _args: EvaluateRequestArguments,
+    ) -> Result<EvaluateResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Not supported yet, see: \
+            https://github.com/vanilla-technologies/mcfunction-debugger/issues/68"
+                .to_string(),
+        )))
     }
 
+    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        self.writer
+            .write_msg(ProtocolMessageType::Event(Event::Output(OutputEventBody {
+                category: OutputCategory::Important,
+                output: "Minecraft cannot be paused".to_string(),
+                group: None,
+                variables_reference: None,
+                source: None,
+                line: None,
+                column: None,
+                data: None,
+            })))
+            .await
+            .map_err(|e| DapError::Terminate(e))?;
+
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Minecraft cannot be paused".to_string(),
+        )))
+    }
+
+    async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+        mc_session.inject_commands(vec!["function debug:stop".to_string()])?;
+        Ok(())
+    }
+}
+
+fn get_command(request: &Request) -> String {
+    let value = serde_json::to_value(request).unwrap();
+    if let Value::Object(mut object) = value {
+        let command = object.remove("command").unwrap();
+        if let Value::String(command) = command {
+            command
+        } else {
+            panic!("command must be a string");
+        }
+    } else {
+        panic!("value must be an object");
+    }
+}
+
+fn parse_stopped_tag(tag: &str) -> Option<(String, i32)> {
+    let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
+
+    // -ns-+-orig_ns-+-orig_fn-+-line_number-
+    if let [orig_ns, orig_fn @ .., line_number] =
+        breakpoint_tag.split('+').collect::<Vec<_>>().as_slice()
+    {
+        let path = format!(
+            "data/{}/functions/{}.mcfunction",
+            orig_ns,
+            orig_fn.join("/")
+        );
+        let line = line_number.parse::<i32>().ok()?;
+        Some((path, line))
+    } else {
+        None
+    }
+}
+
+struct ClientSession {
+    minecraft_session: Option<MinecraftSession>,
+}
+
+struct MinecraftSession {
+    connection: MinecraftConnection,
+    datapack: PathBuf,
+    namespace: String,
+}
+impl MinecraftSession {
     fn inject_commands(&mut self, commands: Vec<String>) -> Result<(), PartialErrorResponse> {
         inject_commands(&mut self.connection, commands)
     }
