@@ -18,11 +18,14 @@
 
 use clap::{crate_authors, crate_version, App};
 use debug_adapter_protocol::{
-    events::{Event, StoppedEventBody, StoppedEventReason, TerminatedEventBody},
+    events::{
+        Event, OutputCategory, OutputEventBody, StoppedEventBody, StoppedEventReason,
+        TerminatedEventBody,
+    },
     requests::{
-        ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments, Request,
-        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
-        TerminateRequestArguments,
+        ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments,
+        PauseRequestArguments, Request, ScopesRequestArguments, SetBreakpointsRequestArguments,
+        StackTraceRequestArguments, TerminateRequestArguments,
     },
     responses::{
         ContinueResponseBody, ErrorResponse, ErrorResponseBody, ScopesResponseBody,
@@ -259,6 +262,12 @@ where
                 self.initialize(args).await.map(SuccessResponse::Initialize)
             }
             Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
+            Request::Pause(args) => {
+                self.pause(args).await?;
+                Err(DapError::Respond(PartialErrorResponse::new(
+                    "Minecraft cannot be paused".to_string(),
+                )))
+            }
             Request::Scopes(ScopesRequestArguments { frame_id: _ }) => {
                 Ok(SuccessResponse::Scopes(ScopesResponseBody {
                     scopes: Vec::new(),
@@ -381,6 +390,22 @@ where
         args: ContinueRequestArguments,
     ) -> Result<ContinueResponseBody, DapError> {
         self.get_mut_minecraft_session()?.resume(args).await
+    }
+
+    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
+        self.writer
+            .write_msg(ProtocolMessageType::Event(Event::Output(OutputEventBody {
+                category: OutputCategory::Important,
+                output: "Minecraft cannot be paused".to_string(),
+                group: None,
+                variables_reference: None,
+                source: None,
+                line: None,
+                column: None,
+                data: None,
+            })))
+            .await
+            .map_err(|e| DapError::Terminate(e))
     }
 
     async fn terminate(&mut self, args: TerminateRequestArguments) -> Result<(), DapError> {
