@@ -17,10 +17,12 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use debug_adapter_protocol::{
+    requests::Request,
     responses::{ErrorResponse, Response, SuccessResponse},
     ProtocolMessage, ProtocolMessageType, SequenceNumber,
 };
 use log::trace;
+use serde_json::Value;
 use std::{collections::HashMap, io};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
@@ -125,4 +127,18 @@ where
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     io::Error::new(io::ErrorKind::InvalidData, error)
+}
+
+pub fn get_command(request: &Request) -> String {
+    let value = serde_json::to_value(request).unwrap();
+    if let Value::Object(mut object) = value {
+        let command = object.remove("command").unwrap();
+        if let Value::String(command) = command {
+            command
+        } else {
+            panic!("command must be a string");
+        }
+    } else {
+        panic!("value must be an object");
+    }
 }
