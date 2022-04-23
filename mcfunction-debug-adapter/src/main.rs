@@ -252,6 +252,9 @@ where
                 self.initialize(args).await.map(SuccessResponse::Initialize)
             }
             Request::ConfigurationDone => Ok(SuccessResponse::ConfigurationDone),
+            Request::Evaluate(_args) => Err(DapError::Respond(PartialErrorResponse::new(
+                "Not supported yet, see: https://github.com/vanilla-technologies/mcfunction-debugger/issues/68".to_string(),
+            ))),
             Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
             Request::SetBreakpoints(SetBreakpointsRequestArguments { breakpoints, .. }) => {
                 let breakpoints = breakpoints
