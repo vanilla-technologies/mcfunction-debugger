@@ -18,7 +18,7 @@
 
 use clap::{crate_authors, crate_version, App, Arg};
 use log::LevelFilter;
-use mcfunction_debugger::generate_debug_datapack;
+use mcfunction_debugger::{generate_debug_datapack, Config};
 use simple_logger::SimpleLogger;
 use std::{io, path::Path};
 
@@ -175,7 +175,12 @@ See the GNU General Public License for more details.
     let pack_mcmeta_path = input_path.join("pack.mcmeta");
     assert!(pack_mcmeta_path.is_file(), "Could not find pack.mcmeta");
 
-    generate_debug_datapack(input_path, output_path, namespace, shadow, None).await?;
+    let config = Config {
+        namespace,
+        shadow,
+        adapter: None,
+    };
+    generate_debug_datapack(input_path, output_path, &config).await?;
 
     Ok(())
 }

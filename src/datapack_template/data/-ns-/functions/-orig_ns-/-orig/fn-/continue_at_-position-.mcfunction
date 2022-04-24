@@ -22,6 +22,6 @@ execute unless score @s -ns-_id matches 0 run scoreboard players operation @e[ta
 
 execute unless score @s -ns-_id matches 0 unless entity @e[tag=!-ns-_context,tag=-ns-_tmp] run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Selected entity was killed!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
 execute unless score @s -ns-_id matches 0 unless entity @e[tag=!-ns-_context,tag=-ns-_tmp] run function -ns-:abort_session
-execute if score @s -ns-_id matches 0 at @s run function -ns-:-orig_ns-/-orig/fn-/-line_numbers-
-execute if score current -ns-_anchor matches 0 at @s as @e[tag=!-ns-_context,tag=-ns-_tmp] anchored feet run function -ns-:-orig_ns-/-orig/fn-/-line_numbers-
-execute if score current -ns-_anchor matches 1 at @s as @e[tag=!-ns-_context,tag=-ns-_tmp] anchored eyes run function -ns-:-orig_ns-/-orig/fn-/-line_numbers-
+execute if score @s -ns-_id matches 0 at @s run function -ns-:-orig_ns-/-orig/fn-/-positions-
+execute if score current -ns-_anchor matches 0 at @s as @e[tag=!-ns-_context,tag=-ns-_tmp] anchored feet run function -ns-:-orig_ns-/-orig/fn-/-positions-
+execute if score current -ns-_anchor matches 1 at @s as @e[tag=!-ns-_context,tag=-ns-_tmp] anchored eyes run function -ns-:-orig_ns-/-orig/fn-/-positions-

@@ -1,4 +1,4 @@
-use mcfunction_debugger::generate_debug_datapack;
+use mcfunction_debugger::{generate_debug_datapack, Config};
 use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
 use serial_test::serial;
 use std::{
@@ -236,7 +236,12 @@ async fn create_debug_datapack() -> io::Result<()> {
 async fn do_create_debug_datapack() -> io::Result<()> {
     let input_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
     let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug");
-    generate_debug_datapack(&input_path, &output_path, "mcfd", false, None).await?;
+    let config = Config {
+        namespace: "mcfd",
+        shadow: false,
+        adapter: None,
+    };
+    generate_debug_datapack(&input_path, &output_path, &config).await?;
     Ok(())
 }
 

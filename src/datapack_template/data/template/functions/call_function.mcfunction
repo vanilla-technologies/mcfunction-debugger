@@ -32,4 +32,4 @@ execute unless score -call_ns-:-call/fn- -ns-_valid matches 1 run scoreboard pla
 execute unless score -call_ns-:-call/fn- -ns-_valid matches 0.. unless score -call_ns-:-call/fn- -ns-_skipped matches 1.. run scoreboard players add skipped_missing -ns-_global 1
 execute if score -call_ns-:-call/fn- -ns-_valid matches 0 unless score -call_ns-:-call/fn- -ns-_skipped matches 1.. run scoreboard players add skipped_invalid -ns-_global 1
 execute unless score -call_ns-:-call/fn- -ns-_valid matches 1 run scoreboard players add -call_ns-:-call/fn- -ns-_skipped 1
-execute unless score -call_ns-:-call/fn- -ns-_valid matches 1 run function -ns-:-orig_ns-/-orig/fn-/-line_number_1-_continue_current_iteration
+execute unless score -call_ns-:-call/fn- -ns-_valid matches 1 run function -ns-:-orig_ns-/-orig/fn-/continue_current_iteration_at_-line_number-_function

@@ -24,8 +24,8 @@ mod template_engine;
 mod utils;
 
 use crate::{
-    parser::{parse_line, Line},
-    template_engine::TemplateEngine,
+    parser::{command::argument::MinecraftEntityAnchor, parse_line, Line},
+    template_engine::{exclude_internal_entites_from_selectors, TemplateEngine},
 };
 use futures::{future::try_join_all, FutureExt};
 use multimap::MultiMap;
@@ -33,6 +33,7 @@ use parser::command::{resource_location::ResourceLocation, CommandParser};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
+    fmt::Display,
     fs::File,
     io::{self, BufRead},
     iter::{repeat, FromIterator},
@@ -45,16 +46,43 @@ use tokio::{
 };
 use walkdir::WalkDir;
 
+pub struct Config<'l> {
+    pub namespace: &'l str,
+    pub shadow: bool,
+    pub adapter: Option<AdapterConfig<'l>>,
+}
+impl Config<'_> {
+    fn is_breakpoint(&self, function: &ResourceLocation, line_number: usize) -> bool {
+        if let Some(config) = self.adapter.as_ref() {
+            if let Some(set) = config.breakpoints.get_vec(function) {
+                return set.contains(&line_number);
+            }
+        }
+        false
+    }
+}
+pub struct AdapterConfig<'l> {
+    pub adapter_listener_name: &'l str,
+    pub breakpoints: &'l MultiMap<&'l ResourceLocation, usize>,
+}
+pub struct McfunctionBreakpoint {
+    pub function: ResourceLocation,
+    pub line_number: usize,
+}
+impl Display for McfunctionBreakpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.function, self.line_number)
+    }
+}
+
 /// Visible for testing only. This is a binary crate, it is not intended to be used as a library.
-pub async fn generate_debug_datapack(
+pub async fn generate_debug_datapack<'l>(
     input_path: impl AsRef<Path>,
     output_path: impl AsRef<Path>,
-    namespace: &str,
-    shadow: bool,
-    adapter_listener_name: Option<&str>,
+    config: &Config<'l>,
 ) -> io::Result<()> {
     let functions = find_function_files(input_path).await?;
-    let function_contents = parse_functions(&functions).await?;
+    let function_contents = parse_functions(&functions, config).await?;
 
     let output_name = output_path
         .as_ref()
@@ -62,10 +90,13 @@ pub async fn generate_debug_datapack(
         .and_then(OsStr::to_str)
         .unwrap_or_default();
     let engine = TemplateEngine::new(
-        BTreeMap::from_iter([("-ns-", namespace), ("-datapack-", output_name)]),
-        adapter_listener_name,
+        BTreeMap::from_iter([("-ns-", config.namespace), ("-datapack-", output_name)]),
+        config
+            .adapter
+            .as_ref()
+            .map(|config| config.adapter_listener_name),
     );
-    expand_templates(&engine, &function_contents, &output_path, shadow).await
+    expand_templates(&engine, &function_contents, &output_path, config).await
 }
 
 async fn find_function_files(
@@ -122,9 +153,10 @@ fn get_functions(
     })
 }
 
-async fn parse_functions(
-    functions: &BTreeMap<ResourceLocation, PathBuf>,
-) -> Result<BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error> {
+async fn parse_functions<'l>(
+    functions: &'l BTreeMap<ResourceLocation, PathBuf>,
+    config: &Config<'_>,
+) -> Result<BTreeMap<&'l ResourceLocation, Vec<(usize, String, Line)>>, io::Error> {
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     functions
@@ -132,19 +164,16 @@ async fn parse_functions(
         .map(|(name, path)| {
             //TODO async
             let file = File::open(path)?;
-            let mut lines = io::BufReader::new(file)
+            let lines = io::BufReader::new(file)
                 .lines()
                 .enumerate()
                 .map(|(line_number, line)| {
                     line.map(|line| {
-                        let command = parse_line(&parser, &line);
+                        let command = parse_line(&parser, &line, config.adapter.is_none());
                         (line_number + 1, line, command)
                     })
                 })
                 .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
-
-            // TODO dirty hack for when the last line in a file is a function call or breakpoint
-            lines.push((lines.len() + 1, "".to_string(), Line::Empty));
             Ok((name, lines))
         })
         .collect()
@@ -154,11 +183,11 @@ async fn expand_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
-    shadow: bool,
+    config: &Config<'_>,
 ) -> io::Result<()> {
     try_join!(
-        expand_global_templates(engine, function_contents, &output_path),
-        expand_function_specific_templates(engine, function_contents, &output_path, shadow),
+        expand_global_templates(engine, function_contents, &output_path, config),
+        expand_function_specific_templates(engine, function_contents, &output_path, config),
     )?;
     Ok(())
 }
@@ -175,6 +204,7 @@ async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
+    config: &Config<'_>,
 ) -> io::Result<()> {
     let output_path = output_path.as_ref();
 
@@ -205,7 +235,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/on_session_exit.mcfunction"),
         expand!("data/-ns-/functions/reset_skipped.mcfunction"),
         expand!("data/-ns-/functions/resume_immediately.mcfunction"),
-        expand_resume_self_template(&engine, function_contents, &output_path),
+        expand_resume_self_template(&engine, function_contents, &output_path, config),
         expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
         expand_schedule_template(&engine, function_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
@@ -234,8 +264,9 @@ async fn expand_resume_self_template(
     engine: &TemplateEngine<'_>,
     function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
+    config: &Config<'_>,
 ) -> io::Result<()> {
-    let resume_cases = function_contents
+    let mut breakpoints = function_contents
         .iter()
         .flat_map(|(name, lines)| {
             repeat(name).zip(
@@ -245,17 +276,31 @@ async fn expand_resume_self_template(
                     .map(|it| it.0),
             )
         })
+        .collect::<Vec<_>>();
+
+    if let Some(config) = config.adapter.as_ref() {
+        // See https://github.com/havarnov/multimap/pull/38
+        breakpoints.extend(
+            config
+                .breakpoints
+                .iter_all()
+                .flat_map(|(k, v)| v.iter().map(move |&e| (k, e)))
+                .map(|it| (it.0, it.1)),
+        );
+    }
+
+    let resume_cases = breakpoints
+        .into_iter()
         .map(|(name, line_number)| {
             engine.expand(&format!(
                 "execute \
                 if entity @s[tag=-ns-+{original_namespace}+{original_function_tag}+{line_number}] \
                 run function -ns-:{original_namespace}/{original_function}/\
-                {line_number_1}_continue_current_iteration",
+                continue_current_iteration_at_{line_number}_breakpoint",
                 original_namespace = name.namespace(),
                 original_function = name.path(),
                 original_function_tag = name.path().replace("/", "+"),
                 line_number = line_number,
-                line_number_1 = line_number + 1
             ))
         })
         .collect::<Vec<_>>()
@@ -394,12 +439,12 @@ async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
-    shadow: bool,
+    config: &Config<'_>,
 ) -> io::Result<()> {
     let call_tree = create_call_tree(&function_contents);
 
     try_join_all(function_contents.iter().map(|(fn_name, lines)| {
-        expand_function_templates(&engine, fn_name, lines, &call_tree, &output_path, shadow)
+        expand_function_templates(&engine, fn_name, lines, &call_tree, &output_path, config)
     }))
     .await?;
 
@@ -431,7 +476,7 @@ async fn expand_function_templates(
     lines: &Vec<(usize, String, Line)>,
     call_tree: &MultiMap<&ResourceLocation, (&ResourceLocation, &usize)>,
     output_path: impl AsRef<Path>,
-    shadow: bool,
+    config: &Config<'_>,
 ) -> io::Result<()> {
     let engine = engine.extend_orig_name(fn_name);
 
@@ -439,19 +484,15 @@ async fn expand_function_templates(
     let fn_dir = output_path.join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
     create_dir_all(&fn_dir).await?;
 
-    let mut start_line = 1;
-    for partition in lines.split_inclusive(|(_, _, command)| {
-        matches!(*command, Line::Breakpoint | Line::FunctionCall { .. })
-    }) {
-        let first = start_line == 1;
-        let end_line = start_line + partition.len();
-        let last = end_line == lines.len() + 1;
+    let partitions = partition(fn_name, lines, config);
 
-        let line_number = start_line.to_string();
-        let line_numbers = format!("{}-{}", start_line, end_line - 1);
+    let mut first = true;
+    for partition in partitions {
+        let position = partition.start.to_string();
+        let positions = format!("{}-{}", partition.start, partition.end);
         let engine = engine.extend([
-            ("-line_number-", line_number.as_str()),
-            ("-line_numbers-", line_numbers.as_str()),
+            ("-position-", position.as_str()),
+            ("-positions-", positions.as_str()),
         ]);
         macro_rules! expand {
             ($p:literal) => {
@@ -459,40 +500,86 @@ async fn expand_function_templates(
             };
         }
 
-        start_line = end_line;
-
         if first {
             expand!("data/-ns-/functions/-orig_ns-/-orig/fn-/next_iteration_or_return.mcfunction")
                 .await?;
+            first = false;
         } else {
             expand!(
-                "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue_current_iteration.mcfunction"
+                "data/-ns-/functions/-orig_ns-/-orig/fn-/continue_current_iteration_at_-position-.mcfunction"
             )
             .await?;
         }
 
-        // -line_number-_continue.mcfunction
+        // continue_at_-position-.mcfunction
         #[rustfmt::skip]
-        macro_rules! PATH { () => {"data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue.mcfunction"} }
+        macro_rules! PATH { () => {"data/-ns-/functions/-orig_ns-/-orig/fn-/continue_at_-position-.mcfunction"} }
         let path = output_path.join(engine.expand(PATH!()));
         let mut template = include_template!(PATH!()).to_string();
-        if last {
+        if matches!(partition.terminator, Terminator::Return) {
             template.push_str(include_template!(
-                "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_number-_continue_last.mcfunction"
+                "data/-ns-/functions/-orig_ns-/-orig/fn-/continue_at_-position-_last.mcfunction"
             ));
         }
         write(&path, &engine.expand(&template)).await?;
 
-        // -line_numbers-.mcfunction
-        let content = partition
+        // -positions-.mcfunction
+        let mut content = partition
+            .regular_lines
             .iter()
             .map(|line| engine.expand_line(line))
             .collect::<Vec<_>>()
             .join("\n");
+
+        let terminator = match partition.terminator {
+            Terminator::Breakpoint => {
+                let line_number = (partition.end.line_number).to_string();
+                let engine = engine.extend([("-line_number-", line_number.as_str())]);
+                let template =
+                    include_template!("data/template/functions/set_breakpoint.mcfunction");
+                engine.expand(&template)
+            }
+            Terminator::FunctionCall {
+                line,
+                name,
+                anchor,
+                selectors,
+            } => {
+                let line_number = (partition.end.line_number).to_string();
+                let line = exclude_internal_entites_from_selectors(line, selectors);
+                let function_call = format!("function {}", name);
+                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
+                let debug_anchor = anchor.map_or("".to_string(), |anchor| {
+                    let mut anchor_score = 0;
+                    if anchor == MinecraftEntityAnchor::EYES {
+                        anchor_score = 1;
+                    }
+                    format!(
+                        "execute if score -orig_ns-:-orig/fn- -ns-_valid matches 1 run \
+                            scoreboard players set current -ns-_anchor {anchor_score}",
+                        anchor_score = anchor_score
+                    )
+                });
+                let engine = engine.extend([
+                    ("-line_number-", line_number.as_str()),
+                    ("-call_ns-", name.namespace()),
+                    ("-call/fn-", name.path()),
+                    ("execute run ", execute),
+                    ("# -debug_anchor-", &debug_anchor),
+                ]);
+                let template =
+                    include_template!("data/template/functions/call_function.mcfunction");
+                engine.expand(&template)
+            }
+            Terminator::Return => String::new(),
+        };
+        content.push('\n');
+        content.push_str(&terminator);
+
         expand_template!(
             engine.extend([("# -content-", content.as_str())]),
             output_path,
-            "data/-ns-/functions/-orig_ns-/-orig/fn-/-line_numbers-.mcfunction"
+            "data/-ns-/functions/-orig_ns-/-orig/fn-/-positions-.mcfunction"
         )
         .await?;
     }
@@ -515,7 +602,7 @@ async fn expand_function_templates(
         expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
     )?;
 
-    if shadow {
+    if config.shadow {
         create_parent_dir(output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")))
             .await?;
         expand!("data/-orig_ns-/functions/-orig/fn-.mcfunction").await?;
@@ -528,13 +615,12 @@ async fn expand_function_templates(
                 engine.expand(&format!(
                     "execute if entity \
                     @s[tag=-ns-+{caller_namespace}+{caller_function_tag}+{line_number}] run \
-                    function -ns-:{caller_namespace}/{caller_function}/{line_number_1}\
-                    _continue_current_iteration",
+                    function -ns-:{caller_namespace}/{caller_function}/\
+                    continue_current_iteration_at_{line_number}_function",
                     caller_namespace = caller.namespace(),
                     caller_function = caller.path(),
                     caller_function_tag = caller.path().replace("/", "+"),
-                    line_number = line_number,
-                    line_number_1 = *line_number + 1,
+                    line_number = line_number
                 ))
             })
             .collect::<Vec<_>>();
@@ -570,6 +656,121 @@ async fn expand_function_templates(
     .await?;
 
     Ok(())
+}
+
+struct Partition<'l> {
+    start: Position,
+    end: Position,
+    regular_lines: &'l [(usize, String, Line)],
+    terminator: Terminator<'l>,
+}
+#[derive(Clone, Copy)]
+struct Position {
+    line_number: usize,
+    position_in_line: PositionInLine,
+}
+impl Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}_{}", self.line_number, self.position_in_line)
+    }
+}
+#[derive(Clone, Copy)]
+enum PositionInLine {
+    Entry,
+    Breakpoint,
+    Function,
+    Return,
+}
+impl Display for PositionInLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PositionInLine::Entry => write!(f, "entry"),
+            PositionInLine::Breakpoint => write!(f, "breakpoint"),
+            PositionInLine::Function => write!(f, "function"),
+            PositionInLine::Return => write!(f, "return"),
+        }
+    }
+}
+enum Terminator<'l> {
+    Breakpoint,
+    FunctionCall {
+        line: &'l str,
+        name: &'l ResourceLocation,
+        anchor: &'l Option<MinecraftEntityAnchor>,
+        selectors: &'l BTreeSet<usize>,
+    },
+    Return,
+}
+impl Terminator<'_> {
+    fn get_position_in_line(&self) -> PositionInLine {
+        match self {
+            Terminator::Breakpoint => PositionInLine::Breakpoint,
+            Terminator::FunctionCall { .. } => PositionInLine::Function,
+            Terminator::Return => PositionInLine::Return,
+        }
+    }
+}
+
+fn partition<'l>(
+    fn_name: &ResourceLocation,
+    lines: &'l [(usize, String, Line)],
+    config: &Config,
+) -> Vec<Partition<'l>> {
+    let mut partitions = Vec::new();
+    let mut start_line_index = 0;
+    let mut start = Position {
+        line_number: 0,
+        position_in_line: PositionInLine::Entry,
+    };
+    // TODO: Can we remove line_number from the triple?
+    for (line_index, (_line_number, line, command)) in lines.iter().enumerate() {
+        let line_number = line_index + 1;
+        let mut next_partition = |terminator: Terminator<'l>| {
+            let end = Position {
+                line_number,
+                position_in_line: terminator.get_position_in_line(),
+            };
+            let partition = Partition {
+                start,
+                end,
+                regular_lines: &lines[start_line_index..line_index],
+                terminator,
+            };
+            start = end;
+            start_line_index = line_index;
+            partition
+        };
+        if config.is_breakpoint(fn_name, line_number) | matches!(command, Line::Breakpoint) {
+            partitions.push(next_partition(Terminator::Breakpoint));
+        }
+        if let Line::FunctionCall {
+            name,
+            anchor,
+            selectors,
+            ..
+        } = command
+        {
+            partitions.push(next_partition(Terminator::FunctionCall {
+                line,
+                name,
+                anchor,
+                selectors,
+            }));
+        }
+        if matches!(command, Line::Breakpoint | Line::FunctionCall { .. }) {
+            start_line_index += 1; // Skip the line containing the breakpoint / function call
+        }
+    }
+    partitions.push(Partition {
+        start,
+        end: Position {
+            line_number: lines.len(),
+            position_in_line: PositionInLine::Return,
+        },
+        regular_lines: &lines[start_line_index..lines.len()],
+        terminator: Terminator::Return,
+    });
+    partitions
 }
 
 async fn create_parent_dir(path: impl AsRef<Path>) -> io::Result<()> {

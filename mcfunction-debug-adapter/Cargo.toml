@@ -24,7 +24,7 @@ tokio = { version = "1", features = [
   "rt-multi-thread",
   "time",
 ] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["io-util"] }
 uuid = { version = "0.8", features = ["v4"] }
 
 [build-dependencies]

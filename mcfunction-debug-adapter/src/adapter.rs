@@ -27,7 +27,7 @@ use debug_adapter_protocol::{
     },
     requests::{
         ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
-        LaunchRequestArguments, PauseRequestArguments, Request, ScopesRequestArguments,
+        LaunchRequestArguments, PathFormat, PauseRequestArguments, Request, ScopesRequestArguments,
         SetBreakpointsRequestArguments, StackTraceRequestArguments, TerminateRequestArguments,
     },
     responses::{
@@ -44,7 +44,12 @@ use futures::{
 use log::{info, trace};
 use mcfunction_debug_adapter::{get_command, read_msg, MessageWriter};
 use mcfunction_debugger::{
-    generate_debug_datapack, parser::command::resource_location::ResourceLocation,
+    generate_debug_datapack,
+    parser::{
+        command::{resource_location::ResourceLocation, CommandParser},
+        parse_line, Line,
+    },
+    AdapterConfig, Config, McfunctionBreakpoint,
 };
 use minect::{
     log_observer::LogEvent, LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder,
@@ -55,8 +60,11 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
 };
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::{
+    fs::File,
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+};
+use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
 
 const ADAPTER_LISTENER_NAME: &'static str = "mcfunction_debugger";
 
@@ -67,7 +75,20 @@ enum Message {
 }
 
 struct ClientSession {
+    lines_start_at_1: bool,
+    path_format: PathFormat,
     minecraft_session: Option<MinecraftSession>,
+    breakpoints: Vec<McfunctionBreakpoint>,
+    parser: CommandParser,
+}
+impl ClientSession {
+    fn get_line_offset(&self) -> i32 {
+        if self.lines_start_at_1 {
+            0
+        } else {
+            1
+        }
+    }
 }
 
 struct MinecraftSession {
@@ -188,26 +209,10 @@ where
                     scopes: Vec::new(),
                 }))
             }
-            Request::SetBreakpoints(SetBreakpointsRequestArguments { breakpoints, .. }) => {
-                let breakpoints = breakpoints
-                    .iter()
-                    .map(|breakpoint| Breakpoint {
-                        id: Some(0),
-                        verified: true,
-                        message: Some("Hello".to_string()),
-                        source: None,
-                        line: Some(breakpoint.line + 1),
-                        column: None,
-                        end_line: None,
-                        end_column: None,
-                        instruction_reference: None,
-                        offset: None,
-                    })
-                    .collect();
-                Ok(SuccessResponse::SetBreakpoints(
-                    SetBreakpointsResponseBody { breakpoints },
-                ))
-            }
+            Request::SetBreakpoints(args) => self
+                .set_breakpoints(args)
+                .await
+                .map(SuccessResponse::SetBreakpoints),
             Request::StackTrace(args) => self
                 .stack_trace(args)
                 .await
@@ -302,10 +307,16 @@ where
 
     async fn initialize(
         &mut self,
-        _arguments: InitializeRequestArguments,
+        arguments: InitializeRequestArguments,
     ) -> Result<Capabilities, DapError> {
+        let parser = CommandParser::default()
+            .map_err(|e| DapError::Terminate(io::Error::new(io::ErrorKind::InvalidData, e)))?;
         self.client_session = Some(ClientSession {
+            lines_start_at_1: arguments.lines_start_at_1,
+            path_format: arguments.path_format,
             minecraft_session: None,
+            breakpoints: Vec::new(),
+            parser,
         });
 
         self.writer
@@ -374,18 +385,8 @@ where
 
         let program = Self::get_path(&args, "program")?;
 
-        let datapack = Self::find_parent_datapack(program).ok_or_else(|| {
-            PartialErrorResponse::new(format!(
-                "Attribute 'program' \
-                does not denote a path in a datapack directory with a pack.mcmeta file: {}",
-                program.display()
-            ))
-        })?;
-        let datapack = datapack.to_path_buf();
-
-        let data_path = program.strip_prefix(datapack.join("data")).unwrap();
-
-        let function = Self::get_function_name(data_path, program)?;
+        let (datapack, function) = parse_function_path(program)
+            .map_err(|e| PartialErrorResponse::new(format!("Attribute 'program' {}", e)))?;
 
         let datapack_name = datapack
             .file_name()
@@ -408,17 +409,24 @@ where
 
         let namespace = "mcfd".to_string();
 
-        generate_debug_datapack(
-            &datapack,
-            output_path,
-            &namespace,
-            false,
-            Some(ADAPTER_LISTENER_NAME),
-        )
-        .await
-        .map_err(|e| {
-            PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e))
-        })?;
+        let breakpoints = client_session
+            .breakpoints
+            .iter()
+            .map(|breakpoint| (&breakpoint.function, breakpoint.line_number))
+            .collect();
+        let config = Config {
+            namespace: &namespace,
+            shadow: false,
+            adapter: Some(AdapterConfig {
+                adapter_listener_name: ADAPTER_LISTENER_NAME,
+                breakpoints: &breakpoints,
+            }),
+        };
+        generate_debug_datapack(&datapack, output_path, &config)
+            .await
+            .map_err(|e| {
+                PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e))
+            })?;
 
         // if connection in filesystem exists {
         // ping
@@ -484,45 +492,80 @@ where
         let value = Path::new(value);
         Ok(value)
     }
-    fn find_parent_datapack(mut path: &Path) -> Option<&Path> {
-        while let Some(p) = path.parent() {
-            path = p;
-            let pack_mcmeta_path = path.join("pack.mcmeta");
-            if pack_mcmeta_path.is_file() {
-                return Some(path);
+
+    async fn set_breakpoints(
+        &mut self,
+        args: SetBreakpointsRequestArguments,
+    ) -> Result<SetBreakpointsResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+
+        let offset = client_session.get_line_offset();
+        let path = match client_session.path_format {
+            PathFormat::Path => args.source.path.as_ref().ok_or_else(|| {
+                PartialErrorResponse::new("Missing argument source.path".to_string())
+            })?,
+            PathFormat::URI => todo!("Implement path URIs"),
+        };
+        let (_datapack, function) = parse_function_path(path)
+            .map_err(|e| PartialErrorResponse::new(format!("Argument source.path {}", e)))?;
+
+        let breakpoints = args
+            .breakpoints
+            .iter()
+            .map(|source_breakpoint| McfunctionBreakpoint {
+                function: function.clone(),
+                line_number: (source_breakpoint.line + offset) as usize,
+            })
+            .collect::<Vec<_>>();
+
+        let mut response = Vec::new();
+        client_session.breakpoints.reserve(breakpoints.len());
+        let mut id = client_session.breakpoints.len() as i32;
+        for breakpoint in breakpoints {
+            let verified =
+                Self::verify_breakpoint(&client_session.parser, path, breakpoint.line_number)
+                    .await
+                    .map_err(|e| {
+                        PartialErrorResponse::new(format!(
+                            "Failed to validate breakpoint {}: {}",
+                            breakpoint, e
+                        ))
+                    })?;
+            response.push(Breakpoint {
+                id: verified.then(|| id),
+                verified,
+                message: None,
+                source: None,
+                line: Some(breakpoint.line_number as i32 - offset),
+                column: None,
+                end_line: None,
+                end_column: None,
+                instruction_reference: None,
+                offset: None,
+            });
+            if verified {
+                client_session.breakpoints.push(breakpoint);
+                id += 1;
             }
         }
-        None
+        Ok(SetBreakpointsResponseBody {
+            breakpoints: response,
+        })
     }
-    fn get_function_name(
-        data_path: &Path,
-        program: &Path,
-    ) -> Result<ResourceLocation, PartialErrorResponse> {
-        let namespace = data_path
-            .iter()
-            .next()
-            .ok_or_else(|| {
-                PartialErrorResponse::new(format!(
-                    "Attribute 'program' contains an invalid path: {}",
-                    program.display()
-                ))
-            })?
-            .to_str()
-            .unwrap() // Path is known to be UTF-8
-            ;
-        let fn_path = data_path
-            .strip_prefix(Path::new(namespace).join("functions"))
-            .map_err(|_| {
-                PartialErrorResponse::new(format!(
-                    "Attribute 'program' contains an invalid path: {}",
-                    program.display()
-                ))
-            })?
-            .with_extension("")
-            .to_str()
-            .unwrap() // Path is known to be UTF-8
-            .replace(std::path::MAIN_SEPARATOR, "/");
-        Ok(ResourceLocation::new(&namespace, &fn_path))
+    async fn verify_breakpoint(
+        parser: &CommandParser,
+        path: impl AsRef<Path>,
+        line_number: usize,
+    ) -> io::Result<bool> {
+        let file = File::open(path).await?;
+        let lines = BufReader::new(file).lines();
+        if let Some(result) = LinesStream::new(lines).skip(line_number - 1).next().await {
+            let line = result?;
+            let line = parse_line(parser, &line, false);
+            return Ok(!matches!(line, Line::Empty | Line::Comment));
+        } else {
+            Ok(false)
+        }
     }
 
     async fn stack_trace(
@@ -700,6 +743,56 @@ where
         mc_session.inject_commands(vec!["function debug:stop".to_string()])?;
         Ok(())
     }
+}
+
+fn parse_function_path(path: impl AsRef<Path>) -> Result<(PathBuf, ResourceLocation), String> {
+    let datapack = find_parent_datapack(path.as_ref()).ok_or_else(|| {
+        format!(
+            "does not denote a path in a datapack directory with a pack.mcmeta file: {}",
+            &path.as_ref().display()
+        )
+    })?;
+    let data_path = path.as_ref().strip_prefix(datapack.join("data")).unwrap();
+    let function = get_function_name(data_path, &path)?;
+    Ok((datapack.to_path_buf(), function))
+}
+
+fn find_parent_datapack(mut path: &Path) -> Option<&Path> {
+    while let Some(p) = path.parent() {
+        path = p;
+        let pack_mcmeta_path = path.join("pack.mcmeta");
+        if pack_mcmeta_path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn get_function_name(
+    data_path: impl AsRef<Path>,
+    path: impl AsRef<Path>,
+) -> Result<ResourceLocation, String> {
+    let namespace = data_path.as_ref()
+        .iter()
+        .next()
+        .ok_or_else(|| {
+            format!(
+                "contains an invalid path: {}",
+                path.as_ref().display()
+            )
+        })?
+        .to_str()
+        .unwrap() // Path is known to be UTF-8
+        ;
+    let fn_path = data_path
+        .as_ref()
+        .strip_prefix(Path::new(namespace).join("functions"))
+        .map_err(|_| format!("contains an invalid path: {}", path.as_ref().display()))?
+        .with_extension("")
+        .to_str()
+        .unwrap() // Path is known to be UTF-8
+        .replace(std::path::MAIN_SEPARATOR, "/");
+    Ok(ResourceLocation::new(&namespace, &fn_path))
 }
 
 fn events_between_tags(

@@ -16,10 +16,7 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use crate::parser::{
-    command::{argument::MinecraftEntityAnchor, resource_location::ResourceLocationRef},
-    Line, ScheduleOperation,
-};
+use crate::parser::{command::resource_location::ResourceLocationRef, Line, ScheduleOperation};
 use minect::LoggedCommand;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -111,44 +108,13 @@ impl<'l> TemplateEngine<'l> {
         result
     }
 
-    pub fn expand_line(&self, (line_number, line, command): &(usize, String, Line)) -> String {
+    pub fn expand_line(&self, (_line_number, line, command): &(usize, String, Line)) -> String {
         match command {
             Line::Breakpoint => {
-                let template =
-                    include_template!("data/template/functions/set_breakpoint.mcfunction");
-                let template = template.replace("-line_number-", &line_number.to_string());
-                self.expand(&template)
+                unreachable!()
             }
-            Line::FunctionCall {
-                name,
-                anchor,
-                selectors,
-                ..
-            } => {
-                let line = exclude_internal_entites_from_selectors(line, selectors);
-                let function_call = format!("function {}", name);
-                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
-                let debug_anchor = anchor.map_or("".to_string(), |anchor| {
-                    let mut anchor_score = 0;
-                    if anchor == MinecraftEntityAnchor::EYES {
-                        anchor_score = 1;
-                    }
-                    format!(
-                        "execute if score -orig_ns-:-orig/fn- -ns-_valid matches 1 run \
-                        scoreboard players set current -ns-_anchor {anchor_score}",
-                        anchor_score = anchor_score
-                    )
-                });
-                let template =
-                    include_template!("data/template/functions/call_function.mcfunction");
-                let template = template
-                    .replace("-call_ns-", name.namespace())
-                    .replace("-call/fn-", name.path())
-                    .replace("-line_number-", &line_number.to_string())
-                    .replace("-line_number_1-", &(line_number + 1).to_string())
-                    .replace("execute run ", execute)
-                    .replace("# -debug_anchor-", &debug_anchor);
-                self.expand(&template)
+            Line::FunctionCall { .. } => {
+                unreachable!()
             }
             Line::OptionalSelectorCommand {
                 missing_selector,
@@ -220,7 +186,7 @@ impl<'l> TemplateEngine<'l> {
     }
 }
 
-fn exclude_internal_entites_from_selectors(line: &str, selectors: &BTreeSet<usize>) -> String {
+pub fn exclude_internal_entites_from_selectors(line: &str, selectors: &BTreeSet<usize>) -> String {
     let mut index = 0;
     let mut result = String::new();
     for selector in selectors {

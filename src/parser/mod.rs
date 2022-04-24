@@ -76,10 +76,10 @@ pub enum ScheduleOperation {
     REPLACE { time: MinecraftTime },
 }
 
-pub fn parse_line(parser: &CommandParser, line: &str) -> Line {
-    let (line, error) = parse_line_internal(parser, line);
+pub fn parse_line(parser: &CommandParser, line: &str, breakpoint_comments: bool) -> Line {
+    let (line, error) = parse_line_internal(parser, line, breakpoint_comments);
     if let Some(error) = error {
-        debug!("Failed to parse command. {}", error);
+        debug!("Failed to parse command: {}", error);
     }
     line
 }
@@ -87,10 +87,11 @@ pub fn parse_line(parser: &CommandParser, line: &str) -> Line {
 fn parse_line_internal<'l>(
     parser: &'l CommandParser,
     line: &'l str,
+    breakpoint_comments: bool,
 ) -> (Line, Option<CommandParserError<'l>>) {
     let line = line.trim();
     if line.starts_with('#') {
-        if line == "# breakpoint" {
+        if breakpoint_comments && line == "# breakpoint" {
             (Line::Breakpoint, None)
         } else {
             (Line::Comment, None)
