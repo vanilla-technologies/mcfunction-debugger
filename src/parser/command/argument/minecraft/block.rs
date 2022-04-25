@@ -24,13 +24,13 @@ use crate::parser::command::{
     resource_location::ResourceLocationRef,
 };
 use ::nbt::Map;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinecraftBlockPredicate<'l> {
     tag: bool,
     block: ResourceLocationRef<&'l str>,
-    properties: HashMap<&'l str, &'l str>,
+    properties: BTreeMap<&'l str, &'l str>,
     nbt: CompoundNbt,
 }
 
@@ -62,8 +62,8 @@ impl<'l> MinecraftBlockPredicate<'l> {
     }
 }
 
-fn parse_properties(string: &str) -> Result<(HashMap<&str, &str>, usize), String> {
-    let mut properties = HashMap::new();
+fn parse_properties(string: &str) -> Result<(BTreeMap<&str, &str>, usize), String> {
+    let mut properties = BTreeMap::new();
     let mut suffix = string;
     if let Some(s) = string.strip_prefix('[') {
         suffix = s.trim_start();

@@ -21,7 +21,7 @@ pub mod resource_location;
 
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fmt::{Display, Write},
     u32, usize,
 };
@@ -29,7 +29,7 @@ use std::{
 use self::argument::{Argument, ArgumentParser};
 
 pub struct CommandParser {
-    specs: HashMap<String, CommandSpec>,
+    specs: BTreeMap<String, CommandSpec>,
 }
 
 impl CommandParser {
@@ -53,7 +53,7 @@ impl CommandParser {
         &'l self,
         command: &'l str,
         index: usize,
-        specs: &'l HashMap<String, CommandSpec>,
+        specs: &'l BTreeMap<String, CommandSpec>,
     ) -> CommandParserResult<'l> {
         let parsed = Self::find_relevant_commands(command, index, specs)
             .into_iter()
@@ -88,7 +88,7 @@ impl CommandParser {
     fn find_relevant_commands<'l>(
         command: &'l str,
         index: usize,
-        specs: &'l HashMap<String, CommandSpec>,
+        specs: &'l BTreeMap<String, CommandSpec>,
     ) -> Vec<(&'l String, &'l CommandSpec)> {
         let string = &command[index..];
         let literal_len = string.find(' ').unwrap_or(string.len());
@@ -105,7 +105,7 @@ impl CommandParser {
 
     fn find_literal_command<'l>(
         literal: &str,
-        specs: &'l HashMap<String, CommandSpec>,
+        specs: &'l BTreeMap<String, CommandSpec>,
     ) -> Option<(&'l String, &'l CommandSpec)> {
         specs
             .iter()
@@ -243,7 +243,7 @@ impl ParsedNode<'_> {
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "type", rename = "root")]
 struct RootNode {
-    children: HashMap<String, CommandSpec>,
+    children: BTreeMap<String, CommandSpec>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -296,7 +296,7 @@ impl CommandSpec {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Node {
     #[serde(default)]
-    pub children: HashMap<String, CommandSpec>,
+    pub children: BTreeMap<String, CommandSpec>,
     #[serde(default)]
     pub executable: bool,
     #[serde(default)]
@@ -308,7 +308,7 @@ impl CommandSpec {
         !self.children().is_empty()
     }
 
-    pub fn children(&self) -> &HashMap<String, CommandSpec> {
+    pub fn children(&self) -> &BTreeMap<String, CommandSpec> {
         match self {
             CommandSpec::Literal { node, .. } => &node.children,
             CommandSpec::Argument { node, .. } => &node.children,
@@ -356,7 +356,7 @@ mod tests {
     fn test_serialize() {
         // when:
         let root = RootNode {
-            children: HashMap::new(),
+            children: BTreeMap::new(),
         };
 
         let actual = serde_json::to_string(&root).unwrap();

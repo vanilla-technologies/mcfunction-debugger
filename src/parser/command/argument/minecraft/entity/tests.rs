@@ -47,7 +47,7 @@ fn test_scores_no_comma() {
 
     // then:
     let mut expected = MinecraftSelector::new(MinecraftSelectorType::E);
-    expected.scores = HashMap::from_iter([
+    expected.scores = BTreeMap::from_iter([
         (
             "a",
             MinecraftRange {
@@ -76,7 +76,7 @@ fn test_advancements_no_comma() {
 
     // then:
     let mut expected = MinecraftSelector::new(MinecraftSelectorType::E);
-    expected.advancements = HashMap::from_iter([
+    expected.advancements = BTreeMap::from_iter([
         (
             ResourceLocationRef::try_from("minecraft:a").unwrap(),
             MinecraftAdvancementProgress::AdvancementProgress(true),
@@ -99,9 +99,9 @@ fn test_advancement_criteria_no_comma() {
 
     // then:
     let mut expected = MinecraftSelector::new(MinecraftSelectorType::E);
-    expected.advancements = HashMap::from_iter([(
+    expected.advancements = BTreeMap::from_iter([(
         ResourceLocationRef::try_from("minecraft:a").unwrap(),
-        MinecraftAdvancementProgress::CriterionProgress(HashMap::from_iter([
+        MinecraftAdvancementProgress::CriterionProgress(BTreeMap::from_iter([
             ("b", true),
             ("c", false),
         ])),

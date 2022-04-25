@@ -31,7 +31,7 @@ use futures::{future::try_join_all, FutureExt};
 use multimap::MultiMap;
 use parser::command::{resource_location::ResourceLocation, CommandParser};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fs::File,
     io::{self, BufRead},
@@ -62,7 +62,7 @@ pub async fn generate_debug_datapack(
         .and_then(OsStr::to_str)
         .unwrap_or_default();
     let engine = TemplateEngine::new(
-        HashMap::from_iter([("-ns-", namespace), ("-datapack-", output_name)]),
+        BTreeMap::from_iter([("-ns-", namespace), ("-datapack-", output_name)]),
         adapter_listener_name,
     );
     expand_templates(&engine, &function_contents, &output_path, shadow).await
@@ -70,7 +70,7 @@ pub async fn generate_debug_datapack(
 
 async fn find_function_files(
     datapack_path: impl AsRef<Path>,
-) -> Result<HashMap<ResourceLocation, PathBuf>, io::Error> {
+) -> Result<BTreeMap<ResourceLocation, PathBuf>, io::Error> {
     let data_path = datapack_path.as_ref().join("data");
     let threads = data_path
         .read_dir()?
@@ -82,7 +82,7 @@ async fn find_function_files(
         .await?
         .into_iter()
         .flat_map(|it| it)
-        .collect::<HashMap<ResourceLocation, PathBuf>>())
+        .collect::<BTreeMap<ResourceLocation, PathBuf>>())
 }
 
 fn get_functions(
@@ -123,7 +123,7 @@ fn get_functions(
 }
 
 async fn parse_functions(
-    functions: &HashMap<ResourceLocation, PathBuf>,
+    functions: &BTreeMap<ResourceLocation, PathBuf>,
 ) -> Result<BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>, io::Error> {
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;

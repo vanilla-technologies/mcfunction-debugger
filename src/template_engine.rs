@@ -22,24 +22,24 @@ use crate::parser::{
 };
 use minect::LoggedCommand;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     iter::FromIterator,
 };
 
 pub struct TemplateEngine<'l> {
-    replacements: HashMap<&'l str, &'l str>,
-    replacements_owned: HashMap<&'l str, String>,
+    replacements: BTreeMap<&'l str, &'l str>,
+    replacements_owned: BTreeMap<&'l str, String>,
     adapter_listener_name: Option<&'l str>,
 }
 
 impl<'l> TemplateEngine<'l> {
     pub fn new(
-        replacements: HashMap<&'l str, &'l str>,
+        replacements: BTreeMap<&'l str, &'l str>,
         adapter_listener_name: Option<&'l str>,
     ) -> TemplateEngine<'l> {
         TemplateEngine {
             replacements,
-            replacements_owned: HashMap::new(),
+            replacements_owned: BTreeMap::new(),
             adapter_listener_name,
         }
     }
@@ -48,7 +48,7 @@ impl<'l> TemplateEngine<'l> {
         &self,
         iter: T,
     ) -> TemplateEngine<'l> {
-        let mut replacements = HashMap::from_iter(iter);
+        let mut replacements = BTreeMap::from_iter(iter);
         replacements.extend(self.replacements.iter());
         TemplateEngine {
             replacements,

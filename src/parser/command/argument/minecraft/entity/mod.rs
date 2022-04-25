@@ -30,7 +30,7 @@ use crate::{
     utils::Map0,
 };
 use log::warn;
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::BTreeMap, fmt::Display};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MinecraftEntity<'l> {
@@ -97,8 +97,8 @@ pub struct MinecraftSelector<'l> {
     entity_type: Option<EntityType<'l>>,
     tags: Vec<InvertableString<'l>>,
     nbts: Vec<InvertableCompoundNbt>,
-    scores: HashMap<&'l str, MinecraftRange<i32>>,
-    advancements: HashMap<ResourceLocationRef<&'l str>, MinecraftAdvancementProgress<'l>>,
+    scores: BTreeMap<&'l str, MinecraftRange<i32>>,
+    advancements: BTreeMap<ResourceLocationRef<&'l str>, MinecraftAdvancementProgress<'l>>,
     predicates: Vec<InvertablePredicate<'l>>,
 }
 
@@ -161,8 +161,8 @@ impl<'l> MinecraftSelector<'l> {
             entity_type: None,
             tags: Vec::new(),
             nbts: Vec::new(),
-            scores: HashMap::new(),
-            advancements: HashMap::new(),
+            scores: BTreeMap::new(),
+            advancements: BTreeMap::new(),
             predicates: Vec::new(),
         }
     }
@@ -390,8 +390,8 @@ fn parse_prefix(string: &str, prefix: char) -> (bool, &str) {
     (suffix.is_some(), suffix.unwrap_or(string).trim_start())
 }
 
-fn parse_scores(string: &str) -> Result<(HashMap<&str, MinecraftRange<i32>>, usize), String> {
-    let mut scores = HashMap::new();
+fn parse_scores(string: &str) -> Result<(BTreeMap<&str, MinecraftRange<i32>>, usize), String> {
+    let mut scores = BTreeMap::new();
 
     let mut suffix = expect(string, '{')?.trim_start();
     while !suffix.is_empty() && !suffix.starts_with('}') {
@@ -418,12 +418,12 @@ fn parse_advancements(
     string: &str,
 ) -> Result<
     (
-        HashMap<ResourceLocationRef<&str>, MinecraftAdvancementProgress>,
+        BTreeMap<ResourceLocationRef<&str>, MinecraftAdvancementProgress>,
         usize,
     ),
     String,
 > {
-    let mut advancements = HashMap::new();
+    let mut advancements = BTreeMap::new();
 
     let mut suffix = expect(string, '{')?.trim_start();
     while !suffix.is_empty() && !suffix.starts_with('}') {
@@ -449,7 +449,7 @@ fn parse_advancements(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MinecraftAdvancementProgress<'l> {
     AdvancementProgress(bool),
-    CriterionProgress(HashMap<&'l str, bool>),
+    CriterionProgress(BTreeMap<&'l str, bool>),
 }
 
 impl<'l> MinecraftAdvancementProgress<'l> {
@@ -458,7 +458,7 @@ impl<'l> MinecraftAdvancementProgress<'l> {
         let progress = if let Some(s) = suffix.strip_prefix('{') {
             suffix = s.trim_start();
 
-            let mut criteria = HashMap::new();
+            let mut criteria = BTreeMap::new();
 
             while !suffix.is_empty() && !suffix.starts_with('}') {
                 let (criterion, len) = parse_unquoted_string(suffix);

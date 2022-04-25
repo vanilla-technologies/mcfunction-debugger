@@ -23,7 +23,7 @@ use debug_adapter_protocol::{
 };
 use log::trace;
 use serde_json::Value;
-use std::{collections::HashMap, io};
+use std::{collections::BTreeMap, io};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 const CONTENT_LENGTH: &str = "Content-Length";
@@ -43,11 +43,11 @@ where
     Ok(msg)
 }
 
-async fn read_header<I>(input: &mut I) -> io::Result<HashMap<String, String>>
+async fn read_header<I>(input: &mut I) -> io::Result<BTreeMap<String, String>>
 where
     I: AsyncBufReadExt + Unpin,
 {
-    let mut header = HashMap::new();
+    let mut header = BTreeMap::new();
     let mut line = String::new();
     loop {
         input.read_line(&mut line).await?;
@@ -69,7 +69,7 @@ where
     }
 }
 
-fn get_content_length(header: &HashMap<String, String>) -> io::Result<usize> {
+fn get_content_length(header: &BTreeMap<String, String>) -> io::Result<usize> {
     let content_length = header
         .get(CONTENT_LENGTH)
         .ok_or_else(|| invalid_data("Missing header field 'Content-Length'"))?
