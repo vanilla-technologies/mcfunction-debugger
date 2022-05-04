@@ -49,11 +49,12 @@ use mcfunction_debugger::{
         command::{resource_location::ResourceLocation, CommandParser},
         parse_line, Line,
     },
-    AdapterConfig, Config, McfunctionBreakpoint,
+    AdapterConfig, Config,
 };
 use minect::{
     log_observer::LogEvent, LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder,
 };
+use multimap::MultiMap;
 use std::{
     future::ready,
     io,
@@ -78,7 +79,7 @@ struct ClientSession {
     lines_start_at_1: bool,
     path_format: PathFormat,
     minecraft_session: Option<MinecraftSession>,
-    breakpoints: Vec<McfunctionBreakpoint>,
+    breakpoints: MultiMap<ResourceLocation, usize>,
     parser: CommandParser,
 }
 impl ClientSession {
@@ -95,6 +96,7 @@ struct MinecraftSession {
     connection: MinecraftConnection,
     datapack: PathBuf,
     namespace: String,
+    output_path: PathBuf,
 }
 impl MinecraftSession {
     fn inject_commands(&mut self, commands: Vec<String>) -> Result<(), PartialErrorResponse> {
@@ -315,7 +317,7 @@ where
             lines_start_at_1: arguments.lines_start_at_1,
             path_format: arguments.path_format,
             minecraft_session: None,
-            breakpoints: Vec::new(),
+            breakpoints: MultiMap::new(),
             parser,
         });
 
@@ -402,32 +404,6 @@ where
         let minecraft_world_dir = Self::get_path(&args, "minecraftWorldDir")?;
         let minecraft_log_file = Self::get_path(&args, "minecraftLogFile")?;
 
-        let output_path = minecraft_world_dir
-            .join("datapacks")
-            .join(format!("debug-{}", datapack_name));
-        info!("output_path={}", output_path.display());
-
-        let namespace = "mcfd".to_string();
-
-        let breakpoints = client_session
-            .breakpoints
-            .iter()
-            .map(|breakpoint| (&breakpoint.function, breakpoint.line_number))
-            .collect();
-        let config = Config {
-            namespace: &namespace,
-            shadow: false,
-            adapter: Some(AdapterConfig {
-                adapter_listener_name: ADAPTER_LISTENER_NAME,
-                breakpoints: &breakpoints,
-            }),
-        };
-        generate_debug_datapack(&datapack, output_path, &config)
-            .await
-            .map_err(|e| {
-                PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e))
-            })?;
-
         // if connection in filesystem exists {
         // ping
         // timeout -> ?
@@ -441,6 +417,21 @@ where
         let listener = connection.add_listener(ADAPTER_LISTENER_NAME);
         let stream = UnboundedReceiverStream::new(listener).map(Message::Minecraft);
         self.message_streams.push(Box::pin(stream));
+
+        let namespace = "mcfd".to_string();
+        let output_path = minecraft_world_dir
+            .join("datapacks")
+            .join(format!("debug-{}", datapack_name));
+        info!("output_path={}", output_path.display());
+
+        let mut minecraft_session = MinecraftSession {
+            connection,
+            datapack,
+            namespace,
+            output_path,
+        };
+
+        generate_datapack(&minecraft_session, &client_session.breakpoints).await?;
 
         // Install procedure
         // create_installer_datapack
@@ -457,7 +448,7 @@ where
         // }
 
         inject_commands(
-            &mut connection,
+            &mut minecraft_session.connection,
             vec![
                 // "say injecting command to start debugging".to_string(),
                 "reload".to_string(),
@@ -469,11 +460,7 @@ where
             ],
         )?;
 
-        client_session.minecraft_session = Some(MinecraftSession {
-            connection,
-            datapack,
-            namespace,
-        });
+        client_session.minecraft_session = Some(minecraft_session);
 
         Ok(())
     }
@@ -512,31 +499,28 @@ where
         let breakpoints = args
             .breakpoints
             .iter()
-            .map(|source_breakpoint| McfunctionBreakpoint {
-                function: function.clone(),
-                line_number: (source_breakpoint.line + offset) as usize,
-            })
+            .map(|source_breakpoint| (function.clone(), (source_breakpoint.line + offset) as usize))
             .collect::<Vec<_>>();
 
         let mut response = Vec::new();
-        client_session.breakpoints.reserve(breakpoints.len());
+        client_session.breakpoints.remove(&function);
+        let mut breakpoint_line_numbers = Vec::with_capacity(breakpoints.len());
         let mut id = client_session.breakpoints.len() as i32;
-        for breakpoint in breakpoints {
-            let verified =
-                Self::verify_breakpoint(&client_session.parser, path, breakpoint.line_number)
-                    .await
-                    .map_err(|e| {
-                        PartialErrorResponse::new(format!(
-                            "Failed to validate breakpoint {}: {}",
-                            breakpoint, e
-                        ))
-                    })?;
+        for (function, line_number) in breakpoints {
+            let verified = Self::verify_breakpoint(&client_session.parser, path, line_number)
+                .await
+                .map_err(|e| {
+                    PartialErrorResponse::new(format!(
+                        "Failed to validate breakpoint {}:{}: {}",
+                        function, line_number, e
+                    ))
+                })?;
             response.push(Breakpoint {
                 id: verified.then(|| id),
                 verified,
                 message: None,
                 source: None,
-                line: Some(breakpoint.line_number as i32 - offset),
+                line: Some(line_number as i32 - offset),
                 column: None,
                 end_line: None,
                 end_column: None,
@@ -544,10 +528,19 @@ where
                 offset: None,
             });
             if verified {
-                client_session.breakpoints.push(breakpoint);
+                breakpoint_line_numbers.push(line_number);
                 id += 1;
             }
         }
+        client_session
+            .breakpoints
+            .insert_many(function, breakpoint_line_numbers);
+
+        if let Some(minecraft_session) = client_session.minecraft_session.as_mut() {
+            generate_datapack(minecraft_session, &client_session.breakpoints).await?;
+            minecraft_session.inject_commands(vec!["reload".to_string()])?;
+        }
+
         Ok(SetBreakpointsResponseBody {
             breakpoints: response,
         })
@@ -793,6 +786,28 @@ fn get_function_name(
         .unwrap() // Path is known to be UTF-8
         .replace(std::path::MAIN_SEPARATOR, "/");
     Ok(ResourceLocation::new(&namespace, &fn_path))
+}
+
+async fn generate_datapack(
+    minecraft_session: &MinecraftSession,
+    breakpoints: &MultiMap<ResourceLocation, usize>,
+) -> Result<(), DapError> {
+    let config = Config {
+        namespace: &minecraft_session.namespace,
+        shadow: false,
+        adapter: Some(AdapterConfig {
+            adapter_listener_name: ADAPTER_LISTENER_NAME,
+            breakpoints,
+        }),
+    };
+    generate_debug_datapack(
+        &minecraft_session.datapack,
+        minecraft_session.output_path.clone(),
+        &config,
+    )
+    .await
+    .map_err(|e| PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e)))?;
+    Ok(())
 }
 
 fn events_between_tags(

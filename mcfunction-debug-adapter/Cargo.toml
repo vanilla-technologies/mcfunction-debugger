@@ -14,6 +14,7 @@ log = "0.4"
 log-panics = "2"
 minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 # minect = { path = "../../minect" }
+multimap = "0.8"
 serde_json = "1"
 simplelog = "0.11"
 tokio = { version = "1", features = [

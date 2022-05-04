@@ -63,16 +63,7 @@ impl Config<'_> {
 }
 pub struct AdapterConfig<'l> {
     pub adapter_listener_name: &'l str,
-    pub breakpoints: &'l MultiMap<&'l ResourceLocation, usize>,
-}
-pub struct McfunctionBreakpoint {
-    pub function: ResourceLocation,
-    pub line_number: usize,
-}
-impl Display for McfunctionBreakpoint {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.function, self.line_number)
-    }
+    pub breakpoints: &'l MultiMap<ResourceLocation, usize>,
 }
 
 /// Visible for testing only. This is a binary crate, it is not intended to be used as a library.
@@ -269,7 +260,7 @@ async fn expand_resume_self_template(
     let mut breakpoints = function_contents
         .iter()
         .flat_map(|(name, lines)| {
-            repeat(name).zip(
+            repeat(*name).zip(
                 lines
                     .iter()
                     .filter(|(_, _, command)| matches!(command, Line::Breakpoint))
