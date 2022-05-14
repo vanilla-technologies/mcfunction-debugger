@@ -96,6 +96,15 @@ impl<S: AsRef<str>> ResourceLocationRef<S> {
     }
 }
 
+impl ResourceLocation {
+    pub fn to_ref(&self) -> ResourceLocationRef<&str> {
+        ResourceLocationRef {
+            string: &self.string,
+            namespace_len: self.namespace_len,
+        }
+    }
+}
+
 impl<S: AsRef<str>> PartialEq for ResourceLocationRef<S> {
     fn eq(&self, other: &Self) -> bool {
         self.namespace() == other.namespace() && self.path() == other.path()

@@ -17,6 +17,10 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::{
+    adapter::utils::{
+        events_between_tags, generate_datapack, parse_function_path, McfunctionBreakpoint,
+        McfunctionBreakpointTag,
+    },
     error::{DapError, PartialErrorResponse},
     minecraft::{parse_added_tag_message, parse_scoreboard_value},
 };
@@ -44,12 +48,11 @@ use futures::{
 use log::{info, trace};
 use mcfunction_debug_adapter::{get_command, read_msg, MessageWriter};
 use mcfunction_debugger::{
-    generate_debug_datapack,
     parser::{
         command::{resource_location::ResourceLocation, CommandParser},
         parse_line, Line,
     },
-    AdapterConfig, Config,
+    BreakpointKind, LocalBreakpoint,
 };
 use minect::{
     log_observer::LogEvent, LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder,
@@ -67,6 +70,8 @@ use tokio::{
 };
 use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
 
+mod utils;
+
 const ADAPTER_LISTENER_NAME: &'static str = "mcfunction_debugger";
 
 #[derive(Debug)]
@@ -79,7 +84,7 @@ struct ClientSession {
     lines_start_at_1: bool,
     path_format: PathFormat,
     minecraft_session: Option<MinecraftSession>,
-    breakpoints: MultiMap<ResourceLocation, usize>,
+    breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
     parser: CommandParser,
 }
 impl ClientSession {
@@ -100,6 +105,7 @@ struct MinecraftSession {
 }
 impl MinecraftSession {
     fn inject_commands(&mut self, commands: Vec<String>) -> Result<(), PartialErrorResponse> {
+        trace!("Injecting commands:\n{}", commands.join("\n"));
         inject_commands(&mut self.connection, commands)
     }
 }
@@ -153,9 +159,10 @@ where
                     }
                 }
                 Message::Minecraft(minecraft_msg) => {
-                    info!(
+                    trace!(
                         "Received message from Minecraft by {}: {}",
-                        minecraft_msg.executor, minecraft_msg.message
+                        minecraft_msg.executor,
+                        minecraft_msg.message
                     );
                     self.handle_minecraft_message(minecraft_msg).await?;
                 }
@@ -268,23 +275,9 @@ where
         }
         Ok(())
     }
-    fn parse_stopped_tag(tag: &str) -> Option<(String, i32)> {
+    fn parse_stopped_tag(tag: &str) -> Option<McfunctionBreakpointTag<String>> {
         let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
-
-        // -ns-+-orig_ns-+-orig_fn-+-line_number-
-        if let [orig_ns, orig_fn @ .., line_number] =
-            breakpoint_tag.split('+').collect::<Vec<_>>().as_slice()
-        {
-            let path = format!(
-                "data/{}/functions/{}.mcfunction",
-                orig_ns,
-                orig_fn.join("/")
-            );
-            let line = line_number.parse::<i32>().ok()?;
-            Some((path, line))
-        } else {
-            None
-        }
+        breakpoint_tag.parse().ok()
     }
 
     fn unwrap_client_session(
@@ -503,10 +496,13 @@ where
             .collect::<Vec<_>>();
 
         let mut response = Vec::new();
-        client_session.breakpoints.remove(&function);
-        let mut breakpoint_line_numbers = Vec::with_capacity(breakpoints.len());
-        let mut id = client_session.breakpoints.len() as i32;
-        for (function, line_number) in breakpoints {
+        let old_breakpoints = client_session
+            .breakpoints
+            .remove(&function)
+            .unwrap_or_default();
+        let mut new_breakpoints = Vec::with_capacity(breakpoints.len());
+        for (i, (function, line_number)) in breakpoints.into_iter().enumerate() {
+            let id = (i + client_session.breakpoints.len()) as i32;
             let verified = Self::verify_breakpoint(&client_session.parser, path, line_number)
                 .await
                 .map_err(|e| {
@@ -515,6 +511,14 @@ where
                         function, line_number, e
                     ))
                 })?;
+            new_breakpoints.push(LocalBreakpoint {
+                line_number,
+                kind: if verified {
+                    BreakpointKind::Normal
+                } else {
+                    BreakpointKind::Invalid
+                },
+            });
             response.push(Breakpoint {
                 id: verified.then(|| id),
                 verified,
@@ -527,18 +531,26 @@ where
                 instruction_reference: None,
                 offset: None,
             });
-            if verified {
-                breakpoint_line_numbers.push(line_number);
-                id += 1;
-            }
         }
+
         client_session
             .breakpoints
-            .insert_many(function, breakpoint_line_numbers);
+            .insert_many(function.clone(), new_breakpoints);
+        // Unwrap is safe, because we just inserted the value
+        let new_breakpoints = client_session.breakpoints.get_vec(&function).unwrap();
 
         if let Some(minecraft_session) = client_session.minecraft_session.as_mut() {
             generate_datapack(minecraft_session, &client_session.breakpoints).await?;
-            minecraft_session.inject_commands(vec!["reload".to_string()])?;
+            let mut commands = vec!["reload".to_string()];
+            if args.source_modified && old_breakpoints.len() == new_breakpoints.len() {
+                commands.extend(Self::get_move_breakpoint_commands(
+                    &function,
+                    old_breakpoints.iter().map(|it| it.line_number),
+                    new_breakpoints.iter().map(|it| it.line_number),
+                    &minecraft_session.namespace,
+                ));
+            }
+            minecraft_session.inject_commands(commands)?;
         }
 
         Ok(SetBreakpointsResponseBody {
@@ -559,6 +571,47 @@ where
         } else {
             Ok(false)
         }
+    }
+    fn get_move_breakpoint_commands(
+        function: &ResourceLocation,
+        old_line_numbers: impl ExactSizeIterator<Item = usize>,
+        new_line_numbers: impl ExactSizeIterator<Item = usize>,
+        namespace: &str,
+    ) -> Vec<String> {
+        let tmp_tag = format!("{}_tmp", namespace);
+        let breakpoint_tag = format!("{}_breakpoint", namespace);
+        let mut commands = Vec::new();
+        for (old_line_number, new_line_number) in old_line_numbers.zip(new_line_numbers) {
+            if old_line_number != new_line_number {
+                let old_tag = McfunctionBreakpointTag(McfunctionBreakpoint {
+                    function: function.to_ref(),
+                    line_number: old_line_number,
+                });
+                let new_tag = McfunctionBreakpointTag(McfunctionBreakpoint {
+                    function: function.to_ref(),
+                    line_number: new_line_number,
+                });
+                let old_tag = format!("{}+{}", namespace, old_tag);
+                let new_tag = format!("{}+{}", namespace, new_tag);
+                commands.push(format!(
+                    "tag @e[tag={},tag={},tag=!{}] add {}",
+                    breakpoint_tag, old_tag, tmp_tag, new_tag,
+                ));
+                commands.push(format!(
+                    "tag @e[tag={},tag={}] add {}",
+                    breakpoint_tag, old_tag, tmp_tag
+                ));
+                commands.push(format!(
+                    "tag @e[tag={},tag={},tag={}] remove {}",
+                    breakpoint_tag, old_tag, new_tag, old_tag
+                ));
+            }
+        }
+        commands.push(format!(
+            "tag @e[tag={},tag={}] remove {}",
+            breakpoint_tag, tmp_tag, tmp_tag
+        ));
+        commands
     }
 
     async fn stack_trace(
@@ -736,93 +789,4 @@ where
         mc_session.inject_commands(vec!["function debug:stop".to_string()])?;
         Ok(())
     }
-}
-
-fn parse_function_path(path: impl AsRef<Path>) -> Result<(PathBuf, ResourceLocation), String> {
-    let datapack = find_parent_datapack(path.as_ref()).ok_or_else(|| {
-        format!(
-            "does not denote a path in a datapack directory with a pack.mcmeta file: {}",
-            &path.as_ref().display()
-        )
-    })?;
-    let data_path = path.as_ref().strip_prefix(datapack.join("data")).unwrap();
-    let function = get_function_name(data_path, &path)?;
-    Ok((datapack.to_path_buf(), function))
-}
-
-fn find_parent_datapack(mut path: &Path) -> Option<&Path> {
-    while let Some(p) = path.parent() {
-        path = p;
-        let pack_mcmeta_path = path.join("pack.mcmeta");
-        if pack_mcmeta_path.is_file() {
-            return Some(path);
-        }
-    }
-    None
-}
-
-fn get_function_name(
-    data_path: impl AsRef<Path>,
-    path: impl AsRef<Path>,
-) -> Result<ResourceLocation, String> {
-    let namespace = data_path.as_ref()
-        .iter()
-        .next()
-        .ok_or_else(|| {
-            format!(
-                "contains an invalid path: {}",
-                path.as_ref().display()
-            )
-        })?
-        .to_str()
-        .unwrap() // Path is known to be UTF-8
-        ;
-    let fn_path = data_path
-        .as_ref()
-        .strip_prefix(Path::new(namespace).join("functions"))
-        .map_err(|_| format!("contains an invalid path: {}", path.as_ref().display()))?
-        .with_extension("")
-        .to_str()
-        .unwrap() // Path is known to be UTF-8
-        .replace(std::path::MAIN_SEPARATOR, "/");
-    Ok(ResourceLocation::new(&namespace, &fn_path))
-}
-
-async fn generate_datapack(
-    minecraft_session: &MinecraftSession,
-    breakpoints: &MultiMap<ResourceLocation, usize>,
-) -> Result<(), DapError> {
-    let config = Config {
-        namespace: &minecraft_session.namespace,
-        shadow: false,
-        adapter: Some(AdapterConfig {
-            adapter_listener_name: ADAPTER_LISTENER_NAME,
-            breakpoints,
-        }),
-    };
-    generate_debug_datapack(
-        &minecraft_session.datapack,
-        minecraft_session.output_path.clone(),
-        &config,
-    )
-    .await
-    .map_err(|e| PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e)))?;
-    Ok(())
-}
-
-fn events_between_tags(
-    stream: UnboundedReceiverStream<LogEvent>,
-    start_tag: &str,
-    stop_tag: &str,
-) -> impl Stream<Item = LogEvent> {
-    let added_start_tag = format!("Added tag '{1}' to {0}", ADAPTER_LISTENER_NAME, start_tag);
-    let added_end_tag = format!("Added tag '{1}' to {0}", ADAPTER_LISTENER_NAME, stop_tag);
-    stream
-        .skip_while(move |event| {
-            ready(event.executor != ADAPTER_LISTENER_NAME && event.message != added_start_tag)
-        })
-        .skip(1) // Skip start tag
-        .take_while(move |event| {
-            ready(event.executor != ADAPTER_LISTENER_NAME && event.message != added_end_tag)
-        })
 }

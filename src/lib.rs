@@ -52,10 +52,12 @@ pub struct Config<'l> {
     pub adapter: Option<AdapterConfig<'l>>,
 }
 impl Config<'_> {
-    fn is_breakpoint(&self, function: &ResourceLocation, line_number: usize) -> bool {
+    fn is_suspending_breakpoint(&self, function: &ResourceLocation, line_number: usize) -> bool {
         if let Some(config) = self.adapter.as_ref() {
-            if let Some(set) = config.breakpoints.get_vec(function) {
-                return set.contains(&line_number);
+            if let Some(vec) = config.breakpoints.get_vec(function) {
+                return vec.iter().any(|breakpoint| {
+                    breakpoint.can_suspend() && breakpoint.line_number == line_number
+                });
             }
         }
         false
@@ -63,7 +65,39 @@ impl Config<'_> {
 }
 pub struct AdapterConfig<'l> {
     pub adapter_listener_name: &'l str,
-    pub breakpoints: &'l MultiMap<ResourceLocation, usize>,
+    pub breakpoints: &'l MultiMap<ResourceLocation, LocalBreakpoint>,
+}
+
+pub struct LocalBreakpoint {
+    pub line_number: usize,
+    pub kind: BreakpointKind,
+}
+impl LocalBreakpoint {
+    fn can_suspend(&self) -> bool {
+        self.kind.can_suspend()
+    }
+    fn can_resume(&self) -> bool {
+        self.kind.can_resume()
+    }
+}
+
+pub enum BreakpointKind {
+    Normal,
+    Invalid,
+}
+impl BreakpointKind {
+    fn can_suspend(&self) -> bool {
+        match self {
+            BreakpointKind::Normal => true,
+            BreakpointKind::Invalid => false,
+        }
+    }
+    fn can_resume(&self) -> bool {
+        match self {
+            BreakpointKind::Normal => true,
+            BreakpointKind::Invalid => false,
+        }
+    }
 }
 
 /// Visible for testing only. This is a binary crate, it is not intended to be used as a library.
@@ -271,13 +305,14 @@ async fn expand_resume_self_template(
 
     if let Some(config) = config.adapter.as_ref() {
         // See https://github.com/havarnov/multimap/pull/38
-        breakpoints.extend(
-            config
-                .breakpoints
-                .iter_all()
-                .flat_map(|(k, v)| v.iter().map(move |&e| (k, e)))
-                .map(|it| (it.0, it.1)),
-        );
+        breakpoints.extend(config.breakpoints.iter_all().flat_map(
+            |(function, local_breakpoints)| {
+                local_breakpoints
+                    .iter()
+                    .filter(|breakpoint| breakpoint.can_resume())
+                    .map(move |breakpoint| (function, breakpoint.line_number))
+            },
+        ));
     }
 
     let resume_cases = breakpoints
@@ -731,7 +766,9 @@ fn partition<'l>(
             start_line_index = line_index;
             partition
         };
-        if config.is_breakpoint(fn_name, line_number) | matches!(command, Line::Breakpoint) {
+        if config.is_suspending_breakpoint(fn_name, line_number)
+            | matches!(command, Line::Breakpoint)
+        {
             partitions.push(next_partition(Terminator::Breakpoint));
         }
         if let Line::FunctionCall {
