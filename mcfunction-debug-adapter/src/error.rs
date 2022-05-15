@@ -47,13 +47,11 @@ impl PartialErrorResponse {
     }
 
     pub fn with_command(self, command: String) -> ErrorResponse {
-        ErrorResponse {
-            command,
-            message: self.message,
-            body: ErrorResponseBody {
-                error: self.details,
-            },
-        }
+        ErrorResponse::builder()
+            .command(command)
+            .message(self.message)
+            .body(ErrorResponseBody::new(self.details))
+            .build()
     }
 }
 

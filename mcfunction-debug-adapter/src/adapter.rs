@@ -16,13 +16,17 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+mod utils;
+
 use crate::{
     adapter::utils::{
         events_between_tags, generate_datapack, parse_function_path, McfunctionBreakpoint,
         McfunctionBreakpointTag,
     },
     error::{DapError, PartialErrorResponse},
+    get_command,
     minecraft::{parse_added_tag_message, parse_scoreboard_value},
+    MessageWriter,
 };
 use debug_adapter_protocol::{
     events::{
@@ -39,14 +43,13 @@ use debug_adapter_protocol::{
         StackTraceResponseBody, SuccessResponse, ThreadsResponseBody,
     },
     types::{Breakpoint, Capabilities, Source, StackFrame, Thread},
-    ProtocolMessage, ProtocolMessageType,
+    ProtocolMessage, ProtocolMessageContent,
 };
 use futures::{
     stream::{select_all, SelectAll},
-    Stream, StreamExt,
+    Sink, Stream, StreamExt,
 };
 use log::{info, trace};
-use mcfunction_debug_adapter::{get_command, read_msg, MessageWriter};
 use mcfunction_debugger::{
     parser::{
         command::{resource_location::ResourceLocation, CommandParser},
@@ -66,11 +69,9 @@ use std::{
 };
 use tokio::{
     fs::File,
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
 };
 use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
-
-mod utils;
 
 const ADAPTER_LISTENER_NAME: &'static str = "mcfunction_debugger";
 
@@ -120,26 +121,26 @@ fn inject_commands(
     Ok(())
 }
 
+const THREAD_ID: i32 = 0;
+
 pub struct McfunctionDebugAdapter<O>
 where
-    O: AsyncWriteExt + Unpin,
+    O: Sink<ProtocolMessage> + Unpin,
 {
-    message_streams: SelectAll<Pin<Box<dyn Stream<Item = Message>>>>,
+    message_streams: SelectAll<Pin<Box<dyn Stream<Item = Message> + Send>>>,
     writer: MessageWriter<O>,
     client_session: Option<ClientSession>,
 }
 impl<O> McfunctionDebugAdapter<O>
 where
-    O: AsyncWriteExt + Unpin,
+    O: Sink<ProtocolMessage, Error = io::Error> + Unpin,
 {
-    pub fn new<I>(mut input: I, output: O) -> McfunctionDebugAdapter<O>
+    pub fn new<I>(input: I, output: O) -> McfunctionDebugAdapter<O>
     where
-        I: AsyncBufReadExt + Unpin + 'static,
+        I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + 'static + Send,
     {
-        let client_messages: Pin<Box<dyn Stream<Item = Message>>> =
-            Box::pin(async_stream::stream! {
-                loop { yield Message::Client(read_msg(&mut input).await); }
-            });
+        let client_messages: Pin<Box<dyn Stream<Item = Message> + Send>> =
+            Box::pin(input.map(Message::Client));
         McfunctionDebugAdapter {
             message_streams: select_all([client_messages]),
             writer: MessageWriter::new(output),
@@ -153,6 +154,7 @@ where
             match msg {
                 Message::Client(client_msg) => {
                     let client_msg = client_msg?;
+                    trace!("Received message from client: {}", client_msg);
                     let should_continue = self.handle_client_message(client_msg).await?;
                     if !should_continue {
                         break;
@@ -164,7 +166,10 @@ where
                         minecraft_msg.executor,
                         minecraft_msg.message
                     );
-                    self.handle_minecraft_message(minecraft_msg).await?;
+                    let should_continue = self.handle_minecraft_message(minecraft_msg).await?;
+                    if !should_continue {
+                        break;
+                    }
                 }
             }
         }
@@ -173,15 +178,15 @@ where
     }
 
     async fn handle_client_message(&mut self, msg: ProtocolMessage) -> io::Result<bool> {
-        match msg.type_ {
+        match msg.content {
             // TODO handle all client requests in handle_client_request
-            ProtocolMessageType::Request(Request::Disconnect(_args)) => {
+            ProtocolMessageContent::Request(Request::Disconnect(_args)) => {
                 self.writer
                     .respond(msg.seq, Ok(SuccessResponse::Disconnect))
                     .await?;
                 return Ok(false);
             }
-            ProtocolMessageType::Request(request) => {
+            ProtocolMessageContent::Request(request) => {
                 let command = get_command(&request);
                 let result = self.handle_client_request(request).await;
 
@@ -213,10 +218,11 @@ where
             }
             Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
             Request::Pause(args) => self.pause(args).await.map(|()| SuccessResponse::Pause),
-            Request::Scopes(ScopesRequestArguments { frame_id: _ }) => {
-                Ok(SuccessResponse::Scopes(ScopesResponseBody {
-                    scopes: Vec::new(),
-                }))
+            Request::Scopes(ScopesRequestArguments { frame_id: _, .. }) => {
+                Ok(ScopesResponseBody::builder()
+                    .scopes(Vec::new())
+                    .build()
+                    .into())
             }
             Request::SetBreakpoints(args) => self
                 .set_breakpoints(args)
@@ -230,12 +236,13 @@ where
                 .terminate(args)
                 .await
                 .map(|()| SuccessResponse::Terminate),
-            Request::Threads => Ok(SuccessResponse::Threads(ThreadsResponseBody {
-                threads: vec![Thread {
-                    id: 0,
-                    name: "My Thread".to_string(),
-                }],
-            })),
+            Request::Threads => Ok(ThreadsResponseBody::builder()
+                .threads(vec![Thread::builder()
+                    .id(THREAD_ID)
+                    .name("My Thread".to_string())
+                    .build()])
+                .build()
+                .into()),
             _ => {
                 let command = get_command(&request);
                 Err(DapError::Respond(PartialErrorResponse::new(format!(
@@ -246,34 +253,28 @@ where
         }
     }
 
-    async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<()> {
+    async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<bool> {
         if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
             if let Some(tag) = suffix.strip_suffix(&format!("' to {}", ADAPTER_LISTENER_NAME)) {
                 if tag == "exited" {
                     self.writer
-                        .write_msg(ProtocolMessageType::Event(Event::Terminated(
-                            TerminatedEventBody { restart: None },
-                        )))
+                        .write_msg(TerminatedEventBody::builder().build())
                         .await?;
+                    return Ok(false);
                 }
                 if let Some(_) = Self::parse_stopped_tag(tag) {
                     self.writer
-                        .write_msg(ProtocolMessageType::Event(Event::Stopped(
-                            StoppedEventBody {
-                                reason: StoppedEventReason::Breakpoint,
-                                description: None,
-                                thread_id: Some(0),
-                                preserve_focus_hint: false,
-                                text: None,
-                                all_threads_stopped: false,
-                                hit_breakpoint_ids: vec![1],
-                            },
-                        )))
+                        .write_msg(
+                            StoppedEventBody::builder()
+                                .reason(StoppedEventReason::Breakpoint)
+                                .thread_id(Some(THREAD_ID))
+                                .build(),
+                        )
                         .await?;
                 }
             }
         }
-        Ok(())
+        Ok(true)
     }
     fn parse_stopped_tag(tag: &str) -> Option<McfunctionBreakpointTag<String>> {
         let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
@@ -315,23 +316,22 @@ where
         });
 
         self.writer
-            .write_msg(ProtocolMessageType::Event(Event::Initialized))
+            .write_msg(Event::Initialized)
             .await
             .map_err(|e| DapError::Terminate(e))?;
 
-        Ok(Capabilities {
-            supports_configuration_done_request: true,
-            supports_cancel_request: true,
-            supports_terminate_request: true,
-            ..Default::default()
-        })
+        Ok(Capabilities::builder()
+            .supports_configuration_done_request(true)
+            .supports_cancel_request(true)
+            .supports_terminate_request(true)
+            .build())
     }
 
     async fn launch(&mut self, args: LaunchRequestArguments) -> Result<(), DapError> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
 
         //     self.writer
-        //     .write_msg(ProtocolMessageType::Event(Event::Output(OutputEventBody {
+        //     .write_msg(ProtocolMessageContent::Event(Event::Output(OutputEventBody {
         //         category: OutputCategory::Important,
         //         output: "Run /reload in Minecraft".to_string(),
         //         group: None,
@@ -345,7 +345,7 @@ where
 
         // let progress_id = Uuid::new_v4();
         // self.writer
-        //     .write_msg(ProtocolMessageType::Event(Event::ProgressStart(
+        //     .write_msg(ProtocolMessageContent::Event(Event::ProgressStart(
         //         ProgressStartEventBody {
         //             progress_id: progress_id.to_string(),
         //             title: "Waiting for connection to Minecraft".to_string(),
@@ -360,7 +360,7 @@ where
         // sleep(Duration::from_secs(20)).await;
 
         // self.writer
-        //     .write_msg(ProtocolMessageType::Event(Event::ProgressEnd(
+        //     .write_msg(ProtocolMessageContent::Event(Event::ProgressEnd(
         //         ProgressEndEventBody {
         //             progress_id: progress_id.to_string(),
         //             message: Some(
@@ -519,18 +519,13 @@ where
                     BreakpointKind::Invalid
                 },
             });
-            response.push(Breakpoint {
-                id: verified.then(|| id),
-                verified,
-                message: None,
-                source: None,
-                line: Some(line_number as i32 - offset),
-                column: None,
-                end_line: None,
-                end_column: None,
-                instruction_reference: None,
-                offset: None,
-            });
+            response.push(
+                Breakpoint::builder()
+                    .id(verified.then(|| id))
+                    .verified(verified)
+                    .line(Some(line_number as i32 - offset))
+                    .build(),
+            );
         }
 
         client_session
@@ -553,9 +548,9 @@ where
             minecraft_session.inject_commands(commands)?;
         }
 
-        Ok(SetBreakpointsResponseBody {
-            breakpoints: response,
-        })
+        Ok(SetBreakpointsResponseBody::builder()
+            .breakpoints(response)
+            .build())
     }
     async fn verify_breakpoint(
         parser: &CommandParser,
@@ -664,10 +659,10 @@ where
 
         stack_trace.sort_by_key(|it| -it.0);
 
-        Ok(StackTraceResponseBody {
-            total_frames: Some(stack_trace.len() as i32),
-            stack_frames: stack_trace.into_iter().map(|it| it.1).collect(),
-        })
+        Ok(StackTraceResponseBody::builder()
+            .total_frames(Some(stack_trace.len() as i32))
+            .stack_frames(stack_trace.into_iter().map(|it| it.1).collect())
+            .build())
     }
     fn parse_stack_frame(
         event: LogEvent,
@@ -698,38 +693,27 @@ where
         line: i32,
         datapack: impl AsRef<Path>,
     ) -> StackFrame {
-        StackFrame {
-            id,
-            name: format!("{}:{}", function, line),
-            source: Some(Source {
-                name: None,
-                path: Some(
-                    datapack
-                        .as_ref()
-                        .join(&format!(
-                            "data/{}/functions/{}.mcfunction",
-                            function.namespace(),
-                            function.path()
-                        ))
-                        .display()
-                        .to_string(),
-                ),
-                source_reference: None,
-                presentation_hint: None,
-                origin: None,
-                sources: Vec::new(),
-                adapter_data: None,
-                checksums: Vec::new(),
-            }),
-            line,
-            column: 0,
-            end_line: None,
-            end_column: None,
-            can_restart: None,
-            instruction_pointer_reference: None,
-            module_id: None,
-            presentation_hint: None,
-        }
+        StackFrame::builder()
+            .id(id)
+            .name(format!("{}:{}", function, line))
+            .source(Some(
+                Source::builder()
+                    .path(Some(
+                        datapack
+                            .as_ref()
+                            .join(&format!(
+                                "data/{}/functions/{}.mcfunction",
+                                function.namespace(),
+                                function.path()
+                            ))
+                            .display()
+                            .to_string(),
+                    ))
+                    .build(),
+            ))
+            .line(line)
+            .column(0)
+            .build()
     }
 
     async fn continue_(
@@ -741,9 +725,7 @@ where
 
         mc_session.inject_commands(vec!["function debug:resume".to_string()])?;
 
-        Ok(ContinueResponseBody {
-            all_threads_continued: false,
-        })
+        Ok(ContinueResponseBody::builder().build())
     }
 
     async fn evaluate(
@@ -765,16 +747,12 @@ where
         let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
         self.writer
-            .write_msg(ProtocolMessageType::Event(Event::Output(OutputEventBody {
-                category: OutputCategory::Important,
-                output: "Minecraft cannot be paused".to_string(),
-                group: None,
-                variables_reference: None,
-                source: None,
-                line: None,
-                column: None,
-                data: None,
-            })))
+            .write_msg(
+                OutputEventBody::builder()
+                    .category(OutputCategory::Important)
+                    .output("Minecraft cannot be paused".to_string())
+                    .build(),
+            )
             .await
             .map_err(|e| DapError::Terminate(e))?;
 

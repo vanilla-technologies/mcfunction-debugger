@@ -43,7 +43,16 @@ pub fn parse_function_path(path: impl AsRef<Path>) -> Result<(PathBuf, ResourceL
             &path.as_ref().display()
         )
     })?;
-    let data_path = path.as_ref().strip_prefix(datapack.join("data")).unwrap();
+    let data_path = path
+        .as_ref()
+        .strip_prefix(datapack.join("data"))
+        .map_err(|_| {
+            format!(
+                "does not denote a path in the data directory of datapack {}: {}",
+                &datapack.display(),
+                &path.as_ref().display()
+            )
+        })?;
     let function = get_function_name(data_path, &path)?;
     Ok((datapack.to_path_buf(), function))
 }

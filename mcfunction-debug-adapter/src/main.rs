@@ -16,17 +16,15 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use crate::adapter::McfunctionDebugAdapter;
 use clap::{crate_authors, crate_version, App};
 use log::error;
+use mcfunction_debug_adapter::{
+    adapter::McfunctionDebugAdapter,
+    codec::{ProtocolMessageDecoder, ProtocolMessageEncoder},
+};
 use simplelog::{Config, WriteLogger};
-use std::io;
-use std::path::Path;
-use tokio::io::BufReader;
-
-mod adapter;
-mod error;
-mod minecraft;
+use std::{io, path::Path};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -68,8 +66,10 @@ See the GNU General Public License for more details.
     )
     .unwrap();
 
-    let mut adapter =
-        McfunctionDebugAdapter::new(BufReader::new(tokio::io::stdin()), tokio::io::stdout());
+    let input = FramedRead::new(tokio::io::stdin(), ProtocolMessageDecoder);
+    let output = FramedWrite::new(tokio::io::stdout(), ProtocolMessageEncoder);
+
+    let mut adapter = McfunctionDebugAdapter::new(input, output);
     match adapter.run().await {
         Err(e) => {
             error!("Stopping due to: {}", e);
