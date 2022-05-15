@@ -576,6 +576,7 @@ name = "mcfunction-debug-adapter"
 version = "0.1.0"
 dependencies = [
  "async-stream",
+ "bytes",
  "clap",
  "debug-adapter-protocol",
  "futures",
@@ -588,6 +589,7 @@ dependencies = [
  "simplelog",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "uuid",
  "vergen",
 ]
@@ -1197,6 +1199,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50145484efff8818b5ccd256697f36863f587da82cf8b409c53adf1e840798e3"
 dependencies = [
  "futures-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f988a1a1adc2fb21f9c12aa96441da33a1728193ae0b95d2be22dbd17fcb4e5c"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
  "pin-project-lite",
  "tokio",
 ]

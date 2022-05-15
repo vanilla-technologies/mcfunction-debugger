@@ -16,6 +16,10 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+mod tests;
+mod utils;
+
 use crate::{
     adapter::utils::{
         events_between_tags, generate_datapack, parse_function_path, McfunctionBreakpoint,
@@ -69,8 +73,6 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
 };
 use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
-
-mod utils;
 
 const ADAPTER_LISTENER_NAME: &'static str = "mcfunction_debugger";
 
