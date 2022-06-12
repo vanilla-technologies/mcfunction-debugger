@@ -126,7 +126,7 @@ pub struct McfunctionDebugAdapter<O>
 where
     O: Sink<ProtocolMessage> + Unpin,
 {
-    message_streams: SelectAll<Pin<Box<dyn Stream<Item = Message>>>>,
+    message_streams: SelectAll<Pin<Box<dyn Stream<Item = Message> + Send>>>,
     writer: MessageWriter<O>,
     client_session: Option<ClientSession>,
 }
@@ -136,9 +136,9 @@ where
 {
     pub fn new<I>(input: I, output: O) -> McfunctionDebugAdapter<O>
     where
-        I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + 'static,
+        I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + 'static + Send,
     {
-        let client_messages: Pin<Box<dyn Stream<Item = Message>>> =
+        let client_messages: Pin<Box<dyn Stream<Item = Message> + Send>> =
             Box::pin(input.map(Message::Client));
         McfunctionDebugAdapter {
             message_streams: select_all([client_messages]),

@@ -31,7 +31,7 @@ use futures::{future::try_join_all, FutureExt};
 use multimap::MultiMap;
 use parser::command::{resource_location::ResourceLocation, CommandParser};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     ffi::OsStr,
     fmt::Display,
     fs::File,
@@ -181,7 +181,7 @@ fn get_functions(
 async fn parse_functions<'l>(
     functions: &'l BTreeMap<ResourceLocation, PathBuf>,
     config: &Config<'_>,
-) -> Result<BTreeMap<&'l ResourceLocation, Vec<(usize, String, Line)>>, io::Error> {
+) -> Result<HashMap<&'l ResourceLocation, Vec<(usize, String, Line)>>, io::Error> {
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     functions
@@ -206,7 +206,7 @@ async fn parse_functions<'l>(
 
 async fn expand_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
@@ -227,7 +227,7 @@ macro_rules! expand_template {
 
 async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
@@ -287,7 +287,7 @@ async fn expand_global_templates(
 
 async fn expand_resume_self_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
@@ -339,7 +339,7 @@ async fn expand_resume_self_template(
 
 async fn expand_schedule_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     #[rustfmt::skip]
@@ -360,7 +360,7 @@ async fn expand_schedule_template(
 
 async fn expand_update_scores_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     #[rustfmt::skip]
@@ -387,7 +387,7 @@ async fn expand_update_scores_template(
 
 async fn expand_validate_all_functions_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     #[rustfmt::skip]
@@ -408,7 +408,7 @@ async fn expand_validate_all_functions_template(
 
 async fn expand_show_skipped_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     // This may include calls to non-existent functions
@@ -463,7 +463,7 @@ async fn expand_show_skipped_template(
 
 async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
@@ -478,7 +478,7 @@ async fn expand_function_specific_templates(
 }
 
 fn create_call_tree<'l>(
-    function_contents: &'l BTreeMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    function_contents: &'l HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
 ) -> MultiMap<&'l ResourceLocation, (&'l ResourceLocation, &'l usize)> {
     function_contents
         .iter()

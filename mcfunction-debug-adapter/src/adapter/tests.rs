@@ -17,15 +17,22 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::adapter::McfunctionDebugAdapter;
+use assert2::{check, let_assert};
 use debug_adapter_protocol::{
-    requests::{InitializeRequestArguments, Request},
-    ProtocolMessage, ProtocolMessageType,
+    events::Event,
+    requests::InitializeRequestArguments,
+    responses::{Response, SuccessResponse},
+    ProtocolMessage, ProtocolMessageType, SequenceNumber,
 };
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::LoggedCommand;
 use sender_sink::wrappers::UnboundedSenderSink;
-use std::io;
+use std::{
+    fs::{create_dir_all, write},
+    io,
+    path::Path,
+};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -43,22 +50,70 @@ async fn bla() -> io::Result<()> {
 
     create_datapack(vec![test]);
 
-    let (handle, mut adapter_input, mut adapter_output) = start_adapter();
+    let (handle, adapter_input, mut adapter_output) = start_adapter();
+    let mut adapter_input = ProtocolMessageSender::new(adapter_input);
 
-    let a = adapter_output.next().await;
-    handle.await??;
+    let payload = InitializeRequestArguments::builder()
+        .adapter_id("adapter_id".to_string())
+        .build();
+    let request_seq = adapter_input.send_ok(payload).await;
 
-    adapter_input
-        .send(Ok(ProtocolMessage::new(
-            1,
-            InitializeRequestArguments::builder()
-                .adapter_id("adapter_id".to_string())
-                .build(),
-        )))
-        .await
-        .unwrap();
+    let event = adapter_output.next().await.unwrap();
+    assert_eq!(event.type_, ProtocolMessageType::Event(Event::Initialized));
 
+    let response = adapter_output.next().await.unwrap();
+    check!(let SuccessResponse::Initialize(_) = assert_success_response(response, request_seq));
+
+    // handle.await.unwrap().unwrap();
     Ok(())
+}
+
+fn assert_success_response(
+    response: ProtocolMessage,
+    expected_request_seq: SequenceNumber,
+) -> SuccessResponse {
+    let_assert!(
+        ProtocolMessageType::Response(Response {
+            request_seq,
+            result: Ok(success_response)
+        }) = response.type_
+    );
+    assert_eq!(request_seq, expected_request_seq);
+    success_response
+}
+
+struct ProtocolMessageSender<I>
+where
+    I: Sink<io::Result<ProtocolMessage>, Error = io::Error>,
+{
+    seq: SequenceNumber,
+    adapter_input: I,
+}
+impl<I> ProtocolMessageSender<I>
+where
+    I: Sink<io::Result<ProtocolMessage>, Error = io::Error> + Unpin,
+{
+    fn new(adapter_input: I) -> ProtocolMessageSender<I> {
+        ProtocolMessageSender {
+            seq: 0,
+            adapter_input,
+        }
+    }
+
+    async fn send_ok(&mut self, payload: impl Into<ProtocolMessageType>) -> SequenceNumber {
+        self.seq += 1;
+        let msg = ProtocolMessage::new(self.seq, payload);
+        self.send(Ok(msg)).await;
+        self.seq
+    }
+
+    async fn send_err(&mut self, payload: impl Into<io::Error>) {
+        self.send(Err(payload.into())).await;
+    }
+
+    async fn send(&mut self, msg: impl Into<io::Result<ProtocolMessage>>) {
+        self.adapter_input.send(msg.into()).await.unwrap();
+    }
 }
 
 fn start_adapter() -> (
@@ -69,7 +124,7 @@ fn start_adapter() -> (
     let (adapter_input_sink, adapter_input_stream) = unbound_io_channel();
     let (adapter_output_sink, adapter_output_stream) = unbound_io_channel();
     let mut adapter = McfunctionDebugAdapter::new(adapter_input_stream, adapter_output_sink);
-    let handle = tokio::task::spawn_local(async move { adapter.run().await });
+    let handle = tokio::task::spawn(async move { adapter.run().await });
     (handle, adapter_input_sink, adapter_output_stream)
 }
 
@@ -88,15 +143,28 @@ fn logged_command(command: &str) -> String {
         .to_string()
 }
 
-fn create_datapack(lines: Vec<Mcfunction>) {
-    todo!()
-}
-
 struct Mcfunction {
     name: ResourceLocation,
     lines: Vec<String>,
 }
 
-fn create(function: Mcfunction) {
-    todo!()
+const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
+
+fn create_datapack(functions: Vec<Mcfunction>) {
+    let dir = Path::new(TEST_WORLD_DIR).join("datapacks/adapter-test");
+    create_dir_all(&dir).unwrap();
+    write(
+        dir.join("pack.mcmeta"),
+        r#"{"pack":{"pack_format":7,"description":"mcfunction-debugger test tick"}}"#,
+    )
+    .unwrap();
+    for function in functions {
+        let path = dir
+            .join(function.name.namespace())
+            .join("data")
+            .join(function.name.path())
+            .with_extension("mcfunction");
+        create_dir_all(&path.parent().unwrap()).unwrap();
+        write(path, function.lines.join("\n")).unwrap();
+    }
 }
