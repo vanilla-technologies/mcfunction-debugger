@@ -47,10 +47,10 @@ use debug_adapter_protocol::{
 };
 use futures::{
     stream::{select_all, SelectAll},
-    Stream, StreamExt,
+    Sink, Stream, StreamExt,
 };
 use log::{info, trace};
-use mcfunction_debug_adapter::{get_command, read_msg, MessageWriter};
+use mcfunction_debug_adapter::{get_command, MessageWriter};
 use mcfunction_debugger::{
     parser::{
         command::{resource_location::ResourceLocation, CommandParser},
@@ -70,7 +70,7 @@ use std::{
 };
 use tokio::{
     fs::File,
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
 };
 use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
 
@@ -124,7 +124,7 @@ fn inject_commands(
 
 pub struct McfunctionDebugAdapter<O>
 where
-    O: AsyncWriteExt + Unpin,
+    O: Sink<ProtocolMessage> + Unpin,
 {
     message_streams: SelectAll<Pin<Box<dyn Stream<Item = Message>>>>,
     writer: MessageWriter<O>,
@@ -132,16 +132,14 @@ where
 }
 impl<O> McfunctionDebugAdapter<O>
 where
-    O: AsyncWriteExt + Unpin,
+    O: Sink<ProtocolMessage, Error = io::Error> + Unpin,
 {
-    pub fn new<I>(mut input: I, output: O) -> McfunctionDebugAdapter<O>
+    pub fn new<I>(input: I, output: O) -> McfunctionDebugAdapter<O>
     where
-        I: AsyncBufReadExt + Unpin + 'static,
+        I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + 'static,
     {
         let client_messages: Pin<Box<dyn Stream<Item = Message>>> =
-            Box::pin(async_stream::stream! {
-                loop { yield Message::Client(read_msg(&mut input).await); }
-            });
+            Box::pin(input.map(Message::Client));
         McfunctionDebugAdapter {
             message_streams: select_all([client_messages]),
             writer: MessageWriter::new(output),
@@ -155,6 +153,7 @@ where
             match msg {
                 Message::Client(client_msg) => {
                     let client_msg = client_msg?;
+                    trace!("Received message from client: {}", client_msg);
                     let should_continue = self.handle_client_message(client_msg).await?;
                     if !should_continue {
                         break;

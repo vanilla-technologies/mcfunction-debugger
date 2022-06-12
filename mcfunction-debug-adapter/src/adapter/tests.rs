@@ -16,20 +16,18 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
-
-use bytes::Bytes;
+use crate::adapter::McfunctionDebugAdapter;
 use debug_adapter_protocol::{
     requests::{InitializeRequestArguments, Request},
     ProtocolMessage, ProtocolMessageType,
 };
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::LoggedCommand;
-use tokio::{fs::File, sync::mpsc::UnboundedSender};
+use sender_sink::wrappers::UnboundedSenderSink;
+use std::io;
+use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_util::io::StreamReader;
-
-use super::McfunctionDebugAdapter;
 
 const LISTENER_NAME: &str = "test";
 
@@ -45,41 +43,42 @@ async fn bla() -> io::Result<()> {
 
     create_datapack(vec![test]);
 
-    let (send, recv): (UnboundedSender<io::Result<Bytes>>, _) =
-        tokio::sync::mpsc::unbounded_channel();
+    let (handle, mut adapter_input, mut adapter_output) = start_adapter();
 
-    let read = StreamReader::new(UnboundedReceiverStream::new(recv));
-
-    let f = File::create("bla").await?;
-    let mut under_test = McfunctionDebugAdapter::new(read, f);
-    let handle = tokio::task::spawn_local(async move { under_test.run().await });
-
-    send.send(Ok(Bytes::from(
-        ProtocolMessage {
-            seq: 1,
-            type_: ProtocolMessageType::Request(Request::Initialize(InitializeRequestArguments {
-                client_id: todo!(),
-                client_name: todo!(),
-                adapter_id: todo!(),
-                locale: todo!(),
-                lines_start_at_1: todo!(),
-                columns_start_at_1: todo!(),
-                path_format: todo!(),
-                supports_variable_type: todo!(),
-                supports_variable_paging: todo!(),
-                supports_run_in_terminal_request: todo!(),
-                supports_memory_references: todo!(),
-                supports_progress_reporting: todo!(),
-                supports_invalidated_event: todo!(),
-            })),
-        }
-        .to_string()
-        .as_bytes(),
-    )))
-    .unwrap();
-
+    let a = adapter_output.next().await;
     handle.await??;
+
+    adapter_input
+        .send(Ok(ProtocolMessage::new(
+            1,
+            InitializeRequestArguments::builder()
+                .adapter_id("adapter_id".to_string())
+                .build(),
+        )))
+        .await
+        .unwrap();
+
     Ok(())
+}
+
+fn start_adapter() -> (
+    JoinHandle<io::Result<()>>,
+    impl Sink<io::Result<ProtocolMessage>, Error = io::Error>,
+    impl Stream<Item = ProtocolMessage>,
+) {
+    let (adapter_input_sink, adapter_input_stream) = unbound_io_channel();
+    let (adapter_output_sink, adapter_output_stream) = unbound_io_channel();
+    let mut adapter = McfunctionDebugAdapter::new(adapter_input_stream, adapter_output_sink);
+    let handle = tokio::task::spawn_local(async move { adapter.run().await });
+    (handle, adapter_input_sink, adapter_output_stream)
+}
+
+fn unbound_io_channel<I>() -> (impl Sink<I, Error = io::Error>, impl Stream<Item = I>) {
+    let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+    let sink = UnboundedSenderSink::from(send)
+        .sink_map_err(|_| io::Error::new(io::ErrorKind::ConnectionAborted, ""));
+    let stream = UnboundedReceiverStream::new(recv);
+    (sink, stream)
 }
 
 fn logged_command(command: &str) -> String {

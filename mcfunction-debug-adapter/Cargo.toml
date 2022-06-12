@@ -5,10 +5,11 @@ edition = "2018"
 
 [dependencies]
 mcfunction-debugger = { path = ".." }
-async-stream = "0.3"
+
+bytes = "1"
 clap = "2"
-debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git" }
-# debug-adapter-protocol = { path = "../../debug-adapter-protocol" }
+# debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git" }
+debug-adapter-protocol = { path = "../../debug-adapter-protocol" }
 futures = "0.3"
 log = "0.4"
 log-panics = "2"
@@ -16,6 +17,7 @@ minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 # minect = { path = "../../minect" }
 multimap = "0.8"
 serde_json = "1"
+sender-sink = "0.1"
 simplelog = "0.11"
 tokio = { version = "1", features = [
   "io-std",
@@ -26,11 +28,8 @@ tokio = { version = "1", features = [
   "time",
 ] }
 tokio-stream = { version = "0.1", features = ["io-util"] }
+tokio-util = { version = "0.7", features = ["codec", "io"] }
 uuid = { version = "0.8", features = ["v4"] }
 
 [build-dependencies]
 vergen = "5"
-
-[dev-dependencies]
-bytes = "1"
-tokio-util = { version = "0.7", features = ["io"] }
