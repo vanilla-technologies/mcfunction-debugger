@@ -16,12 +16,15 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-mod codec;
+pub mod adapter;
+pub mod codec;
+mod error;
+mod minecraft;
 
 use debug_adapter_protocol::{
     requests::Request,
     responses::{ErrorResponse, Response, SuccessResponse},
-    ProtocolMessage, ProtocolMessageType, SequenceNumber,
+    ProtocolMessage, ProtocolMessageContent, SequenceNumber,
 };
 use futures::{Sink, SinkExt};
 use log::trace;
@@ -48,18 +51,18 @@ where
         request_seq: SequenceNumber,
         result: Result<SuccessResponse, ErrorResponse>,
     ) -> Result<(), O::Error> {
-        self.write_msg(ProtocolMessageType::Response(Response {
+        self.write_msg(ProtocolMessageContent::Response(Response {
             request_seq,
             result,
         }))
         .await
     }
 
-    pub async fn write_msg(&mut self, msg_type: ProtocolMessageType) -> Result<(), O::Error> {
+    pub async fn write_msg(&mut self, content: ProtocolMessageContent) -> Result<(), O::Error> {
         self.seq += 1;
         let msg = ProtocolMessage {
             seq: self.seq,
-            type_: msg_type,
+            content,
         };
         trace!("Sending message to client: {}", msg);
         self.output.send(msg).await

@@ -16,17 +16,12 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-mod adapter;
-mod codec;
-mod error;
-mod minecraft;
-
-use crate::{
+use clap::{crate_authors, crate_version, App};
+use log::error;
+use mcfunction_debug_adapter::{
     adapter::McfunctionDebugAdapter,
     codec::{ProtocolMessageDecoder, ProtocolMessageEncoder},
 };
-use clap::{crate_authors, crate_version, App};
-use log::error;
 use simplelog::{Config, WriteLogger};
 use std::{io, path::Path};
 use tokio_util::codec::{FramedRead, FramedWrite};
