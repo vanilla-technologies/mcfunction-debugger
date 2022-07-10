@@ -33,6 +33,7 @@ uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
 assert2 = "0.3"
+serial_test = "0.8"
 
 [build-dependencies]
 vergen = "5"

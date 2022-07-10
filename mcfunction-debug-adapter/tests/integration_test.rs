@@ -19,60 +19,53 @@
 mod utils;
 
 use crate::utils::{
-    assert_error_response, create_datapack, datapack_dir, enable_logging, named_logged_command,
-    reset_logging, start_adapter, Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
+    added_tag_message, assert_all_breakpoints_verified, assert_error_response,
+    create_and_enable_datapack, create_datapack, datapack_dir, enable_logging,
+    named_logged_command, reset_logging, start_adapter, Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
 };
-use assert2::{assert, let_assert};
-use debug_adapter_protocol::{
-    events::{Event, StoppedEventReason},
-    types::{Breakpoint, SourceBreakpoint},
-    ProtocolMessageContent as Content,
-};
+use assert2::assert;
+use debug_adapter_protocol::types::SourceBreakpoint;
 use futures::StreamExt;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::log_observer::LogObserver;
+use serial_test::serial;
 use std::io;
 use tokio::sync::mpsc::error::TryRecvError;
 
 #[tokio::test]
-async fn test_program_is_executed() -> io::Result<()> {
+#[serial]
+async fn test_program_without_breakpoint() -> io::Result<()> {
     let test = Mcfunction {
-        name: ResourceLocation::new("test", "bla"),
+        name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             enable_logging(),
             named_logged_command("tag @s add some_tag"),
             reset_logging(),
         ],
     };
-    let test_fn_path = test.full_path();
-    create_datapack(vec![test]);
+    let test_path = test.full_path();
+    create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut log_listener = log_observer.add_listener(LISTENER_NAME);
-
     let mut adapter = start_adapter();
     adapter.initalize().await;
-    adapter.launch(&test_fn_path).await;
-
-    let event = adapter.output.next().await.unwrap();
-    assert!(let Content::Event(Event::Terminated(_)) = event.content);
-
-    let log_event = log_listener.recv().await.unwrap();
-    assert!(log_event.message == "Added tag 'some_tag' to test");
-
-    adapter.handle.await.unwrap().unwrap();
+    adapter.launch(&test_path).await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("some_tag"));
     Ok(())
 }
 
 #[tokio::test]
+#[serial]
 async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
-    create_datapack(Vec::new());
-    let test_fn_path = datapack_dir().join("not-data").join("test.mcfunction");
+    create_and_enable_datapack(Vec::new());
+    let test_path = datapack_dir().join("not-data").join("test.mcfunction");
 
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
-    let request_seq = adapter.send_launch(&test_fn_path).await;
+    let request_seq = adapter.send_launch(&test_path).await;
     let response = adapter.output.next().await.unwrap();
     let error_response = assert_error_response(response, request_seq);
     assert!(error_response.command == "launch");
@@ -83,9 +76,10 @@ async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
 }
 
 #[tokio::test]
-async fn test_breakpoint_suspends_execution() -> io::Result<()> {
+#[serial]
+async fn test_breakpoint() -> io::Result<()> {
     let test = Mcfunction {
-        name: ResourceLocation::new("test", "bla"),
+        name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ enable_logging(),
             /* 2 */ named_logged_command("tag @s add tag1"),
@@ -93,45 +87,256 @@ async fn test_breakpoint_suspends_execution() -> io::Result<()> {
             /* 4 */ reset_logging(),
         ],
     };
-    let test_fn_path = test.full_path();
-    create_datapack(vec![test]);
+    let test_path = test.full_path();
+    create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut log_listener = log_observer.add_listener(LISTENER_NAME);
-
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
-    let breakpoints = vec![SourceBreakpoint::builder().line(3).build()];
-    let response = adapter.set_breakpoints(&test_fn_path, breakpoints).await;
-    assert!(let [Breakpoint {
-      verified: true,
-      line: Some(3),
-      ..
-    }] = response.breakpoints.as_slice());
+    let breaks = vec![SourceBreakpoint::builder().line(3).build()];
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
 
-    adapter.launch(&test_fn_path).await;
+    adapter.launch(&test_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty); // Second line NOT executed
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag2")); // Second line executed
+    Ok(())
+}
 
-    let event = adapter.output.next().await.unwrap();
-    let_assert!(Content::Event(Event::Stopped(body)) = event.content);
-    assert!(body.reason == StoppedEventReason::Breakpoint);
+#[tokio::test]
+#[serial]
+async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![named_logged_command("tag @s add some_tag")],
+    };
+    let inner_path = inner.full_path();
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            enable_logging(),
+            format!("function {}", inner.name),
+            reset_logging(),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_and_enable_datapack(vec![outer, inner]);
 
-    // TODO: threads and stacktrace
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = log_observer.add_listener(LISTENER_NAME);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
 
-    // First line executed
-    assert!(log_listener.recv().await.unwrap().message == "Added tag 'tag1' to test");
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
 
-    // Second line NOT executed
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
     assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty);
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("some_tag"));
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_breakpoint_at_function_call() -> io::Result<()> {
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![named_logged_command("tag @s add tag2")],
+    };
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            /* 1 */ enable_logging(),
+            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 3 */ format!("function {}", inner.name),
+            /* 4 */ reset_logging(),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_and_enable_datapack(vec![outer, inner]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = log_observer.add_listener(LISTENER_NAME);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(3).build()];
+    adapter.set_breakpoints_verified(&outer_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty); // Function NOT executed
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag2")); // Function executed
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_breakpoint_after_launch() -> io::Result<()> {
+    let test = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "test"),
+        lines: vec![
+            /* 1 */ enable_logging(),
+            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 4 */ reset_logging(),
+        ],
+    };
+    let test_path = test.full_path();
+    create_and_enable_datapack(vec![test]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = log_observer.add_listener(LISTENER_NAME);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let mut breaks = vec![SourceBreakpoint::builder().line(2).build()];
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.launch(&test_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty); // First line NOT executed
+
+    breaks.push(SourceBreakpoint::builder().line(3).build());
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
 
     adapter.continue_().await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty); // Second line NOT executed
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag2")); // Second line executed
+    Ok(())
+}
 
-    // Second line executed
-    assert!(log_listener.recv().await.unwrap().message == "Added tag 'tag2' to test");
+#[tokio::test]
+#[serial]
+async fn test_breakpoint_removed() -> io::Result<()> {
+    let test = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "test"),
+        lines: vec![
+            /* 1 */ enable_logging(),
+            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 4 */ reset_logging(),
+        ],
+    };
+    let test_path = test.full_path();
+    create_and_enable_datapack(vec![test]);
 
-    let event = adapter.output.next().await.unwrap();
-    assert!(let Content::Event(Event::Terminated(_)) = event.content);
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = log_observer.add_listener(LISTENER_NAME);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
 
-    adapter.handle.await.unwrap().unwrap();
+    let mut breaks = vec![
+        SourceBreakpoint::builder().line(2).build(),
+        SourceBreakpoint::builder().line(3).build(),
+    ];
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.launch(&test_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty); // First line NOT executed
+
+    breaks.remove(1);
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag1"));
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag2"));
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "https://github.com/vanilla-technologies/mcfunction-debugger/issues/70"]
+async fn test_hot_code_replacement() -> io::Result<()> {
+    let mut test = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "test"),
+        lines: vec![
+            /* 1 */ enable_logging(),
+            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 3 */ reset_logging(),
+        ],
+    };
+    let test_path = test.full_path();
+    create_and_enable_datapack(vec![test.clone()]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = log_observer.add_listener(LISTENER_NAME);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(3).build()];
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.launch(&test_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty); // Second line NOT executed
+
+    test.lines
+        .insert(2, named_logged_command("tag @s add tag2"));
+    create_datapack(vec![test]);
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag2"));
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_breakpoint_moved() -> io::Result<()> {
+    let mut test = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "test"),
+        lines: vec![
+            /* 1 */ enable_logging(),
+            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 4 */ reset_logging(),
+        ],
+    };
+    let test_path = test.full_path();
+    create_and_enable_datapack(vec![test.clone()]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = log_observer.add_listener(LISTENER_NAME);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(3).build()];
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.launch(&test_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty); // Second line NOT executed
+
+    test.lines.remove(1);
+    create_datapack(vec![test]);
+    let breaks = vec![SourceBreakpoint::builder().line(2).build()];
+    let response = adapter
+        .set_breakpoints_source_modified(&test_path, &breaks, true)
+        .await;
+    assert_all_breakpoints_verified(&response, &breaks);
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(log_listener.recv().await.unwrap().message == added_tag_message("tag2"));
     Ok(())
 }

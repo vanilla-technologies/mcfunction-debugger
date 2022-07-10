@@ -11,9 +11,7 @@ repository = "https://github.com/vanilla-technologies/mcfunction-debugger"
 version = "0.1.0"
 
 [workspace]
-members = [
-    "mcfunction-debug-adapter",
-]
+members = ["mcfunction-debug-adapter"]
 
 [dependencies]
 clap = "2"
@@ -26,11 +24,16 @@ multimap = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 simple_logger = "1"
-tokio = { version = "1", features = ["fs", "macros", "parking_lot", "rt-multi-thread"] }
+tokio = { version = "1", features = [
+    "fs",
+    "macros",
+    "parking_lot",
+    "rt-multi-thread",
+] }
 walkdir = "2"
 
 [dev-dependencies]
-serial_test = "0.5"
+serial_test = "0.8"
 
 [build-dependencies]
 vergen = "5"

@@ -18,7 +18,7 @@
 
 use assert2::{assert, let_assert};
 use debug_adapter_protocol::{
-    events::Event,
+    events::{Event, StoppedEventReason},
     requests::{
         ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments,
         SetBreakpointsRequestArguments,
@@ -30,7 +30,7 @@ use debug_adapter_protocol::{
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use mcfunction_debug_adapter::adapter::McfunctionDebugAdapter;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
-use minect::LoggedCommand;
+use minect::{LoggedCommand, MinecraftConnection};
 use sender_sink::wrappers::UnboundedSenderSink;
 use serde_json::{json, Map};
 use std::{
@@ -43,7 +43,8 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 const ADAPTER_ID: &str = "mcfunction";
-pub const LISTENER_NAME: &str = "test";
+pub const TEST_DATAPACK_NAME: &str = "adapter-test";
+pub const LISTENER_NAME: &str = "adapter-test-listener";
 pub const TEST_LOG_FILE: &str = env!("TEST_LOG_FILE");
 pub const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 const THREAD_ID: i32 = 0;
@@ -83,6 +84,19 @@ where
     I: Sink<io::Result<ProtocolMessage>, Error = io::Error> + Unpin,
     O: Stream<Item = ProtocolMessage> + Unpin,
 {
+    pub async fn assert_stopped_at_breakpoint(&mut self) {
+        let event = self.output.next().await.unwrap();
+        let_assert!(Content::Event(Event::Stopped(body)) = event.content);
+        assert!(body.reason == StoppedEventReason::Breakpoint);
+    }
+
+    pub async fn assert_terminated(mut self) {
+        let event = self.output.next().await.unwrap();
+        assert!(let Content::Event(Event::Terminated(_)) = event.content);
+
+        self.handle.await.unwrap().unwrap();
+    }
+
     pub async fn continue_(&mut self) {
         let content = ContinueRequestArguments::builder()
             .thread_id(THREAD_ID)
@@ -124,10 +138,27 @@ where
         self.input.send_ok(content).await
     }
 
+    pub async fn set_breakpoints_verified(
+        &mut self,
+        path: impl AsRef<Path>,
+        breakpoints: &[SourceBreakpoint],
+    ) {
+        let response = self.set_breakpoints(path, breakpoints).await;
+        assert_all_breakpoints_verified(&response, breakpoints);
+    }
     pub async fn set_breakpoints(
         &mut self,
         path: impl AsRef<Path>,
-        breakpoints: Vec<SourceBreakpoint>,
+        breakpoints: &[SourceBreakpoint],
+    ) -> SetBreakpointsResponseBody {
+        self.set_breakpoints_source_modified(path, breakpoints, false)
+            .await
+    }
+    pub async fn set_breakpoints_source_modified(
+        &mut self,
+        path: impl AsRef<Path>,
+        breakpoints: &[SourceBreakpoint],
+        source_modified: bool,
     ) -> SetBreakpointsResponseBody {
         let content = SetBreakpointsRequestArguments::builder()
             .source(
@@ -135,15 +166,25 @@ where
                     .path(Some(path.as_ref().display().to_string()))
                     .build(),
             )
-            .breakpoints(breakpoints)
+            .breakpoints(breakpoints.into())
+            .source_modified(source_modified)
             .build();
         let request_seq = self.input.send_ok(content).await;
-
         let response = self.output.next().await.unwrap();
         let_assert!(
             SuccessResponse::SetBreakpoints(body) = assert_success_response(response, request_seq)
         );
         body
+    }
+}
+pub fn assert_all_breakpoints_verified(
+    response: &SetBreakpointsResponseBody,
+    breakpoints: &[SourceBreakpoint],
+) {
+    assert!(response.breakpoints.len() == breakpoints.len());
+    for (breakpoint, source_breakpoint) in response.breakpoints.iter().zip(breakpoints) {
+        assert!(breakpoint.line == Some(source_breakpoint.line));
+        assert!(breakpoint.verified == true);
     }
 }
 
@@ -185,6 +226,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct Mcfunction {
     pub name: ResourceLocation,
     pub lines: Vec<String>,
@@ -221,6 +263,11 @@ pub fn logged_command(command: &str) -> String {
         .to_string()
 }
 
+pub fn create_and_enable_datapack(functions: Vec<Mcfunction>) {
+    create_datapack(functions);
+    enable_datapack();
+}
+
 pub fn create_datapack(functions: Vec<Mcfunction>) {
     create_dir_all(&datapack_dir()).unwrap();
     write(
@@ -236,11 +283,23 @@ pub fn create_datapack(functions: Vec<Mcfunction>) {
 }
 
 pub fn datapack_dir() -> std::path::PathBuf {
-    const TEST_DATAPACK_NAME: &str = "adapter-test";
-
     Path::new(TEST_WORLD_DIR)
         .join("datapacks")
         .join(TEST_DATAPACK_NAME)
+}
+
+fn enable_datapack() {
+    let connection = MinecraftConnection::new(
+        "dap".to_string(),
+        TEST_WORLD_DIR.into(),
+        TEST_LOG_FILE.into(),
+    );
+    connection
+        .inject_commands(vec![
+            "function debug:uninstall".to_string(),
+            format!("datapack enable \"file/debug-{}\"", TEST_DATAPACK_NAME),
+        ])
+        .unwrap();
 }
 
 pub fn assert_success_response(
@@ -269,4 +328,8 @@ pub fn assert_error_response(
     );
     assert_eq!(request_seq, expected_request_seq);
     error_response
+}
+
+pub fn added_tag_message(tag_name: &str) -> String {
+    format!("Added tag '{}' to {}", tag_name, LISTENER_NAME)
 }
