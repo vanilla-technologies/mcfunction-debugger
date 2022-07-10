@@ -16,82 +16,51 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use assert2::{check, let_assert};
-use debug_adapter_protocol::{
-    events::Event,
-    requests::{InitializeRequestArguments, LaunchRequestArguments},
-    responses::{ErrorResponse, Response, SuccessResponse},
-    ProtocolMessage, ProtocolMessageContent as Content, SequenceNumber,
-};
-use futures::{Sink, SinkExt, Stream, StreamExt};
-use mcfunction_debug_adapter::adapter::McfunctionDebugAdapter;
-use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
-use minect::{log_observer::LogObserver, LoggedCommand};
-use sender_sink::wrappers::UnboundedSenderSink;
-use serde_json::{json, Map};
-use std::{
-    fs::{create_dir_all, write},
-    io,
-    iter::FromIterator,
-    path::{Path, PathBuf},
-};
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+mod utils;
 
-const ADAPTER_ID: &str = "mcfunction";
-const LISTENER_NAME: &str = "test";
-const TEST_LOG_FILE: &str = env!("TEST_LOG_FILE");
-const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
+use crate::utils::{
+    assert_error_response, create_datapack, datapack_dir, enable_logging, named_logged_command,
+    reset_logging, start_adapter, Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
+};
+use assert2::{assert, let_assert};
+use debug_adapter_protocol::{
+    events::{Event, StoppedEventReason},
+    types::{Breakpoint, SourceBreakpoint},
+    ProtocolMessageContent as Content,
+};
+use futures::StreamExt;
+use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
+use minect::log_observer::LogObserver;
+use std::io;
+use tokio::sync::mpsc::error::TryRecvError;
 
 #[tokio::test]
-async fn test() -> io::Result<()> {
+async fn test_program_is_executed() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("test", "bla"),
         lines: vec![
-            logged_command("function minect:enable_logging"),
+            enable_logging(),
             named_logged_command("tag @s add some_tag"),
-            logged_command("function minect:reset_logging"),
+            reset_logging(),
         ],
     };
-    let test_fn_path = test.full_path().display().to_string();
+    let test_fn_path = test.full_path();
     create_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut log_listener = log_observer.add_listener(LISTENER_NAME);
 
-    let (handle, adapter_input, mut adapter_output) = start_adapter();
-    let mut adapter_input = ProtocolMessageSender::new(adapter_input);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+    adapter.launch(&test_fn_path).await;
 
-    let content = InitializeRequestArguments::builder()
-        .adapter_id(ADAPTER_ID.to_string())
-        .build();
-    let request_seq = adapter_input.send_ok(content).await;
-
-    let event = adapter_output.next().await.unwrap();
-    assert_eq!(event.content, Content::Event(Event::Initialized));
-
-    let response = adapter_output.next().await.unwrap();
-    check!(let SuccessResponse::Initialize(_) = assert_success_response(response, request_seq));
-
-    let content = LaunchRequestArguments::builder()
-        .additional_attributes(Map::from_iter([
-            ("minecraftLogFile".to_string(), json!(TEST_LOG_FILE)),
-            ("minecraftWorldDir".to_string(), json!(TEST_WORLD_DIR)),
-            ("program".to_string(), json!(test_fn_path)),
-        ]))
-        .build();
-    let request_seq = adapter_input.send_ok(content).await;
-
-    let response = adapter_output.next().await.unwrap();
-    check!(let SuccessResponse::Launch = assert_success_response(response, request_seq));
-
-    let event = adapter_output.next().await.unwrap();
-    check!(let Content::Event(Event::Terminated(_)) = event.content);
+    let event = adapter.output.next().await.unwrap();
+    assert!(let Content::Event(Event::Terminated(_)) = event.content);
 
     let log_event = log_listener.recv().await.unwrap();
-    check!(log_event.message == "Added tag 'some_tag' to test");
+    assert!(log_event.message == "Added tag 'some_tag' to test");
 
-    handle.await.unwrap().unwrap();
+    adapter.handle.await.unwrap().unwrap();
     Ok(())
 }
 
@@ -100,163 +69,69 @@ async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
     create_datapack(Vec::new());
     let test_fn_path = datapack_dir().join("not-data").join("test.mcfunction");
 
-    let (_handle, adapter_input, mut adapter_output) = start_adapter();
-    let mut adapter_input = ProtocolMessageSender::new(adapter_input);
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
 
-    let content = InitializeRequestArguments::builder()
-        .adapter_id(ADAPTER_ID.to_string())
-        .build();
-    let request_seq = adapter_input.send_ok(content).await;
-
-    let event = adapter_output.next().await.unwrap();
-    assert_eq!(event.content, Content::Event(Event::Initialized));
-
-    let response = adapter_output.next().await.unwrap();
-    check!(let SuccessResponse::Initialize(_) = assert_success_response(response, request_seq));
-
-    let content = LaunchRequestArguments::builder()
-        .additional_attributes(Map::from_iter([
-            ("minecraftLogFile".to_string(), json!(TEST_LOG_FILE)),
-            ("minecraftWorldDir".to_string(), json!(TEST_WORLD_DIR)),
-            ("program".to_string(), json!(test_fn_path)),
-        ]))
-        .build();
-    let request_seq = adapter_input.send_ok(content).await;
-
-    let response = adapter_output.next().await.unwrap();
-
+    let request_seq = adapter.send_launch(&test_fn_path).await;
+    let response = adapter.output.next().await.unwrap();
     let error_response = assert_error_response(response, request_seq);
-    check!(error_response.command == "launch");
-    check!(error_response
+    assert!(error_response.command == "launch");
+    assert!(error_response
         .message
         .starts_with("Attribute 'program' does not denote a path in the data directory"));
     Ok(())
 }
 
-fn assert_success_response(
-    response: ProtocolMessage,
-    expected_request_seq: SequenceNumber,
-) -> SuccessResponse {
-    let_assert!(
-        Content::Response(Response {
-            request_seq,
-            result: Ok(success_response)
-        }) = response.content
-    );
-    assert_eq!(request_seq, expected_request_seq);
-    success_response
-}
+#[tokio::test]
+async fn test_breakpoint_suspends_execution() -> io::Result<()> {
+    let test = Mcfunction {
+        name: ResourceLocation::new("test", "bla"),
+        lines: vec![
+            /* 1 */ enable_logging(),
+            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 4 */ reset_logging(),
+        ],
+    };
+    let test_fn_path = test.full_path();
+    create_datapack(vec![test]);
 
-fn assert_error_response(
-    response: ProtocolMessage,
-    expected_request_seq: SequenceNumber,
-) -> ErrorResponse {
-    let_assert!(
-        Content::Response(Response {
-            request_seq,
-            result: Err(error_response)
-        }) = response.content
-    );
-    assert_eq!(request_seq, expected_request_seq);
-    error_response
-}
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = log_observer.add_listener(LISTENER_NAME);
 
-struct ProtocolMessageSender<I>
-where
-    I: Sink<io::Result<ProtocolMessage>, Error = io::Error>,
-{
-    seq: SequenceNumber,
-    adapter_input: I,
-}
-impl<I> ProtocolMessageSender<I>
-where
-    I: Sink<io::Result<ProtocolMessage>, Error = io::Error> + Unpin,
-{
-    fn new(adapter_input: I) -> ProtocolMessageSender<I> {
-        ProtocolMessageSender {
-            seq: 0,
-            adapter_input,
-        }
-    }
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
 
-    async fn send_ok(&mut self, content: impl Into<Content>) -> SequenceNumber {
-        self.seq += 1;
-        let msg = ProtocolMessage::new(self.seq, content);
-        self.send(Ok(msg)).await;
-        self.seq
-    }
+    let breakpoints = vec![SourceBreakpoint::builder().line(3).build()];
+    let response = adapter.set_breakpoints(&test_fn_path, breakpoints).await;
+    assert!(let [Breakpoint {
+      verified: true,
+      line: Some(3),
+      ..
+    }] = response.breakpoints.as_slice());
 
-    async fn send(&mut self, msg: impl Into<io::Result<ProtocolMessage>>) {
-        self.adapter_input.send(msg.into()).await.unwrap();
-    }
-}
+    adapter.launch(&test_fn_path).await;
 
-fn start_adapter() -> (
-    JoinHandle<io::Result<()>>,
-    impl Sink<io::Result<ProtocolMessage>, Error = io::Error>,
-    impl Stream<Item = ProtocolMessage>,
-) {
-    let (adapter_input_sink, adapter_input_stream) = unbound_io_channel();
-    let (adapter_output_sink, adapter_output_stream) = unbound_io_channel();
-    let mut adapter = McfunctionDebugAdapter::new(adapter_input_stream, adapter_output_sink);
-    let handle = tokio::task::spawn(async move { adapter.run().await });
-    (handle, adapter_input_sink, adapter_output_stream)
-}
+    let event = adapter.output.next().await.unwrap();
+    let_assert!(Content::Event(Event::Stopped(body)) = event.content);
+    assert!(body.reason == StoppedEventReason::Breakpoint);
 
-fn unbound_io_channel<I>() -> (impl Sink<I, Error = io::Error>, impl Stream<Item = I>) {
-    let (send, recv) = tokio::sync::mpsc::unbounded_channel();
-    let sink = UnboundedSenderSink::from(send)
-        .sink_map_err(|_| io::Error::new(io::ErrorKind::ConnectionAborted, ""));
-    let stream = UnboundedReceiverStream::new(recv);
-    (sink, stream)
-}
+    // TODO: threads and stacktrace
 
-fn named_logged_command(command: &str) -> String {
-    LoggedCommand::builder(command.to_string())
-        .name(LISTENER_NAME)
-        .build()
-        .to_string()
-}
+    // First line executed
+    assert!(log_listener.recv().await.unwrap().message == "Added tag 'tag1' to test");
 
-fn logged_command(command: &str) -> String {
-    LoggedCommand::builder(command.to_string())
-        .build()
-        .to_string()
-}
+    // Second line NOT executed
+    assert!(log_listener.try_recv().unwrap_err() == TryRecvError::Empty);
 
-struct Mcfunction {
-    name: ResourceLocation,
-    lines: Vec<String>,
-}
-impl Mcfunction {
-    fn full_path(&self) -> PathBuf {
-        datapack_dir()
-            .join("data")
-            .join(self.name.namespace())
-            .join("functions")
-            .join(self.name.path())
-            .with_extension("mcfunction")
-    }
-}
+    adapter.continue_().await;
 
-const TEST_DATAPACK_NAME: &str = "adapter-test";
+    // Second line executed
+    assert!(log_listener.recv().await.unwrap().message == "Added tag 'tag2' to test");
 
-fn create_datapack(functions: Vec<Mcfunction>) {
-    create_dir_all(&datapack_dir()).unwrap();
-    write(
-        datapack_dir().join("pack.mcmeta"),
-        r#"{"pack":{"pack_format":7,"description":"mcfunction-debugger test tick"}}"#,
-    )
-    .unwrap();
-    for function in functions {
-        let path = function.full_path();
-        create_dir_all(&path.parent().unwrap()).unwrap();
-        write(path, function.lines.join("\n")).unwrap();
-    }
-}
+    let event = adapter.output.next().await.unwrap();
+    assert!(let Content::Event(Event::Terminated(_)) = event.content);
 
-fn datapack_dir() -> std::path::PathBuf {
-    Path::new(TEST_WORLD_DIR)
-        .join("datapacks")
-        .join(TEST_DATAPACK_NAME)
+    adapter.handle.await.unwrap().unwrap();
+    Ok(())
 }

@@ -58,12 +58,12 @@ where
         .await
     }
 
-    pub async fn write_msg(&mut self, content: ProtocolMessageContent) -> Result<(), O::Error> {
+    pub async fn write_msg(
+        &mut self,
+        content: impl Into<ProtocolMessageContent>,
+    ) -> Result<(), O::Error> {
         self.seq += 1;
-        let msg = ProtocolMessage {
-            seq: self.seq,
-            content,
-        };
+        let msg = ProtocolMessage::new(self.seq, content);
         trace!("Sending message to client: {}", msg);
         self.output.send(msg).await
     }

@@ -8,8 +8,8 @@ mcfunction-debugger = { path = ".." }
 
 bytes = "1"
 clap = "2"
-# debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git" }
-debug-adapter-protocol = { path = "../../debug-adapter-protocol" }
+debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git" }
+# debug-adapter-protocol = { path = "../../debug-adapter-protocol" }
 futures = "0.3"
 log = "0.4"
 log-panics = "2"

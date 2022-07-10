@@ -165,6 +165,7 @@ dependencies = [
 [[package]]
 name = "debug-adapter-protocol"
 version = "0.1.0"
+source = "git+ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git#90464afc1abab63691ccf049584a1c4617f4af15"
 dependencies = [
  "serde",
  "serde_json",
