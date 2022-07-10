@@ -17,8 +17,8 @@ minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 # minect = { path = "../../minect" }
 multimap = "0.8"
 serde_json = "1"
-sender-sink = "0.1"
-simplelog = "0.11"
+sender-sink = "0.2"
+simplelog = "0.12"
 tokio = { version = "1", features = [
   "io-std",
   "io-util",
@@ -29,11 +29,11 @@ tokio = { version = "1", features = [
 ] }
 tokio-stream = { version = "0.1", features = ["io-util"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }
-uuid = { version = "0.8", features = ["v4"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 assert2 = "0.3"
 serial_test = "0.8"
 
 [build-dependencies]
-vergen = "5"
+vergen = "7"
