@@ -16,6 +16,5 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute unless score breakpoint -ns-_global matches 1 run tag @s remove -ns-_active
-execute unless score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/next_iteration_or_return
-execute unless score breakpoint -ns-_global matches 1 run kill @s
+execute as @e[type=area_effect_cloud,tag=-ns-_context,tag=-ns-_active,tag=-ns-_current] if score @s -ns-_depth = current -ns-_depth run tag @s remove -ns-_active
+function -ns-:-orig_ns-/-orig/fn-/next_iteration_or_return

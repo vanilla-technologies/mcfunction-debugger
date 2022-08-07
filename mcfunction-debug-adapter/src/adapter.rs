@@ -86,6 +86,7 @@ struct ClientSession {
     path_format: PathFormat,
     minecraft_session: Option<MinecraftSession>,
     breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
+    stopped_at: Option<McfunctionBreakpoint<String>>,
     parser: CommandParser,
 }
 impl ClientSession {
@@ -94,6 +95,21 @@ impl ClientSession {
             0
         } else {
             1
+        }
+    }
+
+    fn contains_breakpoint(
+        breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+        breakpoint: &McfunctionBreakpoint<String>,
+    ) -> bool {
+        let breakpoints = breakpoints.get_vec(&breakpoint.function);
+        if let Some(breakpoints) = breakpoints {
+            breakpoints
+                .iter()
+                .find(|it| it.line_number == breakpoint.line_number)
+                .is_some()
+        } else {
+            false
         }
     }
 }
@@ -262,23 +278,31 @@ where
                         .await?;
                     return Ok(false);
                 }
-                if let Some(_) = Self::parse_stopped_tag(tag) {
-                    self.writer
-                        .write_msg(
-                            StoppedEventBody::builder()
-                                .reason(StoppedEventReason::Breakpoint)
-                                .thread_id(Some(THREAD_ID))
-                                .build(),
-                        )
-                        .await?;
+                if let Some(tag) = Self::parse_stopped_tag(tag) {
+                    self.on_stopped(tag).await?;
                 }
             }
         }
         Ok(true)
     }
+
     fn parse_stopped_tag(tag: &str) -> Option<McfunctionBreakpointTag<String>> {
         let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
         breakpoint_tag.parse().ok()
+    }
+
+    async fn on_stopped(&mut self, tag: McfunctionBreakpointTag<String>) -> Result<(), io::Error> {
+        self.client_session.as_mut().unwrap().stopped_at = Some(tag.0); // TODO unwrap
+
+        self.writer
+            .write_msg(
+                StoppedEventBody::builder()
+                    .reason(StoppedEventReason::Breakpoint)
+                    .thread_id(Some(THREAD_ID))
+                    .build(),
+            )
+            .await?;
+        Ok(())
     }
 
     fn unwrap_client_session(
@@ -312,6 +336,7 @@ where
             path_format: arguments.path_format,
             minecraft_session: None,
             breakpoints: MultiMap::new(),
+            stopped_at: None,
             parser,
         });
 
@@ -723,7 +748,32 @@ where
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        mc_session.inject_commands(vec!["function debug:resume".to_string()])?;
+        let mut commands = Vec::new();
+
+        if let Some(stopped_at) = client_session.stopped_at.as_ref() {
+            if !ClientSession::contains_breakpoint(&client_session.breakpoints, stopped_at) {
+                let resumption_point = LocalBreakpoint {
+                    line_number: stopped_at.line_number,
+                    kind: BreakpointKind::Continue,
+                };
+                client_session
+                    .breakpoints
+                    .insert(stopped_at.function.clone(), resumption_point);
+
+                generate_datapack(mc_session, &client_session.breakpoints).await?;
+                commands.push("reload".to_string());
+
+                client_session
+                    .breakpoints
+                    .get_vec_mut(&stopped_at.function)
+                    .unwrap() // save because we just inserted
+                    .pop();
+                client_session.stopped_at = None;
+            };
+
+            commands.push("function debug:resume".to_string());
+            mc_session.inject_commands(commands)?;
+        }
 
         Ok(ContinueResponseBody::builder().build())
     }

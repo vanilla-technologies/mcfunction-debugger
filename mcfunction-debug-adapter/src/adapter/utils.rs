@@ -34,6 +34,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+use tokio::fs::remove_dir_all;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 pub fn parse_function_path(path: impl AsRef<Path>) -> Result<(PathBuf, ResourceLocation), String> {
@@ -107,9 +108,10 @@ pub(super) async fn generate_datapack(
             breakpoints,
         }),
     };
+    let _ = remove_dir_all(&minecraft_session.output_path).await;
     generate_debug_datapack(
         &minecraft_session.datapack,
-        minecraft_session.output_path.clone(),
+        &minecraft_session.output_path,
         &config,
     )
     .await

@@ -25,3 +25,5 @@ execute unless score @s -ns-_id matches 0 unless entity @e[tag=!-ns-_context,tag
 execute if score @s -ns-_id matches 0 at @s run function -ns-:-orig_ns-/-orig/fn-/-positions-
 execute if score current -ns-_anchor matches 0 at @s as @e[tag=!-ns-_context,tag=-ns-_tmp] anchored feet run function -ns-:-orig_ns-/-orig/fn-/-positions-
 execute if score current -ns-_anchor matches 1 at @s as @e[tag=!-ns-_context,tag=-ns-_tmp] anchored eyes run function -ns-:-orig_ns-/-orig/fn-/-positions-
+
+execute if entity @s[tag=!-ns-_active] run kill @s

@@ -52,15 +52,20 @@ pub struct Config<'l> {
     pub adapter: Option<AdapterConfig<'l>>,
 }
 impl Config<'_> {
-    fn is_suspending_breakpoint(&self, function: &ResourceLocation, line_number: usize) -> bool {
+    fn get_breakpoint_kind(
+        &self,
+        function: &ResourceLocation,
+        line_number: usize,
+    ) -> Option<BreakpointKind> {
         if let Some(config) = self.adapter.as_ref() {
             if let Some(vec) = config.breakpoints.get_vec(function) {
-                return vec.iter().any(|breakpoint| {
-                    breakpoint.can_suspend() && breakpoint.line_number == line_number
-                });
+                return vec
+                    .iter()
+                    .find(|breakpoint| breakpoint.line_number == line_number)
+                    .map(|it| it.kind);
             }
         }
-        false
+        None
     }
 }
 pub struct AdapterConfig<'l> {
@@ -73,29 +78,23 @@ pub struct LocalBreakpoint {
     pub kind: BreakpointKind,
 }
 impl LocalBreakpoint {
-    fn can_suspend(&self) -> bool {
-        self.kind.can_suspend()
-    }
     fn can_resume(&self) -> bool {
         self.kind.can_resume()
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BreakpointKind {
     Normal,
     Invalid,
+    Continue,
 }
 impl BreakpointKind {
-    fn can_suspend(&self) -> bool {
-        match self {
-            BreakpointKind::Normal => true,
-            BreakpointKind::Invalid => false,
-        }
-    }
     fn can_resume(&self) -> bool {
         match self {
             BreakpointKind::Normal => true,
             BreakpointKind::Invalid => false,
+            BreakpointKind::Continue => true,
         }
     }
 }
@@ -513,7 +512,7 @@ async fn expand_function_templates(
     let partitions = partition(fn_name, lines, config);
 
     let mut first = true;
-    for partition in partitions {
+    for (partition_index, partition) in partitions.iter().enumerate() {
         let position = partition.start.to_string();
         let positions = format!("{}-{}", partition.start, partition.end);
         let engine = engine.extend([
@@ -541,12 +540,7 @@ async fn expand_function_templates(
         #[rustfmt::skip]
         macro_rules! PATH { () => {"data/-ns-/functions/-orig_ns-/-orig/fn-/continue_at_-position-.mcfunction"} }
         let path = output_path.join(engine.expand(PATH!()));
-        let mut template = include_template!(PATH!()).to_string();
-        if matches!(partition.terminator, Terminator::Return) {
-            template.push_str(include_template!(
-                "data/-ns-/functions/-orig_ns-/-orig/fn-/continue_at_-position-_last.mcfunction"
-            ));
-        }
+        let template = include_template!(PATH!()).to_string();
         write(&path, &engine.expand(&template)).await?;
 
         // -positions-.mcfunction
@@ -565,6 +559,14 @@ async fn expand_function_templates(
                     include_template!("data/template/functions/set_breakpoint.mcfunction");
                 engine.expand(&template)
             }
+            Terminator::Continue => {
+                let next_partition = &partitions[partition_index + 1];
+                let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
+                let engine = engine.extend([("-next_positions-", next_positions.as_str())]);
+                engine.expand(&format!(
+                    "function -ns-:-orig_ns-/-orig/fn-/-next_positions-"
+                ))
+            }
             Terminator::FunctionCall {
                 line,
                 name,
@@ -574,7 +576,7 @@ async fn expand_function_templates(
                 let line_number = (partition.end.line_number).to_string();
                 let line = exclude_internal_entites_from_selectors(line, selectors);
                 let function_call = format!("function {}", name);
-                let execute = line.strip_suffix(&function_call).unwrap(); //TODO panic!
+                let execute = line.strip_suffix(&function_call).unwrap(); // TODO panic!
                 let debug_anchor = anchor.map_or("".to_string(), |anchor| {
                     let mut anchor_score = 0;
                     if anchor == MinecraftEntityAnchor::EYES {
@@ -597,7 +599,10 @@ async fn expand_function_templates(
                     include_template!("data/template/functions/call_function.mcfunction");
                 engine.expand(&template)
             }
-            Terminator::Return => String::new(),
+            Terminator::Return => {
+                let template = include_template!("data/template/functions/return.mcfunction");
+                engine.expand(&template)
+            }
         };
         content.push('\n');
         content.push_str(&terminator);
@@ -719,6 +724,7 @@ impl Display for PositionInLine {
 }
 enum Terminator<'l> {
     Breakpoint,
+    Continue,
     FunctionCall {
         line: &'l str,
         name: &'l ResourceLocation,
@@ -731,6 +737,7 @@ impl Terminator<'_> {
     fn get_position_in_line(&self) -> PositionInLine {
         match self {
             Terminator::Breakpoint => PositionInLine::Breakpoint,
+            Terminator::Continue => PositionInLine::Breakpoint,
             Terminator::FunctionCall { .. } => PositionInLine::Function,
             Terminator::Return => PositionInLine::Return,
         }
@@ -766,9 +773,17 @@ fn partition<'l>(
             start_line_index = line_index;
             partition
         };
-        if config.is_suspending_breakpoint(fn_name, line_number)
-            | matches!(command, Line::Breakpoint)
-        {
+        match config.get_breakpoint_kind(fn_name, line_number) {
+            Some(BreakpointKind::Normal) => {
+                partitions.push(next_partition(Terminator::Breakpoint));
+            }
+            Some(BreakpointKind::Invalid) => {}
+            Some(BreakpointKind::Continue) => {
+                partitions.push(next_partition(Terminator::Continue));
+            }
+            None => {}
+        }
+        if matches!(command, Line::Breakpoint) {
             partitions.push(next_partition(Terminator::Breakpoint));
         }
         if let Line::FunctionCall {

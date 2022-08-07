@@ -16,6 +16,9 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
+pub mod timeout;
+
+use crate::utils::timeout::TimeoutStream;
 use assert2::{assert, let_assert};
 use debug_adapter_protocol::{
     events::{Event, StoppedEventReason},
@@ -27,7 +30,7 @@ use debug_adapter_protocol::{
     types::{Source, SourceBreakpoint},
     ProtocolMessage, ProtocolMessageContent as Content, SequenceNumber,
 };
-use futures::{Sink, SinkExt, Stream, StreamExt};
+use futures::{Sink, SinkExt, Stream};
 use mcfunction_debug_adapter::adapter::McfunctionDebugAdapter;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::{LoggedCommand, MinecraftConnection};
@@ -39,7 +42,8 @@ use std::{
     iter::FromIterator,
     path::{Path, PathBuf},
 };
-use tokio::task::JoinHandle;
+use timeout::DEFAULT_TIMEOUT;
+use tokio::{task::JoinHandle, time::timeout};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 const ADAPTER_ID: &str = "mcfunction";
@@ -56,7 +60,7 @@ where
 {
     pub handle: JoinHandle<io::Result<()>>,
     pub input: ProtocolMessageSender<I>,
-    pub output: O,
+    pub output: TimeoutStream<O, ProtocolMessage>,
 }
 
 pub fn start_adapter() -> TestAdapter<
@@ -75,7 +79,7 @@ pub fn start_adapter() -> TestAdapter<
     TestAdapter {
         handle,
         input,
-        output,
+        output: TimeoutStream::new(output),
     }
 }
 
@@ -94,7 +98,11 @@ where
         let event = self.output.next().await.unwrap();
         assert!(let Content::Event(Event::Terminated(_)) = event.content);
 
-        self.handle.await.unwrap().unwrap();
+        timeout(DEFAULT_TIMEOUT, self.handle)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
 
     pub async fn continue_(&mut self) {
