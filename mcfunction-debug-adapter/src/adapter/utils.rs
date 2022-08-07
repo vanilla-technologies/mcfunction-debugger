@@ -99,13 +99,31 @@ pub fn get_function_name(
 pub(super) async fn generate_datapack(
     minecraft_session: &MinecraftSession,
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+    generated_breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
 ) -> Result<(), DapError> {
+    let mut breakpoints = breakpoints.clone();
+
+    // Add all generated breakpoints that are not at the same position as user breakpoints
+    for (key, values) in generated_breakpoints.iter_all() {
+        for value in values {
+            if !contains_breakpoint(
+                &breakpoints,
+                &McfunctionBreakpoint {
+                    function: key.clone(),
+                    line_number: value.line_number,
+                },
+            ) {
+                breakpoints.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
     let config = Config {
         namespace: &minecraft_session.namespace,
         shadow: false,
         adapter: Some(AdapterConfig {
             adapter_listener_name: ADAPTER_LISTENER_NAME,
-            breakpoints,
+            breakpoints: &breakpoints,
         }),
     };
     let _ = remove_dir_all(&minecraft_session.output_path).await;
@@ -117,6 +135,21 @@ pub(super) async fn generate_datapack(
     .await
     .map_err(|e| PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e)))?;
     Ok(())
+}
+
+pub fn contains_breakpoint(
+    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+    breakpoint: &McfunctionBreakpoint<String>,
+) -> bool {
+    let breakpoints = breakpoints.get_vec(&breakpoint.function);
+    if let Some(breakpoints) = breakpoints {
+        breakpoints
+            .iter()
+            .find(|it| it.line_number == breakpoint.line_number)
+            .is_some()
+    } else {
+        false
+    }
 }
 
 pub fn events_between_tags(

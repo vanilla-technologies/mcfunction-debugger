@@ -273,7 +273,7 @@ pub fn logged_command(command: &str) -> String {
 
 pub fn create_and_enable_datapack(functions: Vec<Mcfunction>) {
     create_datapack(functions);
-    enable_datapack();
+    enable_debug_datapack();
 }
 
 pub fn create_datapack(functions: Vec<Mcfunction>) {
@@ -296,7 +296,7 @@ pub fn datapack_dir() -> std::path::PathBuf {
         .join(TEST_DATAPACK_NAME)
 }
 
-fn enable_datapack() {
+fn enable_debug_datapack() {
     let connection = MinecraftConnection::new(
         "dap".to_string(),
         TEST_WORLD_DIR.into(),

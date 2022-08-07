@@ -73,6 +73,7 @@ pub struct AdapterConfig<'l> {
     pub breakpoints: &'l MultiMap<ResourceLocation, LocalBreakpoint>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LocalBreakpoint {
     pub line_number: usize,
     pub kind: BreakpointKind,

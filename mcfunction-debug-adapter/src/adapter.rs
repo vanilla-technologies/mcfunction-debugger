@@ -20,8 +20,8 @@ mod utils;
 
 use crate::{
     adapter::utils::{
-        events_between_tags, generate_datapack, parse_function_path, McfunctionBreakpoint,
-        McfunctionBreakpointTag,
+        contains_breakpoint, events_between_tags, generate_datapack, parse_function_path,
+        McfunctionBreakpoint, McfunctionBreakpointTag,
     },
     error::{DapError, PartialErrorResponse},
     get_command,
@@ -86,6 +86,7 @@ struct ClientSession {
     path_format: PathFormat,
     minecraft_session: Option<MinecraftSession>,
     breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
+    generated_breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
     stopped_at: Option<McfunctionBreakpoint<String>>,
     parser: CommandParser,
 }
@@ -95,21 +96,6 @@ impl ClientSession {
             0
         } else {
             1
-        }
-    }
-
-    fn contains_breakpoint(
-        breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-        breakpoint: &McfunctionBreakpoint<String>,
-    ) -> bool {
-        let breakpoints = breakpoints.get_vec(&breakpoint.function);
-        if let Some(breakpoints) = breakpoints {
-            breakpoints
-                .iter()
-                .find(|it| it.line_number == breakpoint.line_number)
-                .is_some()
-        } else {
-            false
         }
     }
 }
@@ -336,6 +322,7 @@ where
             path_format: arguments.path_format,
             minecraft_session: None,
             breakpoints: MultiMap::new(),
+            generated_breakpoints: MultiMap::new(),
             stopped_at: None,
             parser,
         });
@@ -449,7 +436,12 @@ where
             output_path,
         };
 
-        generate_datapack(&minecraft_session, &client_session.breakpoints).await?;
+        generate_datapack(
+            &minecraft_session,
+            &client_session.breakpoints,
+            &client_session.generated_breakpoints,
+        )
+        .await?;
 
         // Install procedure
         // create_installer_datapack
@@ -560,7 +552,12 @@ where
         let new_breakpoints = client_session.breakpoints.get_vec(&function).unwrap();
 
         if let Some(minecraft_session) = client_session.minecraft_session.as_mut() {
-            generate_datapack(minecraft_session, &client_session.breakpoints).await?;
+            generate_datapack(
+                minecraft_session,
+                &client_session.breakpoints,
+                &client_session.generated_breakpoints,
+            )
+            .await?;
             let mut commands = vec!["reload".to_string()];
             if args.source_modified && old_breakpoints.len() == new_breakpoints.len() {
                 commands.extend(Self::get_move_breakpoint_commands(
@@ -748,31 +745,35 @@ where
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        let mut commands = Vec::new();
-
         if let Some(stopped_at) = client_session.stopped_at.as_ref() {
-            if !ClientSession::contains_breakpoint(&client_session.breakpoints, stopped_at) {
-                let resumption_point = LocalBreakpoint {
+            // Remove all generated breakpoints with kind continue
+            for (_key, values) in client_session.generated_breakpoints.iter_all_mut() {
+                values.retain(|it| it.kind != BreakpointKind::Continue);
+            }
+
+            client_session.generated_breakpoints.insert(
+                stopped_at.function.clone(),
+                LocalBreakpoint {
                     line_number: stopped_at.line_number,
                     kind: BreakpointKind::Continue,
-                };
-                client_session
-                    .breakpoints
-                    .insert(stopped_at.function.clone(), resumption_point);
+                },
+            );
 
-                generate_datapack(mc_session, &client_session.breakpoints).await?;
+            let mut commands = Vec::new();
+
+            if !contains_breakpoint(&client_session.breakpoints, stopped_at) {
+                generate_datapack(
+                    mc_session,
+                    &client_session.breakpoints,
+                    &client_session.generated_breakpoints,
+                )
+                .await?;
                 commands.push("reload".to_string());
-
-                client_session
-                    .breakpoints
-                    .get_vec_mut(&stopped_at.function)
-                    .unwrap() // save because we just inserted
-                    .pop();
-                client_session.stopped_at = None;
             };
 
             commands.push("function debug:resume".to_string());
             mc_session.inject_commands(commands)?;
+            client_session.stopped_at = None;
         }
 
         Ok(ContinueResponseBody::builder().build())

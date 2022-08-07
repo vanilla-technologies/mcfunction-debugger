@@ -429,3 +429,44 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
     assert!(log_listener.next().await.unwrap().message == added_tag_message("some_tag")); // Second iteration was executed
     Ok(())
 }
+
+/// Reproducer for race condition mentioned in https://github.com/vanilla-technologies/mcfunction-debugger/issues/63
+#[tokio::test]
+#[serial]
+async fn test_current_breakpoint_removed_continue_folloewd_by_set_breakpoints() -> io::Result<()> {
+    let test = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "test"),
+        lines: vec![
+            /* 1 */ enable_logging(),
+            /* 2 */ named_logged_command("tag @s add some_tag"),
+            /* 3 */ reset_logging(),
+        ],
+    };
+    let test_path = test.full_path();
+    create_and_enable_datapack(vec![test]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut log_listener = TimeoutStream::from_receiver(log_observer.add_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let mut breaks = vec![SourceBreakpoint::builder().line(2).build()];
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.launch(&test_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(log_listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // First line NOT executed
+
+    breaks.remove(0);
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.continue_().await;
+
+    // This runs before minecraft executes debug:resume which originally caused the breakpoint of kind continue to be deleted
+    breaks.push(SourceBreakpoint::builder().line(1).build());
+    adapter.set_breakpoints_verified(&test_path, &breaks).await;
+
+    adapter.assert_terminated().await;
+    assert!(log_listener.next().await.unwrap().message == added_tag_message("some_tag"));
+    Ok(())
+}
