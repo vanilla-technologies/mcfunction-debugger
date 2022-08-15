@@ -28,6 +28,34 @@ pub fn parse_scoreboard_value(message: &str, scoreboard: &str) -> Option<i32> {
     scoreboard_value.parse().ok()
 }
 
+pub struct ScoreboardMessage {
+    pub scoreboard: String,
+    pub entity: String,
+    pub score: i32,
+}
+impl ScoreboardMessage {
+    pub fn parse(message: &str) -> Option<ScoreboardMessage> {
+        let suffix = message.strip_prefix(&format!("Added 0 to ["))?;
+        const FOR: &str = "] for ";
+        let index = suffix.find(FOR)?;
+        let (scoreboard, suffix) = suffix.split_at(index);
+        let suffix = suffix.strip_prefix(FOR)?;
+
+        const NOW: &str = " (now ";
+        let index = suffix.find(NOW)?;
+        let (entity, suffix) = suffix.split_at(index);
+        let suffix = suffix.strip_prefix(NOW)?;
+        let score = suffix.strip_suffix(')')?;
+        let score = score.parse().ok()?;
+
+        Some(ScoreboardMessage {
+            scoreboard: scoreboard.to_string(),
+            entity: entity.to_string(),
+            score,
+        })
+    }
+}
+
 /// Parse an event in the following format:
 ///
 /// `[16:09:59] [Server thread/INFO]: [sample:foo:2: Added tag 'mcfd_breakpoint' to sample:foo:2]`

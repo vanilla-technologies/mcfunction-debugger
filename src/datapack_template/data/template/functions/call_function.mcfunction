@@ -16,13 +16,12 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute if score -call_ns-:-call/fn- -ns-_valid matches 1 run scoreboard players add current -ns-_depth 1
-
 execute if score -call_ns-:-call/fn- -ns-_valid matches 1 run summon area_effect_cloud ~ ~ ~ {Duration: 2147483647, Tags: [-ns-_new, -ns-, -ns-_function_call, -ns-+-orig_ns-+-orig+fn-+-line_number-, -ns-_active], CustomName: '{"text":"-orig_ns-:-orig/fn-:-line_number-"}'}
 execute if score -call_ns-:-call/fn- -ns-_valid matches 1 run scoreboard players operation @e[type=area_effect_cloud,tag=-ns-_new] -ns-_anchor = current -ns-_anchor
 execute if score -call_ns-:-call/fn- -ns-_valid matches 1 run scoreboard players operation @e[type=area_effect_cloud,tag=-ns-_new] -ns-_depth = current -ns-_depth
 execute if score -call_ns-:-call/fn- -ns-_valid matches 1 run tag @e[type=area_effect_cloud,tag=-ns-_new] remove -ns-_new
 
+execute if score -call_ns-:-call/fn- -ns-_valid matches 1 run scoreboard players add current -ns-_depth 1
 # -debug_anchor-
 
 execute if score -call_ns-:-call/fn- -ns-_valid matches 1 run execute run function -ns-:select_entity

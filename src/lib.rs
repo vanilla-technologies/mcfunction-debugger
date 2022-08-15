@@ -269,7 +269,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/tick.mcfunction"),
         expand!("data/-ns-/functions/unfreeze_aec.mcfunction"),
         expand!("data/-ns-/functions/uninstall.mcfunction"),
-        expand_update_scores_template(&engine, function_contents, &output_path),
+        expand_scores_templates(&engine, function_contents, &output_path),
         expand_validate_all_functions_template(&engine, function_contents, &output_path),
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
@@ -358,20 +358,34 @@ async fn expand_schedule_template(
     write(&path, &content).await
 }
 
-async fn expand_update_scores_template(
+async fn expand_scores_templates(
     engine: &TemplateEngine<'_>,
     function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
-    #[rustfmt::skip]
-    macro_rules! PATH { () => { "data/-ns-/functions/update_scores.mcfunction" }; }
-
     let objectives = function_contents
         .values()
         .flat_map(|vec| vec)
         .filter_map(|(_, _, line)| line.objectives())
         .flat_map(|objectives| objectives)
         .collect::<BTreeSet<_>>();
+
+    try_join!(
+        expand_log_scores_template(&objectives, engine, &output_path),
+        expand_update_scores_template(&objectives, engine, &output_path),
+    )?;
+
+    Ok(())
+}
+
+async fn expand_log_scores_template(
+    objectives: &BTreeSet<&String>,
+    engine: &TemplateEngine<'_>,
+    output_path: impl AsRef<Path>,
+) -> Result<(), io::Error> {
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/-ns-/functions/log_scores.mcfunction" }; }
+
     let content = objectives
         .iter()
         .map(|objective| {
@@ -380,7 +394,26 @@ async fn expand_update_scores_template(
         })
         .collect::<Vec<_>>()
         .join("");
+    let path = output_path.as_ref().join(engine.expand(PATH!()));
+    write(&path, &content).await
+}
 
+async fn expand_update_scores_template(
+    objectives: &BTreeSet<&String>,
+    engine: &TemplateEngine<'_>,
+    output_path: impl AsRef<Path>,
+) -> Result<(), io::Error> {
+    #[rustfmt::skip]
+    macro_rules! PATH { () => { "data/-ns-/functions/update_scores.mcfunction" }; }
+
+    let content = objectives
+        .iter()
+        .map(|objective| {
+            let engine = engine.extend([("-objective-", objective.as_str())]);
+            engine.expand(include_template!(PATH!()))
+        })
+        .collect::<Vec<_>>()
+        .join("");
     let path = output_path.as_ref().join(engine.expand(PATH!()));
     write(&path, &content).await
 }

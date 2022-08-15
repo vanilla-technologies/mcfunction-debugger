@@ -16,13 +16,5 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players operation current -ns-_anchor = @s -ns-_anchor
-scoreboard players reset found_continue_function -ns-_global
-
-tag @s remove -ns-_active
-
-# -return_cases-
-
-execute if score found_continue_function -ns-_global matches 1 run kill @s
-execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Function call at "},{"selector":"@s"},{"text":" was deleted!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
-execute unless score found_continue_function -ns-_global matches 1 run function -ns-:abort_session
+# -minect_log-
+execute as @e[tag=!-ns-_context,scores={-ns-_id=0}] if score @s -objective- = @s -objective- run scoreboard players add @s -objective- 0

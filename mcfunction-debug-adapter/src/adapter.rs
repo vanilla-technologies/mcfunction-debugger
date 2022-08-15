@@ -25,7 +25,7 @@ use crate::{
     },
     error::{DapError, PartialErrorResponse},
     get_command,
-    minecraft::{parse_added_tag_message, parse_scoreboard_value},
+    minecraft::{parse_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
     MessageWriter,
 };
 use debug_adapter_protocol::{
@@ -37,12 +37,16 @@ use debug_adapter_protocol::{
         ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
         LaunchRequestArguments, PathFormat, PauseRequestArguments, Request, ScopesRequestArguments,
         SetBreakpointsRequestArguments, StackTraceRequestArguments, TerminateRequestArguments,
+        VariablesRequestArguments,
     },
     responses::{
         ContinueResponseBody, EvaluateResponseBody, ScopesResponseBody, SetBreakpointsResponseBody,
-        StackTraceResponseBody, SuccessResponse, ThreadsResponseBody,
+        StackTraceResponseBody, SuccessResponse, ThreadsResponseBody, VariablesResponseBody,
     },
-    types::{Breakpoint, Capabilities, Source, StackFrame, Thread},
+    types::{
+        Breakpoint, Capabilities, Scope, ScopePresentationHint, Source, StackFrame, Thread,
+        Variable,
+    },
     ProtocolMessage, ProtocolMessageContent,
 };
 use futures::{
@@ -62,6 +66,7 @@ use minect::{
 };
 use multimap::MultiMap;
 use std::{
+    convert::TryFrom,
     future::ready,
     io,
     path::{Path, PathBuf},
@@ -105,11 +110,57 @@ struct MinecraftSession {
     datapack: PathBuf,
     namespace: String,
     output_path: PathBuf,
+    scopes: Vec<ScopeReference>,
 }
 impl MinecraftSession {
     fn inject_commands(&mut self, commands: Vec<String>) -> Result<(), PartialErrorResponse> {
         trace!("Injecting commands:\n{}", commands.join("\n"));
         inject_commands(&mut self.connection, commands)
+    }
+
+    async fn get_context_entity_id(&mut self, depth: i32) -> Result<i32, PartialErrorResponse> {
+        let stream = UnboundedReceiverStream::new(self.connection.add_general_listener());
+
+        const START_TAG: &str = "get_context_entity_id.start";
+        const END_TAG: &str = "get_context_entity_id.end";
+
+        self.inject_commands(vec![
+            LoggedCommand::from_str("function minect:enable_logging").to_string(),
+            LoggedCommand::builder(format!("tag @s add {}", START_TAG))
+                .name(ADAPTER_LISTENER_NAME)
+                .build()
+                .to_string(),
+            LoggedCommand::from(
+                format!(
+                    "scoreboard players add @e[\
+                        type=area_effect_cloud,\
+                        tag=-ns-_context,\
+                        tag=-ns-_active,\
+                        tag=-ns-_current,\
+                        scores={{-ns-_depth={}}},\
+                    ] -ns-_id 0",
+                    depth
+                )
+                .replace("-ns-", &self.namespace),
+            )
+            .to_string(),
+            LoggedCommand::builder(format!("tag @s add {}", END_TAG))
+                .name(ADAPTER_LISTENER_NAME)
+                .build()
+                .to_string(),
+            LoggedCommand::from_str("function minect:reset_logging").to_string(),
+        ])?;
+
+        events_between_tags(stream, START_TAG, END_TAG)
+            .filter_map(|event| {
+                ready(parse_scoreboard_value(
+                    &event.message,
+                    &format!("{}_id", &self.namespace),
+                ))
+            })
+            .next()
+            .await
+            .ok_or_else(|| PartialErrorResponse::new("Minecraft connection closed".to_string()))
     }
 }
 
@@ -123,7 +174,25 @@ fn inject_commands(
     Ok(())
 }
 
-const THREAD_ID: i32 = 0;
+const MAIN_THREAD_ID: i32 = 0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ScopeKind {
+    SelectedEntityScores,
+}
+pub const SELECTED_ENTITY_SCORES: &str = "@s scores";
+impl ScopeKind {
+    fn get_display_name(&self) -> &'static str {
+        match self {
+            ScopeKind::SelectedEntityScores => SELECTED_ENTITY_SCORES,
+        }
+    }
+}
+
+struct ScopeReference {
+    frame_id: i32,
+    kind: ScopeKind,
+}
 
 pub struct McfunctionDebugAdapter<O>
 where
@@ -220,12 +289,7 @@ where
             }
             Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
             Request::Pause(args) => self.pause(args).await.map(|()| SuccessResponse::Pause),
-            Request::Scopes(ScopesRequestArguments { frame_id: _, .. }) => {
-                Ok(ScopesResponseBody::builder()
-                    .scopes(Vec::new())
-                    .build()
-                    .into())
-            }
+            Request::Scopes(args) => self.scopes(args).await.map(SuccessResponse::Scopes),
             Request::SetBreakpoints(args) => self
                 .set_breakpoints(args)
                 .await
@@ -238,13 +302,8 @@ where
                 .terminate(args)
                 .await
                 .map(|()| SuccessResponse::Terminate),
-            Request::Threads => Ok(ThreadsResponseBody::builder()
-                .threads(vec![Thread::builder()
-                    .id(THREAD_ID)
-                    .name("My Thread".to_string())
-                    .build()])
-                .build()
-                .into()),
+            Request::Threads => self.threads().await.map(SuccessResponse::Threads),
+            Request::Variables(args) => self.variables(args).await.map(SuccessResponse::Variables),
             _ => {
                 let command = get_command(&request);
                 Err(DapError::Respond(PartialErrorResponse::new(format!(
@@ -284,7 +343,7 @@ where
             .write_msg(
                 StoppedEventBody::builder()
                     .reason(StoppedEventReason::Breakpoint)
-                    .thread_id(Some(THREAD_ID))
+                    .thread_id(Some(MAIN_THREAD_ID))
                     .build(),
             )
             .await?;
@@ -434,6 +493,7 @@ where
             datapack,
             namespace,
             output_path,
+            scopes: Vec::new(),
         };
 
         generate_datapack(
@@ -679,11 +739,23 @@ where
             .collect::<Vec<_>>()
             .await;
 
-        stack_trace.sort_by_key(|it| -it.0);
+        stack_trace.sort_by_key(|it| it.0);
+
+        // TODO: ugly
+        let mut stack_trace = stack_trace
+            .into_iter()
+            .enumerate()
+            .map(|(index, (_id, mut stack_frame))| {
+                stack_frame.id = index as i32;
+                stack_frame
+            })
+            .collect::<Vec<_>>();
+
+        stack_trace.reverse();
 
         Ok(StackTraceResponseBody::builder()
             .total_frames(Some(stack_trace.len() as i32))
-            .stack_frames(stack_trace.into_iter().map(|it| it.1).collect())
+            .stack_frames(stack_trace)
             .build())
     }
     fn parse_stack_frame(
@@ -774,6 +846,7 @@ where
             commands.push("function debug:resume".to_string());
             mc_session.inject_commands(commands)?;
             client_session.stopped_at = None;
+            mc_session.scopes.clear();
         }
 
         Ok(ContinueResponseBody::builder().build())
@@ -812,10 +885,142 @@ where
         )))
     }
 
+    async fn scopes(
+        &mut self,
+        args: ScopesRequestArguments,
+    ) -> Result<ScopesResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        let mut scopes = Vec::new();
+        let is_server_context = mc_session.get_context_entity_id(args.frame_id).await? == 0;
+        if !is_server_context {
+            scopes.push(Self::create_selected_entity_scores_scope(mc_session, args));
+        }
+        Ok(ScopesResponseBody::builder().scopes(scopes).build().into())
+    }
+    fn create_selected_entity_scores_scope(
+        mc_session: &mut MinecraftSession,
+        args: ScopesRequestArguments,
+    ) -> Scope {
+        let kind = ScopeKind::SelectedEntityScores;
+        mc_session.scopes.push(ScopeReference {
+            frame_id: args.frame_id,
+            kind,
+        });
+        let variables_reference = mc_session.scopes.len();
+        Scope::builder()
+            .name(kind.get_display_name().to_string())
+            .variables_reference(variables_reference as i32)
+            .expensive(false)
+            .presentation_hint(Some(ScopePresentationHint::Locals)) // TODO: test differences
+            .build()
+    }
+
     async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
         mc_session.inject_commands(vec!["function debug:stop".to_string()])?;
         Ok(())
+    }
+
+    async fn threads(&mut self) -> Result<ThreadsResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        let thread = Thread::builder()
+            .id(MAIN_THREAD_ID)
+            .name("Main Thread".to_string())
+            .build();
+        Ok(ThreadsResponseBody::builder()
+            .threads(vec![thread])
+            .build()
+            .into())
+    }
+
+    async fn variables(
+        &mut self,
+        args: VariablesRequestArguments,
+    ) -> Result<VariablesResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        let unknown_variables_reference = || {
+            PartialErrorResponse::new(format!(
+                "Unknown variables_reference: {}",
+                args.variables_reference
+            ))
+        };
+        let scope_id = usize::try_from(args.variables_reference - 1)
+            .map_err(|_| unknown_variables_reference())?;
+        let scope: &ScopeReference = mc_session
+            .scopes
+            .get(scope_id)
+            .ok_or_else(unknown_variables_reference)?;
+
+        const START_TAG: &str = "variables.start";
+        const END_TAG: &str = "variables.end";
+
+        match scope.kind {
+            ScopeKind::SelectedEntityScores => {
+                let stream =
+                    UnboundedReceiverStream::new(mc_session.connection.add_general_listener());
+
+                let execute_as_context = format!(
+                    "execute as @e[\
+                        type=area_effect_cloud,\
+                        tag=-ns-_context,\
+                        tag=-ns-_active,\
+                        tag=-ns-_current,\
+                        scores={{-ns-_depth={}}},\
+                    ]",
+                    scope.frame_id
+                );
+                // TODO: logging is enabled and reset for each command individually
+                mc_session.inject_commands(vec![
+                    LoggedCommand::from_str("function minect:enable_logging").to_string(),
+                    LoggedCommand::builder(format!("tag @s add {}", START_TAG))
+                        .name(ADAPTER_LISTENER_NAME)
+                        .build()
+                        .to_string(),
+                        LoggedCommand::from_str("function minect:reset_logging").to_string(),
+                    LoggedCommand::from(format!(
+                        "{} run scoreboard players operation @e[tag=!-ns-_context] -ns-_id -= @s -ns-_id",
+                        execute_as_context
+                    ).replace("-ns-", &mc_session.namespace))
+                    .to_string(),
+                    format!(
+                        "function -ns-:log_scores"
+                    ).replace("-ns-", &mc_session.namespace),
+                    LoggedCommand::from(format!(
+                        "{} run scoreboard players operation @e[tag=!-ns-_context] -ns-_id += @s -ns-_id",
+                        execute_as_context
+                    ).replace("-ns-", &mc_session.namespace))
+                    .to_string(),
+                    LoggedCommand::from_str("function minect:enable_logging").to_string(),
+                    LoggedCommand::builder(format!("tag @s add {}", END_TAG))
+                        .name(ADAPTER_LISTENER_NAME)
+                        .build()
+                        .to_string(),
+                    LoggedCommand::from_str("function minect:reset_logging").to_string(),
+                ])?;
+
+                let variables = events_between_tags(stream, START_TAG, END_TAG)
+                    .filter_map(|event| ready(ScoreboardMessage::parse(&event.message)))
+                    .map(|message| {
+                        Variable::builder()
+                            .name(message.scoreboard)
+                            .value(message.score.to_string())
+                            .variables_reference(0)
+                            .build()
+                    })
+                    .collect::<Vec<_>>()
+                    .await;
+
+                Ok(VariablesResponseBody::builder()
+                    .variables(variables)
+                    .build())
+            }
+        }
     }
 }

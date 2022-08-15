@@ -23,11 +23,12 @@ use assert2::{assert, let_assert};
 use debug_adapter_protocol::{
     events::{Event, StoppedEventReason},
     requests::{
-        ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments,
-        SetBreakpointsRequestArguments,
+        ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments, Request,
+        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
+        VariablesRequestArguments,
     },
     responses::{ErrorResponse, Response, SetBreakpointsResponseBody, SuccessResponse},
-    types::{Source, SourceBreakpoint},
+    types::{Scope, Source, SourceBreakpoint, StackFrame, Thread, Variable},
     ProtocolMessage, ProtocolMessageContent as Content, SequenceNumber,
 };
 use futures::{Sink, SinkExt, Stream};
@@ -134,16 +135,25 @@ where
         let response = self.output.next().await.unwrap();
         assert!(let SuccessResponse::Launch = assert_success_response(response, request_seq));
     }
-    pub async fn send_launch(&mut self, test_fn_path: impl AsRef<Path>) -> u64 {
+    pub async fn send_launch(&mut self, test_fn_path: impl AsRef<Path>) -> SequenceNumber {
         let test_fn_path = test_fn_path.as_ref().display().to_string();
-        let content = LaunchRequestArguments::builder()
+        let args = LaunchRequestArguments::builder()
             .additional_attributes(Map::from_iter([
                 ("minecraftLogFile".to_string(), json!(TEST_LOG_FILE)),
                 ("minecraftWorldDir".to_string(), json!(TEST_WORLD_DIR)),
                 ("program".to_string(), json!(test_fn_path)),
             ]))
             .build();
-        self.input.send_ok(content).await
+        self.input.send_ok(args).await
+    }
+
+    pub async fn scopes(&mut self, frame_id: i32) -> Vec<Scope> {
+        let args = ScopesRequestArguments::builder().frame_id(frame_id).build();
+        let request_seq = self.input.send_ok(args).await;
+
+        let response = self.output.next().await.unwrap();
+        let_assert!(SuccessResponse::Scopes(body) = assert_success_response(response, request_seq));
+        body.scopes
     }
 
     pub async fn set_breakpoints_verified(
@@ -183,6 +193,47 @@ where
             SuccessResponse::SetBreakpoints(body) = assert_success_response(response, request_seq)
         );
         body
+    }
+
+    pub async fn stack_trace(&mut self, thread_id: i32) -> Vec<StackFrame> {
+        let args = StackTraceRequestArguments::builder()
+            .thread_id(thread_id)
+            .build();
+        let request_seq = self.input.send_ok(args).await;
+
+        let response = self.output.next().await.unwrap();
+        let_assert!(
+            SuccessResponse::StackTrace(body) = assert_success_response(response, request_seq)
+        );
+        body.stack_frames
+    }
+
+    pub async fn threads(&mut self) -> Vec<Thread> {
+        let request_seq = self.input.send_ok(Request::Threads).await;
+
+        let response = self.output.next().await.unwrap();
+        let_assert!(
+            SuccessResponse::Threads(body) = assert_success_response(response, request_seq)
+        );
+        body.threads
+    }
+
+    pub async fn variables_of_scope(&mut self, frame_id: i32, scope_name: &str) -> Vec<Variable> {
+        let scopes = self.scopes(frame_id).await;
+        let scope = scopes.iter().find(|it| it.name == scope_name).unwrap();
+        self.variables(scope.variables_reference).await
+    }
+    pub async fn variables(&mut self, variables_reference: i32) -> Vec<Variable> {
+        let args = VariablesRequestArguments::builder()
+            .variables_reference(variables_reference)
+            .build();
+        let request_seq = self.input.send_ok(args).await;
+
+        let response = self.output.next().await.unwrap();
+        let_assert!(
+            SuccessResponse::Variables(body) = assert_success_response(response, request_seq)
+        );
+        body.variables
     }
 }
 pub fn assert_all_breakpoints_verified(
