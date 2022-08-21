@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::{
-    adapter::{MinecraftSession, ADAPTER_LISTENER_NAME},
+    adapter::{MinecraftSession, LISTENER_NAME},
     error::{DapError, PartialErrorResponse},
 };
 use futures::{Stream, StreamExt};
@@ -122,7 +122,7 @@ pub(super) async fn generate_datapack(
         namespace: &minecraft_session.namespace,
         shadow: false,
         adapter: Some(AdapterConfig {
-            adapter_listener_name: ADAPTER_LISTENER_NAME,
+            adapter_listener_name: LISTENER_NAME,
             breakpoints: &breakpoints,
         }),
     };
@@ -157,15 +157,15 @@ pub fn events_between_tags(
     start_tag: &str,
     stop_tag: &str,
 ) -> impl Stream<Item = LogEvent> {
-    let added_start_tag = format!("Added tag '{1}' to {0}", ADAPTER_LISTENER_NAME, start_tag);
-    let added_end_tag = format!("Added tag '{1}' to {0}", ADAPTER_LISTENER_NAME, stop_tag);
+    let added_start_tag = format!("Added tag '{1}' to {0}", LISTENER_NAME, start_tag);
+    let added_end_tag = format!("Added tag '{1}' to {0}", LISTENER_NAME, stop_tag);
     stream
         .skip_while(move |event| {
-            ready(event.executor != ADAPTER_LISTENER_NAME && event.message != added_start_tag)
+            ready(event.executor != LISTENER_NAME && event.message != added_start_tag)
         })
         .skip(1) // Skip start tag
         .take_while(move |event| {
-            ready(event.executor != ADAPTER_LISTENER_NAME && event.message != added_end_tag)
+            ready(event.executor != LISTENER_NAME && event.message != added_end_tag)
         })
 }
 

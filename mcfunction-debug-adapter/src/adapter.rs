@@ -16,7 +16,7 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-mod utils;
+pub mod utils;
 
 use crate::{
     adapter::utils::{
@@ -59,11 +59,10 @@ use mcfunction_debugger::{
         command::{resource_location::ResourceLocation, CommandParser},
         parse_line, Line,
     },
+    utils::{logged_command, logged_command_str, named_logged_command},
     BreakpointKind, LocalBreakpoint,
 };
-use minect::{
-    log_observer::LogEvent, LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder,
-};
+use minect::{log_observer::LogEvent, MinecraftConnection, MinecraftConnectionBuilder};
 use multimap::MultiMap;
 use std::{
     convert::TryFrom,
@@ -78,7 +77,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
 
-const ADAPTER_LISTENER_NAME: &'static str = "mcfunction_debugger";
+const LISTENER_NAME: &'static str = "mcfunction_debugger";
 
 #[derive(Debug)]
 enum Message {
@@ -118,6 +117,10 @@ impl MinecraftSession {
         inject_commands(&mut self.connection, commands)
     }
 
+    fn replace_ns(&self, command: &str) -> String {
+        command.replace("-ns-", &self.namespace)
+    }
+
     async fn get_context_entity_id(&mut self, depth: i32) -> Result<i32, PartialErrorResponse> {
         let stream = UnboundedReceiverStream::new(self.connection.add_general_listener());
 
@@ -125,12 +128,9 @@ impl MinecraftSession {
         const END_TAG: &str = "get_context_entity_id.end";
 
         self.inject_commands(vec![
-            LoggedCommand::from_str("function minect:enable_logging").to_string(),
-            LoggedCommand::builder(format!("tag @s add {}", START_TAG))
-                .name(ADAPTER_LISTENER_NAME)
-                .build()
-                .to_string(),
-            LoggedCommand::from(
+            logged_command_str("function minect:enable_logging"),
+            named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
+            logged_command(
                 format!(
                     "scoreboard players add @e[\
                         type=area_effect_cloud,\
@@ -142,13 +142,9 @@ impl MinecraftSession {
                     depth
                 )
                 .replace("-ns-", &self.namespace),
-            )
-            .to_string(),
-            LoggedCommand::builder(format!("tag @s add {}", END_TAG))
-                .name(ADAPTER_LISTENER_NAME)
-                .build()
-                .to_string(),
-            LoggedCommand::from_str("function minect:reset_logging").to_string(),
+            ),
+            named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
+            logged_command_str("function minect:reset_logging"),
         ])?;
 
         events_between_tags(stream, START_TAG, END_TAG)
@@ -316,7 +312,7 @@ where
 
     async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<bool> {
         if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
-            if let Some(tag) = suffix.strip_suffix(&format!("' to {}", ADAPTER_LISTENER_NAME)) {
+            if let Some(tag) = suffix.strip_suffix(&format!("' to {}", LISTENER_NAME)) {
                 if tag == "exited" {
                     self.writer
                         .write_msg(TerminatedEventBody::builder().build())
@@ -478,7 +474,7 @@ where
         let mut connection = MinecraftConnectionBuilder::from_ref("dap", minecraft_world_dir)
             .log_file(minecraft_log_file.into())
             .build();
-        let listener = connection.add_listener(ADAPTER_LISTENER_NAME);
+        let listener = connection.add_listener(LISTENER_NAME);
         let stream = UnboundedReceiverStream::new(listener).map(Message::Minecraft);
         self.message_streams.push(Box::pin(stream));
 
@@ -705,32 +701,22 @@ where
         let stream = UnboundedReceiverStream::new(mc_session.connection.add_general_listener());
 
         mc_session.inject_commands(vec![
-            LoggedCommand::from_str("function minect:enable_logging").to_string(),
-            LoggedCommand::builder(format!("tag @s add {}", START_TAG))
-                .name(ADAPTER_LISTENER_NAME)
-                .build()
-                .to_string(),
-            LoggedCommand::from(format!(
-                "execute as @e[type=area_effect_cloud,tag={0}_function_call] \
-                run scoreboard players add @s {0}_depth 0",
-                mc_session.namespace
-            ))
-            .to_string(),
-            LoggedCommand::from(format!(
-                "execute as @e[type=area_effect_cloud,tag={}_breakpoint] run tag @s add {}",
-                mc_session.namespace, stack_trace_tag
-            ))
-            .to_string(),
-            LoggedCommand::from(format!(
-                "execute as @e[type=area_effect_cloud,tag={}_breakpoint] run tag @s remove {}",
-                mc_session.namespace, stack_trace_tag
-            ))
-            .to_string(),
-            LoggedCommand::builder(format!("tag @s add {}", END_TAG))
-                .name(ADAPTER_LISTENER_NAME)
-                .build()
-                .to_string(),
-            LoggedCommand::from_str("function minect:reset_logging").to_string(),
+            logged_command_str("function minect:enable_logging"),
+            named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
+            logged_command(mc_session.replace_ns(&format!(
+                "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] \
+                run scoreboard players add @s -ns-_depth 0"
+            ))),
+            logged_command(mc_session.replace_ns(&format!(
+                "execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tag @s add {}",
+                stack_trace_tag
+            ))),
+            logged_command(mc_session.replace_ns(&format!(
+                "execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tag @s remove {}",
+                stack_trace_tag
+            ))),
+            named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
+            logged_command_str("function minect:reset_logging"),
         ])?;
 
         let mut stack_trace = events_between_tags(stream, START_TAG, END_TAG)
@@ -973,36 +959,25 @@ where
                         tag=-ns-_active,\
                         tag=-ns-_current,\
                         scores={{-ns-_depth={}}},\
-                    ]",
+                    ] run",
                     scope.frame_id
                 );
-                // TODO: logging is enabled and reset for each command individually
+                let decrement_ids = mc_session.replace_ns(&format!(
+                    "{} scoreboard players operation @e[tag=!-ns-_context] -ns-_id -= @s -ns-_id",
+                    execute_as_context
+                ));
+                let increment_ids = mc_session.replace_ns(&format!(
+                    "{} scoreboard players operation @e[tag=!-ns-_context] -ns-_id += @s -ns-_id",
+                    execute_as_context
+                ));
                 mc_session.inject_commands(vec![
-                    LoggedCommand::from_str("function minect:enable_logging").to_string(),
-                    LoggedCommand::builder(format!("tag @s add {}", START_TAG))
-                        .name(ADAPTER_LISTENER_NAME)
-                        .build()
-                        .to_string(),
-                        LoggedCommand::from_str("function minect:reset_logging").to_string(),
-                    LoggedCommand::from(format!(
-                        "{} run scoreboard players operation @e[tag=!-ns-_context] -ns-_id -= @s -ns-_id",
-                        execute_as_context
-                    ).replace("-ns-", &mc_session.namespace))
-                    .to_string(),
-                    format!(
-                        "function -ns-:log_scores"
-                    ).replace("-ns-", &mc_session.namespace),
-                    LoggedCommand::from(format!(
-                        "{} run scoreboard players operation @e[tag=!-ns-_context] -ns-_id += @s -ns-_id",
-                        execute_as_context
-                    ).replace("-ns-", &mc_session.namespace))
-                    .to_string(),
-                    LoggedCommand::from_str("function minect:enable_logging").to_string(),
-                    LoggedCommand::builder(format!("tag @s add {}", END_TAG))
-                        .name(ADAPTER_LISTENER_NAME)
-                        .build()
-                        .to_string(),
-                    LoggedCommand::from_str("function minect:reset_logging").to_string(),
+                    logged_command_str("function minect:enable_logging"),
+                    named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
+                    logged_command(decrement_ids),
+                    format!("function -ns-:log_scores").replace("-ns-", &mc_session.namespace),
+                    logged_command(increment_ids),
+                    named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
+                    logged_command_str("function minect:reset_logging"),
                 ])?;
 
                 let variables = events_between_tags(stream, START_TAG, END_TAG)

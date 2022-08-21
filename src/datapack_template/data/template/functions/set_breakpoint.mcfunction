@@ -28,4 +28,8 @@ scoreboard players reset * -ns-_scores
 function -ns-:update_scores
 
 # -minect_log-
+function minect:enable_logging
+# -minect_log-
 tag @s add stopped_at_breakpoint.-orig_ns-+-orig+fn-+-line_number-
+# -minect_log-
+function minect:reset_logging

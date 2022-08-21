@@ -33,7 +33,9 @@ use debug_adapter_protocol::{
 };
 use futures::{Sink, SinkExt, Stream};
 use mcfunction_debug_adapter::adapter::McfunctionDebugAdapter;
-use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
+use mcfunction_debugger::{
+    parser::command::resource_location::ResourceLocation, utils::logged_command_str,
+};
 use minect::{LoggedCommand, MinecraftConnection};
 use sender_sink::wrappers::UnboundedSenderSink;
 use serde_json::{json, Map};
@@ -302,22 +304,16 @@ impl Mcfunction {
 }
 
 pub fn enable_logging() -> String {
-    logged_command("function minect:enable_logging")
+    logged_command_str("function minect:enable_logging")
 }
 
 pub fn reset_logging() -> String {
-    logged_command("function minect:reset_logging")
+    logged_command_str("function minect:reset_logging")
 }
 
 pub fn named_logged_command(command: &str) -> String {
     LoggedCommand::builder(command.to_string())
         .name(LISTENER_NAME)
-        .build()
-        .to_string()
-}
-
-pub fn logged_command(command: &str) -> String {
-    LoggedCommand::builder(command.to_string())
         .build()
         .to_string()
 }

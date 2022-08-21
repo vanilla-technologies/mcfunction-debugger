@@ -21,7 +21,7 @@ mod macros;
 
 pub mod parser;
 mod template_engine;
-mod utils;
+pub mod utils;
 
 use crate::{
     parser::{command::argument::MinecraftEntityAnchor, parse_line, Line},
