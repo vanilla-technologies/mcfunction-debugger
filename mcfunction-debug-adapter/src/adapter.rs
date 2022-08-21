@@ -43,10 +43,7 @@ use debug_adapter_protocol::{
         ContinueResponseBody, EvaluateResponseBody, ScopesResponseBody, SetBreakpointsResponseBody,
         StackTraceResponseBody, SuccessResponse, ThreadsResponseBody, VariablesResponseBody,
     },
-    types::{
-        Breakpoint, Capabilities, Scope, ScopePresentationHint, Source, StackFrame, Thread,
-        Variable,
-    },
+    types::{Breakpoint, Capabilities, Scope, Source, StackFrame, Thread, Variable},
     ProtocolMessage, ProtocolMessageContent,
 };
 use futures::{
@@ -867,7 +864,6 @@ where
             .name(kind.get_display_name().to_string())
             .variables_reference(variables_reference as i32)
             .expensive(false)
-            .presentation_hint(Some(ScopePresentationHint::Locals)) // TODO: test differences
             .build()
     }
 
