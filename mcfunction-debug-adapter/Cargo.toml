@@ -6,6 +6,7 @@ edition = "2018"
 [dependencies]
 mcfunction-debugger = { path = ".." }
 
+async-trait = "0.1"
 bytes = "1"
 clap = "2"
 debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git" }

@@ -21,13 +21,14 @@ pub mod utils;
 use crate::{
     adapter::utils::{
         contains_breakpoint, events_between_tags, generate_datapack, parse_function_path,
-        McfunctionLineNumber,
+        parse_stopped_tag, McfunctionLineNumber,
     },
     error::{DapError, PartialErrorResponse},
     get_command,
     minecraft::{is_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
-    MessageWriter,
+    DebugAdapter, MessageWriter,
 };
+use async_trait::async_trait;
 use debug_adapter_protocol::{
     events::{
         Event, OutputCategory, OutputEventBody, StoppedEventBody, StoppedEventReason,
@@ -35,7 +36,7 @@ use debug_adapter_protocol::{
     },
     requests::{
         ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
-        LaunchRequestArguments, PathFormat, PauseRequestArguments, Request, ScopesRequestArguments,
+        LaunchRequestArguments, PathFormat, PauseRequestArguments, ScopesRequestArguments,
         SetBreakpointsRequestArguments, StackTraceRequestArguments, TerminateRequestArguments,
         VariablesRequestArguments,
     },
@@ -197,7 +198,7 @@ where
 }
 impl<O> McfunctionDebugAdapter<O>
 where
-    O: Sink<ProtocolMessage, Error = io::Error> + Unpin,
+    O: Sink<ProtocolMessage, Error = io::Error> + Unpin + Send,
 {
     pub fn new<I>(input: I, output: O) -> McfunctionDebugAdapter<O>
     where
@@ -243,66 +244,26 @@ where
 
     async fn handle_client_message(&mut self, msg: ProtocolMessage) -> io::Result<bool> {
         match msg.content {
-            // TODO handle all client requests in handle_client_request
-            ProtocolMessageContent::Request(Request::Disconnect(_args)) => {
-                self.writer
-                    .respond(msg.seq, Ok(SuccessResponse::Disconnect))
-                    .await?;
-                return Ok(false);
-            }
             ProtocolMessageContent::Request(request) => {
                 let command = get_command(&request);
                 let result = self.handle_client_request(request).await;
 
+                let mut should_continue = true;
                 let response = match result {
-                    Ok(response) => Ok(response),
+                    Ok(response) => {
+                        if response == SuccessResponse::Disconnect {
+                            should_continue = true;
+                        }
+                        Ok(response)
+                    }
                     Err(DapError::Respond(response)) => Err(response.with_command(command)),
                     Err(DapError::Terminate(e)) => return Err(e),
                 };
                 self.writer.respond(msg.seq, response).await?;
+                Ok(should_continue)
             }
             _ => {
                 todo!("Only requests and RunInTerminalResponse should be sent by the client");
-            }
-        };
-
-        Ok(true)
-    }
-
-    async fn handle_client_request(
-        &mut self,
-        request: Request,
-    ) -> Result<SuccessResponse, DapError> {
-        match request {
-            Request::ConfigurationDone => Ok(SuccessResponse::ConfigurationDone),
-            Request::Continue(args) => self.continue_(args).await.map(SuccessResponse::Continue),
-            Request::Evaluate(args) => self.evaluate(args).await.map(SuccessResponse::Evaluate),
-            Request::Initialize(args) => {
-                self.initialize(args).await.map(SuccessResponse::Initialize)
-            }
-            Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
-            Request::Pause(args) => self.pause(args).await.map(|()| SuccessResponse::Pause),
-            Request::Scopes(args) => self.scopes(args).await.map(SuccessResponse::Scopes),
-            Request::SetBreakpoints(args) => self
-                .set_breakpoints(args)
-                .await
-                .map(SuccessResponse::SetBreakpoints),
-            Request::StackTrace(args) => self
-                .stack_trace(args)
-                .await
-                .map(SuccessResponse::StackTrace),
-            Request::Terminate(args) => self
-                .terminate(args)
-                .await
-                .map(|()| SuccessResponse::Terminate),
-            Request::Threads => self.threads().await.map(SuccessResponse::Threads),
-            Request::Variables(args) => self.variables(args).await.map(SuccessResponse::Variables),
-            _ => {
-                let command = get_command(&request);
-                Err(DapError::Respond(PartialErrorResponse::new(format!(
-                    "Unsupported request {}",
-                    command
-                ))))
             }
         }
     }
@@ -316,17 +277,12 @@ where
                         .await?;
                     return Ok(false);
                 }
-                if let Some(tag) = Self::parse_stopped_tag(tag) {
+                if let Some(tag) = parse_stopped_tag(tag) {
                     self.on_stopped(tag).await?;
                 }
             }
         }
         Ok(true)
-    }
-
-    fn parse_stopped_tag(tag: &str) -> Option<McfunctionLineNumber<String>> {
-        let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
-        McfunctionLineNumber::parse(breakpoint_tag, "+")
     }
 
     async fn on_stopped(&mut self, tag: McfunctionLineNumber<String>) -> Result<(), io::Error> {
@@ -362,16 +318,78 @@ where
                 details: None,
             })
     }
+}
+
+#[async_trait]
+impl<O> DebugAdapter for McfunctionDebugAdapter<O>
+where
+    O: Sink<ProtocolMessage, Error = io::Error> + Unpin + Send,
+{
+    async fn continue_(
+        &mut self,
+        _args: ContinueRequestArguments,
+    ) -> Result<ContinueResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        if let Some(stopped_at) = client_session.stopped_at.as_ref() {
+            // Remove all generated breakpoints with kind continue
+            for (_key, values) in client_session.generated_breakpoints.iter_all_mut() {
+                values.retain(|it| it.kind != BreakpointKind::Continue);
+            }
+
+            client_session.generated_breakpoints.insert(
+                stopped_at.function.clone(),
+                LocalBreakpoint {
+                    line_number: stopped_at.line_number,
+                    kind: BreakpointKind::Continue,
+                },
+            );
+
+            let mut commands = Vec::new();
+
+            if !contains_breakpoint(&client_session.breakpoints, stopped_at) {
+                generate_datapack(
+                    mc_session,
+                    &client_session.breakpoints,
+                    &client_session.generated_breakpoints,
+                )
+                .await?;
+                commands.push("reload".to_string());
+            };
+
+            commands.push("function debug:resume".to_string());
+            mc_session.inject_commands(commands)?;
+            client_session.stopped_at = None;
+            mc_session.scopes.clear();
+        }
+
+        Ok(ContinueResponseBody::builder().build())
+    }
+
+    async fn evaluate(
+        &mut self,
+        _args: EvaluateRequestArguments,
+    ) -> Result<EvaluateResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Not supported yet, see: \
+            https://github.com/vanilla-technologies/mcfunction-debugger/issues/68"
+                .to_string(),
+        )))
+    }
 
     async fn initialize(
         &mut self,
-        arguments: InitializeRequestArguments,
+        args: InitializeRequestArguments,
     ) -> Result<Capabilities, DapError> {
         let parser = CommandParser::default()
             .map_err(|e| DapError::Terminate(io::Error::new(io::ErrorKind::InvalidData, e)))?;
         self.client_session = Some(ClientSession {
-            lines_start_at_1: arguments.lines_start_at_1,
-            path_format: arguments.path_format,
+            lines_start_at_1: args.lines_start_at_1,
+            path_format: args.path_format,
             minecraft_session: None,
             breakpoints: MultiMap::new(),
             generated_breakpoints: MultiMap::new(),
@@ -385,7 +403,6 @@ where
             .map_err(|e| DapError::Terminate(e))?;
 
         Ok(Capabilities::builder()
-            .supports_configuration_done_request(true)
             .supports_cancel_request(true)
             .supports_terminate_request(true)
             .build())
@@ -442,7 +459,7 @@ where
         //     .as_str()
         //     .ok_or_else(|| invalid_data("Attribute 'datapack' is not of type string"))?;
 
-        let program = Self::get_path(&args, "program")?;
+        let program = get_path(&args, "program")?;
 
         let (datapack, function) = parse_function_path(program)
             .map_err(|e| PartialErrorResponse::new(format!("Attribute 'program' {}", e)))?;
@@ -458,8 +475,8 @@ where
             .to_str()
             .unwrap(); // Path is known to be UTF-8
 
-        let minecraft_world_dir = Self::get_path(&args, "minecraftWorldDir")?;
-        let minecraft_log_file = Self::get_path(&args, "minecraftLogFile")?;
+        let minecraft_world_dir = get_path(&args, "minecraftWorldDir")?;
+        let minecraft_log_file = get_path(&args, "minecraftLogFile")?;
 
         // if connection in filesystem exists {
         // ping
@@ -524,23 +541,41 @@ where
         )?;
 
         client_session.minecraft_session = Some(minecraft_session);
-
         Ok(())
     }
-    fn get_path<'a>(
-        args: &'a LaunchRequestArguments,
-        key: &str,
-    ) -> Result<&'a Path, PartialErrorResponse> {
-        let value = args
-            .additional_attributes
-            .get(key)
-            .ok_or_else(|| PartialErrorResponse::new(format!("Missing attribute '{}'", key)))?
-            .as_str()
-            .ok_or_else(|| {
-                PartialErrorResponse::new(format!("Attribute '{}' is not of type string", key))
-            })?;
-        let value = Path::new(value);
-        Ok(value)
+
+    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        self.writer
+            .write_msg(
+                OutputEventBody::builder()
+                    .category(OutputCategory::Important)
+                    .output("Minecraft cannot be paused".to_string())
+                    .build(),
+            )
+            .await
+            .map_err(|e| DapError::Terminate(e))?;
+
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Minecraft cannot be paused".to_string(),
+        )))
+    }
+
+    async fn scopes(
+        &mut self,
+        args: ScopesRequestArguments,
+    ) -> Result<ScopesResponseBody, DapError> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        let mut scopes = Vec::new();
+        let is_server_context = mc_session.get_context_entity_id(args.frame_id).await? == 0;
+        if !is_server_context {
+            scopes.push(create_selected_entity_scores_scope(mc_session, args));
+        }
+        Ok(ScopesResponseBody::builder().scopes(scopes).build().into())
     }
 
     async fn set_breakpoints(
@@ -573,7 +608,7 @@ where
         let mut new_breakpoints = Vec::with_capacity(breakpoints.len());
         for (i, (function, line_number)) in breakpoints.into_iter().enumerate() {
             let id = (i + client_session.breakpoints.len()) as i32;
-            let verified = Self::verify_breakpoint(&client_session.parser, path, line_number)
+            let verified = verify_breakpoint(&client_session.parser, path, line_number)
                 .await
                 .map_err(|e| {
                     PartialErrorResponse::new(format!(
@@ -613,7 +648,7 @@ where
             .await?;
             let mut commands = vec!["reload".to_string()];
             if args.source_modified && old_breakpoints.len() == new_breakpoints.len() {
-                commands.extend(Self::get_move_breakpoint_commands(
+                commands.extend(get_move_breakpoint_commands(
                     &function,
                     old_breakpoints.iter().map(|it| it.line_number),
                     new_breakpoints.iter().map(|it| it.line_number),
@@ -626,64 +661,6 @@ where
         Ok(SetBreakpointsResponseBody::builder()
             .breakpoints(response)
             .build())
-    }
-    async fn verify_breakpoint(
-        parser: &CommandParser,
-        path: impl AsRef<Path>,
-        line_number: usize,
-    ) -> io::Result<bool> {
-        let file = File::open(path).await?;
-        let lines = BufReader::new(file).lines();
-        if let Some(result) = LinesStream::new(lines).skip(line_number - 1).next().await {
-            let line = result?;
-            let line = parse_line(parser, &line, false);
-            return Ok(!matches!(line, Line::Empty | Line::Comment));
-        } else {
-            Ok(false)
-        }
-    }
-    fn get_move_breakpoint_commands(
-        function: &ResourceLocation,
-        old_line_numbers: impl ExactSizeIterator<Item = usize>,
-        new_line_numbers: impl ExactSizeIterator<Item = usize>,
-        namespace: &str,
-    ) -> Vec<String> {
-        let tmp_tag = format!("{}_tmp", namespace);
-        let breakpoint_tag = format!("{}_breakpoint", namespace);
-        let mut commands = Vec::new();
-        for (old_line_number, new_line_number) in old_line_numbers.zip(new_line_numbers) {
-            if old_line_number != new_line_number {
-                let old_tag = McfunctionLineNumber {
-                    function: function.to_ref(),
-                    line_number: old_line_number,
-                }
-                .get_tag();
-                let new_tag = McfunctionLineNumber {
-                    function: function.to_ref(),
-                    line_number: new_line_number,
-                }
-                .get_tag();
-                let old_tag = format!("{}+{}", namespace, old_tag);
-                let new_tag = format!("{}+{}", namespace, new_tag);
-                commands.push(format!(
-                    "tag @e[tag={},tag={},tag=!{}] add {}",
-                    breakpoint_tag, old_tag, tmp_tag, new_tag,
-                ));
-                commands.push(format!(
-                    "tag @e[tag={},tag={}] add {}",
-                    breakpoint_tag, old_tag, tmp_tag
-                ));
-                commands.push(format!(
-                    "tag @e[tag={},tag={},tag={}] remove {}",
-                    breakpoint_tag, old_tag, new_tag, old_tag
-                ));
-            }
-        }
-        commands.push(format!(
-            "tag @e[tag={},tag={}] remove {}",
-            breakpoint_tag, tmp_tag, tmp_tag
-        ));
-        commands
     }
 
     async fn stack_trace(
@@ -731,7 +708,7 @@ where
                     continue; // Shouldn't actually happen
                 };
                 let datapack = &mc_session.datapack;
-                stack_trace.push(Self::new_stack_frame(id, function_line, datapack));
+                stack_trace.push(new_stack_frame(id, function_line, datapack));
             }
         }
         stack_trace.sort_by_key(|it| -it.id);
@@ -740,131 +717,6 @@ where
             .total_frames(Some(stack_trace.len() as i32))
             .stack_frames(stack_trace)
             .build())
-    }
-    fn new_stack_frame<S: AsRef<str>>(
-        id: i32,
-        function_line: McfunctionLineNumber<S>,
-        datapack: impl AsRef<Path>,
-    ) -> StackFrame {
-        let path = datapack
-            .as_ref()
-            .join("data")
-            .join(function_line.function.mcfunction_path())
-            .display()
-            .to_string();
-        StackFrame::builder()
-            .id(id)
-            .name(function_line.get_name())
-            .source(Some(Source::builder().path(Some(path)).build()))
-            .line(function_line.line_number as i32)
-            .column(0)
-            .build()
-    }
-
-    async fn continue_(
-        &mut self,
-        _args: ContinueRequestArguments,
-    ) -> Result<ContinueResponseBody, DapError> {
-        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
-        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
-
-        if let Some(stopped_at) = client_session.stopped_at.as_ref() {
-            // Remove all generated breakpoints with kind continue
-            for (_key, values) in client_session.generated_breakpoints.iter_all_mut() {
-                values.retain(|it| it.kind != BreakpointKind::Continue);
-            }
-
-            client_session.generated_breakpoints.insert(
-                stopped_at.function.clone(),
-                LocalBreakpoint {
-                    line_number: stopped_at.line_number,
-                    kind: BreakpointKind::Continue,
-                },
-            );
-
-            let mut commands = Vec::new();
-
-            if !contains_breakpoint(&client_session.breakpoints, stopped_at) {
-                generate_datapack(
-                    mc_session,
-                    &client_session.breakpoints,
-                    &client_session.generated_breakpoints,
-                )
-                .await?;
-                commands.push("reload".to_string());
-            };
-
-            commands.push("function debug:resume".to_string());
-            mc_session.inject_commands(commands)?;
-            client_session.stopped_at = None;
-            mc_session.scopes.clear();
-        }
-
-        Ok(ContinueResponseBody::builder().build())
-    }
-
-    async fn evaluate(
-        &mut self,
-        _args: EvaluateRequestArguments,
-    ) -> Result<EvaluateResponseBody, DapError> {
-        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
-        let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
-
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Not supported yet, see: \
-            https://github.com/vanilla-technologies/mcfunction-debugger/issues/68"
-                .to_string(),
-        )))
-    }
-
-    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
-        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
-        let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
-
-        self.writer
-            .write_msg(
-                OutputEventBody::builder()
-                    .category(OutputCategory::Important)
-                    .output("Minecraft cannot be paused".to_string())
-                    .build(),
-            )
-            .await
-            .map_err(|e| DapError::Terminate(e))?;
-
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Minecraft cannot be paused".to_string(),
-        )))
-    }
-
-    async fn scopes(
-        &mut self,
-        args: ScopesRequestArguments,
-    ) -> Result<ScopesResponseBody, DapError> {
-        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
-        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
-
-        let mut scopes = Vec::new();
-        let is_server_context = mc_session.get_context_entity_id(args.frame_id).await? == 0;
-        if !is_server_context {
-            scopes.push(Self::create_selected_entity_scores_scope(mc_session, args));
-        }
-        Ok(ScopesResponseBody::builder().scopes(scopes).build().into())
-    }
-    fn create_selected_entity_scores_scope(
-        mc_session: &mut MinecraftSession,
-        args: ScopesRequestArguments,
-    ) -> Scope {
-        let kind = ScopeKind::SelectedEntityScores;
-        mc_session.scopes.push(ScopeReference {
-            frame_id: args.frame_id,
-            kind,
-        });
-        let variables_reference = mc_session.scopes.len();
-        Scope::builder()
-            .name(kind.get_display_name().to_string())
-            .variables_reference(variables_reference as i32)
-            .expensive(false)
-            .build()
     }
 
     async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
@@ -962,4 +814,116 @@ where
             }
         }
     }
+}
+
+fn get_path<'a>(
+    args: &'a LaunchRequestArguments,
+    key: &str,
+) -> Result<&'a Path, PartialErrorResponse> {
+    let value = args
+        .additional_attributes
+        .get(key)
+        .ok_or_else(|| PartialErrorResponse::new(format!("Missing attribute '{}'", key)))?
+        .as_str()
+        .ok_or_else(|| {
+            PartialErrorResponse::new(format!("Attribute '{}' is not of type string", key))
+        })?;
+    let value = Path::new(value);
+    Ok(value)
+}
+
+fn create_selected_entity_scores_scope(
+    mc_session: &mut MinecraftSession,
+    args: ScopesRequestArguments,
+) -> Scope {
+    let kind = ScopeKind::SelectedEntityScores;
+    mc_session.scopes.push(ScopeReference {
+        frame_id: args.frame_id,
+        kind,
+    });
+    let variables_reference = mc_session.scopes.len();
+    Scope::builder()
+        .name(kind.get_display_name().to_string())
+        .variables_reference(variables_reference as i32)
+        .expensive(false)
+        .build()
+}
+
+async fn verify_breakpoint(
+    parser: &CommandParser,
+    path: impl AsRef<Path>,
+    line_number: usize,
+) -> io::Result<bool> {
+    let file = File::open(path).await?;
+    let lines = BufReader::new(file).lines();
+    if let Some(result) = LinesStream::new(lines).skip(line_number - 1).next().await {
+        let line = result?;
+        let line = parse_line(parser, &line, false);
+        return Ok(!matches!(line, Line::Empty | Line::Comment));
+    } else {
+        Ok(false)
+    }
+}
+fn get_move_breakpoint_commands(
+    function: &ResourceLocation,
+    old_line_numbers: impl ExactSizeIterator<Item = usize>,
+    new_line_numbers: impl ExactSizeIterator<Item = usize>,
+    namespace: &str,
+) -> Vec<String> {
+    let tmp_tag = format!("{}_tmp", namespace);
+    let breakpoint_tag = format!("{}_breakpoint", namespace);
+    let mut commands = Vec::new();
+    for (old_line_number, new_line_number) in old_line_numbers.zip(new_line_numbers) {
+        if old_line_number != new_line_number {
+            let old_tag = McfunctionLineNumber {
+                function: function.to_ref(),
+                line_number: old_line_number,
+            }
+            .get_tag();
+            let new_tag = McfunctionLineNumber {
+                function: function.to_ref(),
+                line_number: new_line_number,
+            }
+            .get_tag();
+            let old_tag = format!("{}+{}", namespace, old_tag);
+            let new_tag = format!("{}+{}", namespace, new_tag);
+            commands.push(format!(
+                "tag @e[tag={},tag={},tag=!{}] add {}",
+                breakpoint_tag, old_tag, tmp_tag, new_tag,
+            ));
+            commands.push(format!(
+                "tag @e[tag={},tag={}] add {}",
+                breakpoint_tag, old_tag, tmp_tag
+            ));
+            commands.push(format!(
+                "tag @e[tag={},tag={},tag={}] remove {}",
+                breakpoint_tag, old_tag, new_tag, old_tag
+            ));
+        }
+    }
+    commands.push(format!(
+        "tag @e[tag={},tag={}] remove {}",
+        breakpoint_tag, tmp_tag, tmp_tag
+    ));
+    commands
+}
+
+fn new_stack_frame<S: AsRef<str>>(
+    id: i32,
+    function_line: McfunctionLineNumber<S>,
+    datapack: impl AsRef<Path>,
+) -> StackFrame {
+    let path = datapack
+        .as_ref()
+        .join("data")
+        .join(function_line.function.mcfunction_path())
+        .display()
+        .to_string();
+    StackFrame::builder()
+        .id(id)
+        .name(function_line.get_name())
+        .source(Some(Source::builder().path(Some(path)).build()))
+        .line(function_line.line_number as i32)
+        .column(0)
+        .build()
 }

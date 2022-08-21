@@ -21,11 +21,23 @@ pub mod codec;
 mod error;
 mod minecraft;
 
+use async_trait::async_trait;
 use debug_adapter_protocol::{
-    requests::Request,
-    responses::{ErrorResponse, Response, SuccessResponse},
+    requests::{
+        ContinueRequestArguments, DisconnectRequestArguments, EvaluateRequestArguments,
+        InitializeRequestArguments, LaunchRequestArguments, PauseRequestArguments, Request,
+        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
+        TerminateRequestArguments, VariablesRequestArguments,
+    },
+    responses::{
+        ContinueResponseBody, ErrorResponse, EvaluateResponseBody, Response, ScopesResponseBody,
+        SetBreakpointsResponseBody, StackTraceResponseBody, SuccessResponse, ThreadsResponseBody,
+        VariablesResponseBody,
+    },
+    types::Capabilities,
     ProtocolMessage, ProtocolMessageContent, SequenceNumber,
 };
+use error::{DapError, PartialErrorResponse};
 use futures::{Sink, SinkExt};
 use log::trace;
 use serde_json::Value;
@@ -80,5 +92,146 @@ pub fn get_command(request: &Request) -> String {
         }
     } else {
         panic!("value must be an object");
+    }
+}
+
+#[async_trait]
+trait DebugAdapter {
+    async fn handle_client_request(
+        &mut self,
+        request: Request,
+    ) -> Result<SuccessResponse, DapError> {
+        match request {
+            Request::ConfigurationDone => self
+                .configuration_done()
+                .await
+                .map(|()| SuccessResponse::ConfigurationDone),
+            Request::Continue(args) => self.continue_(args).await.map(SuccessResponse::Continue),
+            Request::Disconnect(args) => self
+                .disconnect(args)
+                .await
+                .map(|()| SuccessResponse::Disconnect),
+            Request::Evaluate(args) => self.evaluate(args).await.map(SuccessResponse::Evaluate),
+            Request::Initialize(args) => {
+                self.initialize(args).await.map(SuccessResponse::Initialize)
+            }
+            Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
+            Request::Pause(args) => self.pause(args).await.map(|()| SuccessResponse::Pause),
+            Request::Scopes(args) => self.scopes(args).await.map(SuccessResponse::Scopes),
+            Request::SetBreakpoints(args) => self
+                .set_breakpoints(args)
+                .await
+                .map(SuccessResponse::SetBreakpoints),
+            Request::StackTrace(args) => self
+                .stack_trace(args)
+                .await
+                .map(SuccessResponse::StackTrace),
+            Request::Terminate(args) => self
+                .terminate(args)
+                .await
+                .map(|()| SuccessResponse::Terminate),
+            Request::Threads => self.threads().await.map(SuccessResponse::Threads),
+            Request::Variables(args) => self.variables(args).await.map(SuccessResponse::Variables),
+            _ => {
+                let command = get_command(&request);
+                Err(DapError::Respond(PartialErrorResponse::new(format!(
+                    "Unsupported request {}",
+                    command
+                ))))
+            }
+        }
+    }
+
+    async fn configuration_done(&mut self) -> Result<(), DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'configurationDone'".to_string(),
+        )))
+    }
+
+    async fn continue_(
+        &mut self,
+        _args: ContinueRequestArguments,
+    ) -> Result<ContinueResponseBody, DapError>;
+
+    async fn disconnect(&mut self, _args: DisconnectRequestArguments) -> Result<(), DapError> {
+        Ok(())
+    }
+
+    async fn evaluate(
+        &mut self,
+        _args: EvaluateRequestArguments,
+    ) -> Result<EvaluateResponseBody, DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'evaluate'".to_string(),
+        )))
+    }
+
+    async fn initialize(
+        &mut self,
+        _args: InitializeRequestArguments,
+    ) -> Result<Capabilities, DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'initialize'".to_string(),
+        )))
+    }
+
+    async fn launch(&mut self, _args: LaunchRequestArguments) -> Result<(), DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'launch'".to_string(),
+        )))
+    }
+
+    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'pause'".to_string(),
+        )))
+    }
+
+    async fn scopes(
+        &mut self,
+        _args: ScopesRequestArguments,
+    ) -> Result<ScopesResponseBody, DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'scopes'".to_string(),
+        )))
+    }
+
+    async fn set_breakpoints(
+        &mut self,
+        _args: SetBreakpointsRequestArguments,
+    ) -> Result<SetBreakpointsResponseBody, DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'setBreakpoints'".to_string(),
+        )))
+    }
+
+    async fn stack_trace(
+        &mut self,
+        _args: StackTraceRequestArguments,
+    ) -> Result<StackTraceResponseBody, DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'stackTrace'".to_string(),
+        )))
+    }
+
+    async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'terminate'".to_string(),
+        )))
+    }
+
+    async fn threads(&mut self) -> Result<ThreadsResponseBody, DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'threads'".to_string(),
+        )))
+    }
+
+    async fn variables(
+        &mut self,
+        _args: VariablesRequestArguments,
+    ) -> Result<VariablesResponseBody, DapError> {
+        Err(DapError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'variables'".to_string(),
+        )))
     }
 }

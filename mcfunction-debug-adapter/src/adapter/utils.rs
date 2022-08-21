@@ -167,6 +167,11 @@ pub fn events_between_tags(
         })
 }
 
+pub fn parse_stopped_tag(tag: &str) -> Option<McfunctionLineNumber<String>> {
+    let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
+    McfunctionLineNumber::parse(breakpoint_tag, "+")
+}
+
 pub struct McfunctionLineNumber<S: AsRef<str>> {
     pub function: ResourceLocationRef<S>,
     pub line_number: usize,
