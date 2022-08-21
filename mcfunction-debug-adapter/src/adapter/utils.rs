@@ -29,10 +29,8 @@ use mcfunction_debugger::{
 use minect::log_observer::LogEvent;
 use multimap::MultiMap;
 use std::{
-    fmt::Display,
     future::ready,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 use tokio::fs::remove_dir_all;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -108,7 +106,7 @@ pub(super) async fn generate_datapack(
         for value in values {
             if !contains_breakpoint(
                 &breakpoints,
-                &McfunctionBreakpoint {
+                &McfunctionLineNumber {
                     function: key.clone(),
                     line_number: value.line_number,
                 },
@@ -139,7 +137,7 @@ pub(super) async fn generate_datapack(
 
 pub fn contains_breakpoint(
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    breakpoint: &McfunctionBreakpoint<String>,
+    breakpoint: &McfunctionLineNumber<String>,
 ) -> bool {
     let breakpoints = breakpoints.get_vec(&breakpoint.function);
     if let Some(breakpoints) = breakpoints {
@@ -169,41 +167,39 @@ pub fn events_between_tags(
         })
 }
 
-pub struct McfunctionBreakpoint<S: AsRef<str>> {
+pub struct McfunctionLineNumber<S: AsRef<str>> {
     pub function: ResourceLocationRef<S>,
     pub line_number: usize,
 }
 
-pub struct McfunctionBreakpointTag<S: AsRef<str>>(pub McfunctionBreakpoint<S>);
+impl<S: AsRef<str>> McfunctionLineNumber<S> {
+    pub fn get_name(&self) -> String {
+        format!("{}:{}", self.function, self.line_number)
+    }
 
-impl FromStr for McfunctionBreakpointTag<String> {
-    type Err = ();
-
-    fn from_str(breakpoint_tag: &str) -> Result<Self, Self::Err> {
-        // -ns-+-orig_ns-+-orig_fn-+-line_number-
-        if let [orig_ns, orig_fn @ .., line_number] =
-            breakpoint_tag.split('+').collect::<Vec<_>>().as_slice()
-        {
-            let function = ResourceLocation::new(orig_ns, &orig_fn.join("/"));
-            let line_number = line_number.parse::<usize>().map_err(|_| ())?;
-            Ok(McfunctionBreakpointTag(McfunctionBreakpoint {
-                function,
-                line_number,
-            }))
-        } else {
-            Err(())
-        }
+    pub fn get_tag(&self) -> String {
+        format!(
+            "{}+{}+{}",
+            self.function.namespace(),
+            self.function.path().replace("/", "+"),
+            self.line_number
+        )
     }
 }
 
-impl<S: AsRef<str>> Display for McfunctionBreakpointTag<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}+{}+{}",
-            self.0.function.namespace(),
-            self.0.function.path().replace("/", "+"),
-            self.0.line_number
-        )
+impl McfunctionLineNumber<String> {
+    pub fn parse(string: &str, seperator: &str) -> Option<Self> {
+        if let [orig_ns, orig_fn @ .., line_number] =
+            string.split(seperator).collect::<Vec<_>>().as_slice()
+        {
+            let function = ResourceLocation::new(orig_ns, &orig_fn.join("/"));
+            let line_number = line_number.parse::<usize>().ok()?;
+            Some(McfunctionLineNumber {
+                function,
+                line_number,
+            })
+        } else {
+            None
+        }
     }
 }

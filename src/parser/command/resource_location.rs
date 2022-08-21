@@ -94,6 +94,10 @@ impl<S: AsRef<str>> ResourceLocationRef<S> {
             namespace_len: self.namespace_len,
         }
     }
+
+    pub fn mcfunction_path(&self) -> String {
+        format!("{}/functions/{}.mcfunction", self.namespace(), self.path())
+    }
 }
 
 impl ResourceLocation {

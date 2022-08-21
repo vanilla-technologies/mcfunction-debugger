@@ -21,11 +21,11 @@ pub mod utils;
 use crate::{
     adapter::utils::{
         contains_breakpoint, events_between_tags, generate_datapack, parse_function_path,
-        McfunctionBreakpoint, McfunctionBreakpointTag,
+        McfunctionLineNumber,
     },
     error::{DapError, PartialErrorResponse},
     get_command,
-    minecraft::{parse_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
+    minecraft::{is_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
     MessageWriter,
 };
 use debug_adapter_protocol::{
@@ -91,7 +91,7 @@ struct ClientSession {
     minecraft_session: Option<MinecraftSession>,
     breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
     generated_breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
-    stopped_at: Option<McfunctionBreakpoint<String>>,
+    stopped_at: Option<McfunctionLineNumber<String>>,
     parser: CommandParser,
 }
 impl ClientSession {
@@ -327,13 +327,13 @@ where
         Ok(true)
     }
 
-    fn parse_stopped_tag(tag: &str) -> Option<McfunctionBreakpointTag<String>> {
+    fn parse_stopped_tag(tag: &str) -> Option<McfunctionLineNumber<String>> {
         let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
-        breakpoint_tag.parse().ok()
+        McfunctionLineNumber::parse(breakpoint_tag, "+")
     }
 
-    async fn on_stopped(&mut self, tag: McfunctionBreakpointTag<String>) -> Result<(), io::Error> {
-        self.client_session.as_mut().unwrap().stopped_at = Some(tag.0); // TODO unwrap
+    async fn on_stopped(&mut self, tag: McfunctionLineNumber<String>) -> Result<(), io::Error> {
+        self.client_session.as_mut().unwrap().stopped_at = Some(tag); // TODO unwrap
 
         self.writer
             .write_msg(
@@ -656,14 +656,16 @@ where
         let mut commands = Vec::new();
         for (old_line_number, new_line_number) in old_line_numbers.zip(new_line_numbers) {
             if old_line_number != new_line_number {
-                let old_tag = McfunctionBreakpointTag(McfunctionBreakpoint {
+                let old_tag = McfunctionLineNumber {
                     function: function.to_ref(),
                     line_number: old_line_number,
-                });
-                let new_tag = McfunctionBreakpointTag(McfunctionBreakpoint {
+                }
+                .get_tag();
+                let new_tag = McfunctionLineNumber {
                     function: function.to_ref(),
                     line_number: new_line_number,
-                });
+                }
+                .get_tag();
                 let old_tag = format!("{}+{}", namespace, old_tag);
                 let new_tag = format!("{}+{}", namespace, new_tag);
                 commands.push(format!(
@@ -703,10 +705,10 @@ where
         mc_session.inject_commands(vec![
             logged_command_str("function minect:enable_logging"),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
-            logged_command(mc_session.replace_ns(&format!(
-                "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] \
-                run scoreboard players add @s -ns-_depth 0"
-            ))),
+            logged_command(mc_session.replace_ns(
+                "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] run \
+                scoreboard players add @s -ns-_depth 0",
+            )),
             logged_command(mc_session.replace_ns(&format!(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tag @s add {}",
                 stack_trace_tag
@@ -719,79 +721,45 @@ where
             logged_command_str("function minect:reset_logging"),
         ])?;
 
-        let mut stack_trace = events_between_tags(stream, START_TAG, END_TAG)
-            .filter_map(|event| ready(Self::parse_stack_frame(event, mc_session, &stack_trace_tag)))
-            .map(|stack_frame| (stack_frame.id, stack_frame))
-            .collect::<Vec<_>>()
-            .await;
-
-        stack_trace.sort_by_key(|it| it.0);
-
-        // TODO: ugly
-        let mut stack_trace = stack_trace
-            .into_iter()
-            .enumerate()
-            .map(|(index, (_id, mut stack_frame))| {
-                stack_frame.id = index as i32;
-                stack_frame
-            })
-            .collect::<Vec<_>>();
-
-        stack_trace.reverse();
+        let mut stack_trace = Vec::new();
+        let mut events = events_between_tags(stream, START_TAG, END_TAG);
+        let scoreboard = format!("{}_depth", mc_session.namespace);
+        while let Some(event) = events.next().await {
+            if let Some(function_line) = McfunctionLineNumber::parse(&event.executor, ":") {
+                let id = if let Some(depth) = parse_scoreboard_value(&event.message, &scoreboard) {
+                    depth // Function call
+                } else if is_added_tag_message(&event.message, &stack_trace_tag) {
+                    stack_trace.len() as i32 // Breakpoint
+                } else {
+                    continue; // Shouldn't actually happen
+                };
+                let datapack = &mc_session.datapack;
+                stack_trace.push(Self::new_stack_frame(id, function_line, datapack));
+            }
+        }
+        stack_trace.sort_by_key(|it| -it.id);
 
         Ok(StackTraceResponseBody::builder()
             .total_frames(Some(stack_trace.len() as i32))
             .stack_frames(stack_trace)
             .build())
     }
-    fn parse_stack_frame(
-        event: LogEvent,
-        mc_session: &MinecraftSession,
-        stack_trace_tag: &str,
-    ) -> Option<StackFrame> {
-        if let [orig_ns, orig_fn, line_number] =
-            event.executor.split(':').collect::<Vec<_>>().as_slice()
-        {
-            let line_number = line_number.parse().ok()?;
-            let scoreboard = format!("{}_depth", mc_session.namespace);
-            let id = if let Some(depth) = parse_scoreboard_value(&event.message, &scoreboard) {
-                depth // Function call
-            } else if parse_added_tag_message(&event.message)? == stack_trace_tag {
-                i32::MAX // Breakpoint
-            } else {
-                return None;
-            };
-            let function = ResourceLocation::new(orig_ns, orig_fn);
-            let datapack = &mc_session.datapack;
-            return Some(Self::new_stack_frame(id, function, line_number, datapack));
-        }
-        None
-    }
-    fn new_stack_frame(
+    fn new_stack_frame<S: AsRef<str>>(
         id: i32,
-        function: ResourceLocation,
-        line: i32,
+        function_line: McfunctionLineNumber<S>,
         datapack: impl AsRef<Path>,
     ) -> StackFrame {
+        let path = datapack
+            .as_ref()
+            .join("data")
+            .join(function_line.function.mcfunction_path())
+            .display()
+            .to_string();
         StackFrame::builder()
             .id(id)
-            .name(format!("{}:{}", function, line))
-            .source(Some(
-                Source::builder()
-                    .path(Some(
-                        datapack
-                            .as_ref()
-                            .join(&format!(
-                                "data/{}/functions/{}.mcfunction",
-                                function.namespace(),
-                                function.path()
-                            ))
-                            .display()
-                            .to_string(),
-                    ))
-                    .build(),
-            ))
-            .line(line)
+            .name(function_line.get_name())
+            .source(Some(Source::builder().path(Some(path)).build()))
+            .line(function_line.line_number as i32)
             .column(0)
             .build()
     }

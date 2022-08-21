@@ -65,3 +65,11 @@ pub fn parse_added_tag_message(message: &str) -> Option<&str> {
     let index = suffix.find(TO)?;
     Some(&suffix[..index])
 }
+
+pub fn is_added_tag_message(message: &str, tag: &str) -> bool {
+    if let Some(actual_tag) = parse_added_tag_message(message) {
+        actual_tag == tag
+    } else {
+        false
+    }
+}
