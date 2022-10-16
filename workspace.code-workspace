@@ -7,6 +7,9 @@
             "path": "src/datapack_template"
         },
         {
+            "path": "mcfunction-debug-adapter/src/installer_datapack"
+        },
+        {
             "path": "tests/datapacks/mcfd_test"
         },
         {

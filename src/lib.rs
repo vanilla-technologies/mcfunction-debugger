@@ -20,7 +20,7 @@
 mod macros;
 
 pub mod parser;
-mod template_engine;
+pub mod template_engine;
 pub mod utils;
 
 use crate::{

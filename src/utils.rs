@@ -46,3 +46,10 @@ pub fn named_logged_command(name: &str, command: String) -> String {
         .build()
         .to_string()
 }
+
+pub fn named_logged_command_str(name: &str, command: &str) -> String {
+    LoggedCommand::builder(command.to_string())
+        .name(name)
+        .build()
+        .to_string()
+}

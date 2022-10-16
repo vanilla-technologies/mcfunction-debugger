@@ -25,6 +25,7 @@ use crate::{
     },
     error::{DapError, PartialErrorResponse},
     get_command,
+    installer::{setup_installer_datapack, wait_for_connection},
     minecraft::{is_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
     DebugAdapter, MessageWriter,
 };
@@ -411,46 +412,6 @@ where
     async fn launch(&mut self, args: LaunchRequestArguments) -> Result<(), DapError> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
 
-        //     self.writer
-        //     .write_msg(ProtocolMessageContent::Event(Event::Output(OutputEventBody {
-        //         category: OutputCategory::Important,
-        //         output: "Run /reload in Minecraft".to_string(),
-        //         group: None,
-        //         variables_reference: None,
-        //         source: None,
-        //         line: None,
-        //         column: None,
-        //         data: None,
-        //     })))
-        //     .await?;
-
-        // let progress_id = Uuid::new_v4();
-        // self.writer
-        //     .write_msg(ProtocolMessageContent::Event(Event::ProgressStart(
-        //         ProgressStartEventBody {
-        //             progress_id: progress_id.to_string(),
-        //             title: "Waiting for connection to Minecraft".to_string(),
-        //             request_id: None,
-        //             cancellable: true,
-        //             message: None,
-        //             percentage: None,
-        //         },
-        //     )))
-        //     .await?;
-
-        // sleep(Duration::from_secs(20)).await;
-
-        // self.writer
-        //     .write_msg(ProtocolMessageContent::Event(Event::ProgressEnd(
-        //         ProgressEndEventBody {
-        //             progress_id: progress_id.to_string(),
-        //             message: Some(
-        //                 "Successfully established connection to Minecraft".to_string(),
-        //             ),
-        //         },
-        //     )))
-        //     .await?;
-
         // FIXME: Proper launch parameters
         // let datapack = args
         //     .additional_attributes
@@ -459,48 +420,34 @@ where
         //     .as_str()
         //     .ok_or_else(|| invalid_data("Attribute 'datapack' is not of type string"))?;
 
-        let program = get_path(&args, "program")?;
+        let config = get_config(&args)?;
 
-        let (datapack, function) = parse_function_path(program)
-            .map_err(|e| PartialErrorResponse::new(format!("Attribute 'program' {}", e)))?;
+        setup_installer_datapack(&config.minecraft_world_dir)
+            .await
+            .map_err(|e| DapError::Terminate(e))?;
 
-        let datapack_name = datapack
-            .file_name()
-            .ok_or_else(|| {
-                PartialErrorResponse::new(format!(
-                    "Attribute 'program' contains an invalid path: {}",
-                    program.display()
-                ))
-            })?
-            .to_str()
-            .unwrap(); // Path is known to be UTF-8
-
-        let minecraft_world_dir = get_path(&args, "minecraftWorldDir")?;
-        let minecraft_log_file = get_path(&args, "minecraftLogFile")?;
-
-        // if connection in filesystem exists {
-        // ping
-        // timeout -> ?
-        // } else {
-        // install procedure
-        // }
-
-        let mut connection = MinecraftConnectionBuilder::from_ref("dap", minecraft_world_dir)
-            .log_file(minecraft_log_file.into())
-            .build();
+        let mut connection =
+            MinecraftConnectionBuilder::from_ref("dap", config.minecraft_world_dir)
+                .log_file(config.minecraft_log_file.into())
+                .build();
         let listener = connection.add_listener(LISTENER_NAME);
         let stream = UnboundedReceiverStream::new(listener).map(Message::Minecraft);
         self.message_streams.push(Box::pin(stream));
 
-        let namespace = "mcfd".to_string();
-        let output_path = minecraft_world_dir
+        wait_for_connection(&mut connection, &mut self.writer)
+            .await
+            .map_err(|e| DapError::Terminate(e))?;
+
+        let namespace = "mcfd".to_string(); // Hardcoded in installer aswell
+        let output_path = config
+            .minecraft_world_dir
             .join("datapacks")
-            .join(format!("debug-{}", datapack_name));
+            .join(format!("debug-{}", config.datapack_name));
         info!("output_path={}", output_path.display());
 
         let mut minecraft_session = MinecraftSession {
             connection,
-            datapack,
+            datapack: config.datapack.to_path_buf(),
             namespace,
             output_path,
             scopes: Vec::new(),
@@ -513,20 +460,6 @@ where
         )
         .await?;
 
-        // Install procedure
-        // create_installer_datapack
-
-        // connection.inject_commands(vec![logged(
-        //     "scoreboard players set minect_reject minect2_global 0",
-        // )]);
-
-        // let score = listener.recv().await?;
-        // // delete_installer_datapack
-        // // delete connection from disk
-        // if score == 1 {
-        //     return Err("User rejected");
-        // }
-
         inject_commands(
             &mut minecraft_session.connection,
             vec![
@@ -534,8 +467,8 @@ where
                 "reload".to_string(),
                 format!(
                     "function debug:{}/{}",
-                    function.namespace(),
-                    function.path(),
+                    config.function.namespace(),
+                    config.function.path(),
                 ),
             ],
         )?;
@@ -591,7 +524,7 @@ where
             })?,
             PathFormat::URI => todo!("Implement path URIs"),
         };
-        let (_datapack, function) = parse_function_path(path)
+        let (_datapack, function) = parse_function_path(path.as_ref())
             .map_err(|e| PartialErrorResponse::new(format!("Argument source.path {}", e)))?;
 
         let breakpoints = args
@@ -814,6 +747,42 @@ where
             }
         }
     }
+}
+
+struct Config<'l> {
+    datapack: &'l Path,
+    datapack_name: &'l str,
+    function: ResourceLocation,
+    minecraft_world_dir: &'l Path,
+    minecraft_log_file: &'l Path,
+}
+
+fn get_config(args: &LaunchRequestArguments) -> Result<Config, PartialErrorResponse> {
+    let program = get_path(&args, "program")?;
+
+    let (datapack, function) = parse_function_path(program)
+        .map_err(|e| PartialErrorResponse::new(format!("Attribute 'program' {}", e)))?;
+
+    let datapack_name = datapack
+        .file_name()
+        .ok_or_else(|| {
+            PartialErrorResponse::new(format!(
+                "Attribute 'program' contains an invalid path: {}",
+                program.display()
+            ))
+        })?
+        .to_str()
+        .unwrap(); // Path is known to be UTF-8
+
+    let minecraft_world_dir = get_path(&args, "minecraftWorldDir")?;
+    let minecraft_log_file = get_path(&args, "minecraftLogFile")?;
+    Ok(Config {
+        datapack,
+        datapack_name,
+        function,
+        minecraft_world_dir,
+        minecraft_log_file,
+    })
 }
 
 fn get_path<'a>(

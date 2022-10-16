@@ -28,32 +28,26 @@ use mcfunction_debugger::{
 };
 use minect::log_observer::LogEvent;
 use multimap::MultiMap;
-use std::{
-    future::ready,
-    path::{Path, PathBuf},
-};
+use std::{future::ready, path::Path};
 use tokio::fs::remove_dir_all;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-pub fn parse_function_path(path: impl AsRef<Path>) -> Result<(PathBuf, ResourceLocation), String> {
-    let datapack = find_parent_datapack(path.as_ref()).ok_or_else(|| {
+pub fn parse_function_path(path: &Path) -> Result<(&Path, ResourceLocation), String> {
+    let datapack = find_parent_datapack(path).ok_or_else(|| {
         format!(
             "does not denote a path in a datapack directory with a pack.mcmeta file: {}",
-            &path.as_ref().display()
+            &path.display()
         )
     })?;
-    let data_path = path
-        .as_ref()
-        .strip_prefix(datapack.join("data"))
-        .map_err(|_| {
-            format!(
-                "does not denote a path in the data directory of datapack {}: {}",
-                &datapack.display(),
-                &path.as_ref().display()
-            )
-        })?;
+    let data_path = path.strip_prefix(datapack.join("data")).map_err(|_| {
+        format!(
+            "does not denote a path in the data directory of datapack {}: {}",
+            &datapack.display(),
+            &path.display()
+        )
+    })?;
     let function = get_function_name(data_path, &path)?;
-    Ok((datapack.to_path_buf(), function))
+    Ok((datapack, function))
 }
 
 pub fn find_parent_datapack(mut path: &Path) -> Option<&Path> {

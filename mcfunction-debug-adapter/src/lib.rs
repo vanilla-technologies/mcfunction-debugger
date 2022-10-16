@@ -19,6 +19,7 @@
 pub mod adapter;
 pub mod codec;
 mod error;
+mod installer;
 mod minecraft;
 
 use async_trait::async_trait;
