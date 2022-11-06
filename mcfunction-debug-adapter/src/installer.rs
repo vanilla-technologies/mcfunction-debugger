@@ -16,11 +16,14 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use debug_adapter_protocol::{
-    events::{Event, ProgressEndEventBody, ProgressStartEventBody},
-    ProtocolMessage, ProtocolMessageContent,
+use crate::{
+    error::{PartialErrorResponse, RequestError},
+    DebugAdapterContext,
 };
-use futures::Sink;
+use futures::{
+    future::{select, Either},
+    pin_mut,
+};
 use mcfunction_debugger::{
     template_engine::TemplateEngine,
     utils::{logged_command_str, named_logged_command_str},
@@ -31,9 +34,6 @@ use tokio::{
     fs::{create_dir_all, read_to_string, remove_dir_all, write},
     try_join,
 };
-use uuid::Uuid;
-
-use crate::MessageWriter;
 
 macro_rules! include_template {
     ($path:expr) => {
@@ -58,51 +58,51 @@ macro_rules! expand_template {
     }};
 }
 
-pub async fn wait_for_connection<O>(
+pub async fn wait_for_connection(
     connection: &mut MinecraftConnection,
-    writer: &mut MessageWriter<O>,
-) -> io::Result<()>
-where
-    O: Sink<ProtocolMessage, Error = io::Error> + Unpin,
-{
+    mut context: impl DebugAdapterContext,
+) -> Result<(), RequestError<io::Error>> {
     let name = "mcfd_init";
     let mut init_listener = connection.add_listener(name);
-    connection.inject_commands(Vec::new())?; // TODO: Hack: connection is not initialized for first inject
-    connection.inject_commands(vec![
-        logged_command_str("function minect:enable_logging"),
-        named_logged_command_str(name, "tag @s add mcfd_connection_established"),
-        logged_command_str("function minect:reset_logging"),
-    ])?;
+    connection
+        .inject_commands(Vec::new())
+        .map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
+    connection
+        .inject_commands(vec![
+            logged_command_str("function minect:enable_logging"),
+            named_logged_command_str(name, "tag @s add mcfd_connection_established"),
+            logged_command_str("function minect:reset_logging"),
+        ])
+        .map_err(|e| RequestError::Terminate(e))?;
 
-    let progress_id = Uuid::new_v4();
-    writer
-        .write_msg(ProtocolMessageContent::Event(Event::ProgressStart(
-            ProgressStartEventBody::builder()
-                .progress_id(progress_id.to_string())
-                .title("Connecting to Minecraft".to_string())
-                .message(Some(
-                    "If you are connecting for the first time please execute /reload in Minecraft."
-                        .to_string(),
-                ))
-                .cancellable(true)
-                .build(),
-        )))
-        .await?;
+    let mut progress_context = context.start_cancellable_progress(
+        "Connecting to Minecraft".to_string(),
+        Some(
+            "If you are connecting for the first time please execute /reload in Minecraft."
+                .to_string(),
+        ),
+    );
+    let progress_id = progress_context.progress_id.to_string();
 
-    init_listener.recv().await;
+    let init_success = init_listener.recv();
+    pin_mut!(init_success);
+    let cancel = progress_context.next_cancel_request();
+    pin_mut!(cancel);
+    match select(init_success, cancel).await {
+        Either::Left(_) => {
+            let message = Some("Successfully established connection to Minecraft".to_string());
+            context.end_cancellable_progress(progress_id, message);
+            Ok(())
+        }
+        Either::Right(_) => {
+            let message = Some("Cancelled: Connecting to Minecraft".to_string());
+            context.end_cancellable_progress(progress_id, message);
 
-    writer
-        .write_msg(ProtocolMessageContent::Event(Event::ProgressEnd(
-            ProgressEndEventBody::builder()
-                .progress_id(progress_id.to_string())
-                .message(Some(
-                    "Successfully established connection to Minecraft".to_string(),
-                ))
-                .build(),
-        )))
-        .await?;
-
-    Ok(())
+            Err(RequestError::Respond(PartialErrorResponse::new(
+                "Successfully cancelled launch.".to_string(),
+            )))
+        }
+    }
 }
 
 pub async fn setup_installer_datapack(minecraft_world_dir: impl AsRef<Path>) -> io::Result<()> {

@@ -22,12 +22,27 @@ use debug_adapter_protocol::{
 };
 use std::io;
 
-pub enum DapError {
-    Terminate(io::Error),
-    Respond(PartialErrorResponse),
+#[derive(Debug)]
+pub enum DebugAdapterError<O, C> {
+    Canceller(io::Error),
+    Output(O),
+    Custom(C),
+}
+impl DebugAdapterError<io::Error, io::Error> {
+    pub fn into_inner(self) -> io::Error {
+        match self {
+            DebugAdapterError::Canceller(e) => e,
+            DebugAdapterError::Output(e) => e,
+            DebugAdapterError::Custom(e) => e,
+        }
+    }
 }
 
-impl From<PartialErrorResponse> for DapError {
+pub enum RequestError<C> {
+    Terminate(C),
+    Respond(PartialErrorResponse),
+}
+impl<C> From<PartialErrorResponse> for RequestError<C> {
     fn from(error: PartialErrorResponse) -> Self {
         Self::Respond(error)
     }

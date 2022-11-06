@@ -23,11 +23,10 @@ use crate::{
         contains_breakpoint, events_between_tags, generate_datapack, parse_function_path,
         parse_stopped_tag, McfunctionLineNumber,
     },
-    error::{DapError, PartialErrorResponse},
-    get_command,
+    error::{PartialErrorResponse, RequestError},
     installer::{setup_installer_datapack, wait_for_connection},
     minecraft::{is_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
-    DebugAdapter, MessageWriter,
+    DebugAdapter, DebugAdapterContext,
 };
 use async_trait::async_trait;
 use debug_adapter_protocol::{
@@ -43,15 +42,12 @@ use debug_adapter_protocol::{
     },
     responses::{
         ContinueResponseBody, EvaluateResponseBody, ScopesResponseBody, SetBreakpointsResponseBody,
-        StackTraceResponseBody, SuccessResponse, ThreadsResponseBody, VariablesResponseBody,
+        StackTraceResponseBody, ThreadsResponseBody, VariablesResponseBody,
     },
     types::{Breakpoint, Capabilities, Scope, Source, StackFrame, Thread, Variable},
-    ProtocolMessage, ProtocolMessageContent,
+    ProtocolMessage,
 };
-use futures::{
-    stream::{select_all, SelectAll},
-    Sink, Stream, StreamExt,
-};
+use futures::{future::Either, StreamExt};
 use log::{info, trace};
 use mcfunction_debugger::{
     parser::{
@@ -68,21 +64,15 @@ use std::{
     future::ready,
     io,
     path::{Path, PathBuf},
-    pin::Pin,
 };
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
+    sync::mpsc::UnboundedSender,
 };
 use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
 
 const LISTENER_NAME: &'static str = "mcfunction_debugger";
-
-#[derive(Debug)]
-enum Message {
-    Client(io::Result<ProtocolMessage>),
-    Minecraft(LogEvent),
-}
 
 struct ClientSession {
     lines_start_at_1: bool,
@@ -189,115 +179,30 @@ struct ScopeReference {
     kind: ScopeKind,
 }
 
-pub struct McfunctionDebugAdapter<O>
-where
-    O: Sink<ProtocolMessage> + Unpin,
-{
-    message_streams: SelectAll<Pin<Box<dyn Stream<Item = Message> + Send>>>,
-    writer: MessageWriter<O>,
+pub struct McfunctionDebugAdapter {
+    message_sender: UnboundedSender<Either<ProtocolMessage, LogEvent>>,
     client_session: Option<ClientSession>,
 }
-impl<O> McfunctionDebugAdapter<O>
-where
-    O: Sink<ProtocolMessage, Error = io::Error> + Unpin + Send,
-{
-    pub fn new<I>(input: I, output: O) -> McfunctionDebugAdapter<O>
-    where
-        I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + 'static + Send,
-    {
-        let client_messages: Pin<Box<dyn Stream<Item = Message> + Send>> =
-            Box::pin(input.map(Message::Client));
+impl McfunctionDebugAdapter {
+    pub fn new(message_sender: UnboundedSender<Either<ProtocolMessage, LogEvent>>) -> Self {
         McfunctionDebugAdapter {
-            message_streams: select_all([client_messages]),
-            writer: MessageWriter::new(output),
+            message_sender,
             client_session: None,
         }
     }
 
-    pub async fn run(&mut self) -> io::Result<()> {
-        trace!("Starting debug adapter");
-        while let Some(msg) = self.message_streams.next().await {
-            match msg {
-                Message::Client(client_msg) => {
-                    let client_msg = client_msg?;
-                    trace!("Received message from client: {}", client_msg);
-                    let should_continue = self.handle_client_message(client_msg).await?;
-                    if !should_continue {
-                        break;
-                    }
-                }
-                Message::Minecraft(minecraft_msg) => {
-                    trace!(
-                        "Received message from Minecraft by {}: {}",
-                        minecraft_msg.executor,
-                        minecraft_msg.message
-                    );
-                    let should_continue = self.handle_minecraft_message(minecraft_msg).await?;
-                    if !should_continue {
-                        break;
-                    }
-                }
-            }
-        }
-        trace!("Debug adapter finished");
-        Ok(())
-    }
-
-    async fn handle_client_message(&mut self, msg: ProtocolMessage) -> io::Result<bool> {
-        match msg.content {
-            ProtocolMessageContent::Request(request) => {
-                let command = get_command(&request);
-                let result = self.handle_client_request(request).await;
-
-                let mut should_continue = true;
-                let response = match result {
-                    Ok(response) => {
-                        if response == SuccessResponse::Disconnect {
-                            should_continue = true;
-                        }
-                        Ok(response)
-                    }
-                    Err(DapError::Respond(response)) => Err(response.with_command(command)),
-                    Err(DapError::Terminate(e)) => return Err(e),
-                };
-                self.writer.respond(msg.seq, response).await?;
-                Ok(should_continue)
-            }
-            _ => {
-                todo!("Only requests and RunInTerminalResponse should be sent by the client");
-            }
-        }
-    }
-
-    async fn handle_minecraft_message(&mut self, msg: LogEvent) -> io::Result<bool> {
-        if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
-            if let Some(tag) = suffix.strip_suffix(&format!("' to {}", LISTENER_NAME)) {
-                if tag == "exited" {
-                    self.writer
-                        .write_msg(TerminatedEventBody::builder().build())
-                        .await?;
-                    return Ok(false);
-                }
-                if let Some(tag) = parse_stopped_tag(tag) {
-                    self.on_stopped(tag).await?;
-                }
-            }
-        }
-        Ok(true)
-    }
-
-    async fn on_stopped(&mut self, tag: McfunctionLineNumber<String>) -> Result<(), io::Error> {
+    async fn on_stopped(
+        &mut self,
+        tag: McfunctionLineNumber<String>,
+        mut context: impl DebugAdapterContext + Send,
+    ) {
         self.client_session.as_mut().unwrap().stopped_at = Some(tag); // TODO unwrap
 
-        self.writer
-            .write_msg(
-                StoppedEventBody::builder()
-                    .reason(StoppedEventReason::Breakpoint)
-                    .thread_id(Some(MAIN_THREAD_ID))
-                    .build(),
-            )
-            .await?;
-        Ok(())
+        let event = StoppedEventBody::builder()
+            .reason(StoppedEventReason::Breakpoint)
+            .thread_id(Some(MAIN_THREAD_ID))
+            .build();
+        context.fire_event(event);
     }
 
     fn unwrap_client_session(
@@ -322,14 +227,39 @@ where
 }
 
 #[async_trait]
-impl<O> DebugAdapter for McfunctionDebugAdapter<O>
-where
-    O: Sink<ProtocolMessage, Error = io::Error> + Unpin + Send,
-{
+impl DebugAdapter for McfunctionDebugAdapter {
+    type Message = LogEvent;
+    type CustomError = io::Error;
+
+    async fn handle_other_message(
+        &mut self,
+        msg: Self::Message,
+        mut context: impl DebugAdapterContext + Send,
+    ) -> Result<bool, Self::CustomError> {
+        trace!(
+            "Received message from Minecraft by {}: {}",
+            msg.executor,
+            msg.message
+        );
+        if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
+            if let Some(tag) = suffix.strip_suffix(&format!("' to {}", LISTENER_NAME)) {
+                if tag == "exited" {
+                    context.fire_event(TerminatedEventBody::builder().build());
+                    return Ok(false);
+                }
+                if let Some(tag) = parse_stopped_tag(tag) {
+                    self.on_stopped(tag, context).await;
+                }
+            }
+        }
+        Ok(true)
+    }
+
     async fn continue_(
         &mut self,
         _args: ContinueRequestArguments,
-    ) -> Result<ContinueResponseBody, DapError> {
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<ContinueResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
@@ -371,11 +301,12 @@ where
     async fn evaluate(
         &mut self,
         _args: EvaluateRequestArguments,
-    ) -> Result<EvaluateResponseBody, DapError> {
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<EvaluateResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        Err(DapError::Respond(PartialErrorResponse::new(
+        Err(RequestError::Respond(PartialErrorResponse::new(
             "Not supported yet, see: \
             https://github.com/vanilla-technologies/mcfunction-debugger/issues/68"
                 .to_string(),
@@ -385,9 +316,11 @@ where
     async fn initialize(
         &mut self,
         args: InitializeRequestArguments,
-    ) -> Result<Capabilities, DapError> {
+        mut context: impl DebugAdapterContext + Send,
+    ) -> Result<Capabilities, RequestError<Self::CustomError>> {
         let parser = CommandParser::default()
-            .map_err(|e| DapError::Terminate(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+            .map_err(Self::map_custom_error)?;
         self.client_session = Some(ClientSession {
             lines_start_at_1: args.lines_start_at_1,
             path_format: args.path_format,
@@ -398,10 +331,7 @@ where
             parser,
         });
 
-        self.writer
-            .write_msg(Event::Initialized)
-            .await
-            .map_err(|e| DapError::Terminate(e))?;
+        context.fire_event(Event::Initialized);
 
         Ok(Capabilities::builder()
             .supports_cancel_request(true)
@@ -409,7 +339,11 @@ where
             .build())
     }
 
-    async fn launch(&mut self, args: LaunchRequestArguments) -> Result<(), DapError> {
+    async fn launch(
+        &mut self,
+        args: LaunchRequestArguments,
+        context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
 
         // FIXME: Proper launch parameters
@@ -424,19 +358,23 @@ where
 
         setup_installer_datapack(&config.minecraft_world_dir)
             .await
-            .map_err(|e| DapError::Terminate(e))?;
+            .map_err(Self::map_custom_error)?;
 
         let mut connection =
             MinecraftConnectionBuilder::from_ref("dap", config.minecraft_world_dir)
                 .log_file(config.minecraft_log_file.into())
                 .build();
-        let listener = connection.add_listener(LISTENER_NAME);
-        let stream = UnboundedReceiverStream::new(listener).map(Message::Minecraft);
-        self.message_streams.push(Box::pin(stream));
+        let mut listener = connection.add_listener(LISTENER_NAME);
+        let message_sender = self.message_sender.clone();
+        tokio::spawn(async move {
+            while let Some(event) = listener.recv().await {
+                if let Err(_) = message_sender.send(Either::Right(event)) {
+                    break;
+                }
+            }
+        });
 
-        wait_for_connection(&mut connection, &mut self.writer)
-            .await
-            .map_err(|e| DapError::Terminate(e))?;
+        wait_for_connection(&mut connection, context).await?;
 
         let namespace = "mcfd".to_string(); // Hardcoded in installer aswell
         let output_path = config
@@ -477,21 +415,21 @@ where
         Ok(())
     }
 
-    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
+    async fn pause(
+        &mut self,
+        _args: PauseRequestArguments,
+        mut context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        self.writer
-            .write_msg(
-                OutputEventBody::builder()
-                    .category(OutputCategory::Important)
-                    .output("Minecraft cannot be paused".to_string())
-                    .build(),
-            )
-            .await
-            .map_err(|e| DapError::Terminate(e))?;
+        let event = OutputEventBody::builder()
+            .category(OutputCategory::Important)
+            .output("Minecraft cannot be paused".to_string())
+            .build();
+        context.fire_event(event);
 
-        Err(DapError::Respond(PartialErrorResponse::new(
+        Err(RequestError::Respond(PartialErrorResponse::new(
             "Minecraft cannot be paused".to_string(),
         )))
     }
@@ -499,7 +437,8 @@ where
     async fn scopes(
         &mut self,
         args: ScopesRequestArguments,
-    ) -> Result<ScopesResponseBody, DapError> {
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<ScopesResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
@@ -514,7 +453,8 @@ where
     async fn set_breakpoints(
         &mut self,
         args: SetBreakpointsRequestArguments,
-    ) -> Result<SetBreakpointsResponseBody, DapError> {
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<SetBreakpointsResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
 
         let offset = client_session.get_line_offset();
@@ -599,7 +539,8 @@ where
     async fn stack_trace(
         &mut self,
         _args: StackTraceRequestArguments,
-    ) -> Result<StackTraceResponseBody, DapError> {
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<StackTraceResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
@@ -652,14 +593,21 @@ where
             .build())
     }
 
-    async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
+    async fn terminate(
+        &mut self,
+        _args: TerminateRequestArguments,
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
         mc_session.inject_commands(vec!["function debug:stop".to_string()])?;
         Ok(())
     }
 
-    async fn threads(&mut self) -> Result<ThreadsResponseBody, DapError> {
+    async fn threads(
+        &mut self,
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<ThreadsResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let _mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
@@ -676,7 +624,8 @@ where
     async fn variables(
         &mut self,
         args: VariablesRequestArguments,
-    ) -> Result<VariablesResponseBody, DapError> {
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<VariablesResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 

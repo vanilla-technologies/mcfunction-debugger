@@ -21,6 +21,8 @@ use log::error;
 use mcfunction_debug_adapter::{
     adapter::McfunctionDebugAdapter,
     codec::{ProtocolMessageDecoder, ProtocolMessageEncoder},
+    error::DebugAdapterError,
+    run_adapter,
 };
 use simplelog::{Config, WriteLogger};
 use std::{io, path::Path};
@@ -68,10 +70,13 @@ See the GNU General Public License for more details.
 
     let input = FramedRead::new(tokio::io::stdin(), ProtocolMessageDecoder);
     let output = FramedWrite::new(tokio::io::stdout(), ProtocolMessageEncoder);
-
-    let mut adapter = McfunctionDebugAdapter::new(input, output);
-    match adapter.run().await {
+    match run_adapter(input, output, McfunctionDebugAdapter::new).await {
         Err(e) => {
+            let e = match e {
+                DebugAdapterError::Canceller(e) => e,
+                DebugAdapterError::Output(e) => e,
+                DebugAdapterError::Custom(e) => e,
+            };
             error!("Stopping due to: {}", e);
             Err(e)
         }

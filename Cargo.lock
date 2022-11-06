@@ -163,7 +163,7 @@ dependencies = [
 [[package]]
 name = "debug-adapter-protocol"
 version = "0.1.0"
-source = "git+ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git#90464afc1abab63691ccf049584a1c4617f4af15"
+source = "git+ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git#1ca78da65e999effc954ba927c2f56c4960afc4e"
 dependencies = [
  "serde",
  "serde_json",
@@ -594,6 +594,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "typed-builder",
  "uuid",
  "vergen",
 ]

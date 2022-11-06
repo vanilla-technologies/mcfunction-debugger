@@ -18,7 +18,7 @@
 
 use crate::{
     adapter::{MinecraftSession, LISTENER_NAME},
-    error::{DapError, PartialErrorResponse},
+    error::PartialErrorResponse,
 };
 use futures::{Stream, StreamExt};
 use mcfunction_debugger::{
@@ -92,7 +92,7 @@ pub(super) async fn generate_datapack(
     minecraft_session: &MinecraftSession,
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
     generated_breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-) -> Result<(), DapError> {
+) -> Result<(), PartialErrorResponse> {
     let mut breakpoints = breakpoints.clone();
 
     // Add all generated breakpoints that are not at the same position as user breakpoints

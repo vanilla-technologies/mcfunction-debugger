@@ -17,35 +17,186 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 pub mod adapter;
+pub mod api;
 pub mod codec;
-mod error;
+pub mod error;
+mod executor;
 mod installer;
 mod minecraft;
+mod receiver;
+mod sender;
 
-use async_trait::async_trait;
+use api::{CancelErrorResponse, DebugAdapter, DebugAdapterContext, ProgressContext};
 use debug_adapter_protocol::{
-    requests::{
-        ContinueRequestArguments, DisconnectRequestArguments, EvaluateRequestArguments,
-        InitializeRequestArguments, LaunchRequestArguments, PauseRequestArguments, Request,
-        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
-        TerminateRequestArguments, VariablesRequestArguments,
-    },
-    responses::{
-        ContinueResponseBody, ErrorResponse, EvaluateResponseBody, Response, ScopesResponseBody,
-        SetBreakpointsResponseBody, StackTraceResponseBody, SuccessResponse, ThreadsResponseBody,
-        VariablesResponseBody,
-    },
-    types::Capabilities,
+    events::{Event, ProgressEndEventBody, ProgressStartEventBody},
+    requests::Request,
+    responses::{ErrorResponse, Response, SuccessResponse},
     ProtocolMessage, ProtocolMessageContent, SequenceNumber,
 };
-use error::{DapError, PartialErrorResponse};
-use futures::{Sink, SinkExt};
+use error::DebugAdapterError;
+use executor::DebugAdapterExecutor;
+use futures::{future::Either, Sink, SinkExt, Stream, TryFutureExt};
 use log::trace;
+use receiver::DebugAdapterReceiver;
+use sender::DebugAdapterSender;
 use serde_json::Value;
+use std::{
+    collections::{HashMap, HashSet},
+    io,
+    sync::Mutex,
+};
+use tokio::{
+    sync::mpsc::{unbounded_channel, UnboundedSender},
+    try_join,
+};
+use uuid::Uuid;
+
+pub async fn run_adapter<D, I, O>(
+    input: I,
+    output: O,
+    adapter_factory: impl FnOnce(
+        UnboundedSender<Either<ProtocolMessage, <D as DebugAdapter>::Message>>,
+    ) -> D,
+) -> Result<
+    (),
+    DebugAdapterError<<O as Sink<ProtocolMessage>>::Error, <D as DebugAdapter>::CustomError>,
+>
+where
+    D: DebugAdapter + Send,
+    I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + Send + 'static,
+    O: Sink<ProtocolMessage> + Unpin + Send + 'static,
+{
+    let (outbox_sender, outbox_receiver) = unbounded_channel();
+    let outbox = Outbox { outbox_sender };
+    let (inbox_sender, inbox_receiver) = unbounded_channel();
+    let (cancel_sender, cancel_receiver) = unbounded_channel();
+    let adapter = adapter_factory(inbox_sender.clone());
+
+    let cancel_data = Mutex::new(CancelData::new());
+    let mut receiver = DebugAdapterReceiver {
+        inbox_sender,
+        outbox: outbox.clone(),
+        cancel_data: &cancel_data,
+        cancel_sender,
+        input,
+    };
+
+    let mut executor = DebugAdapterExecutor {
+        inbox_receiver,
+        outbox,
+        cancel_data: &cancel_data,
+        cancel_receiver,
+        adapter,
+    };
+
+    let message_writer = MessageWriter::new(output);
+    let mut sender = DebugAdapterSender {
+        message_writer,
+        outbox_receiver,
+    };
+
+    try_join!(
+        receiver.run().map_err(DebugAdapterError::Canceller),
+        executor.run().map_err(DebugAdapterError::Custom),
+        sender.run().map_err(DebugAdapterError::Output),
+    )?;
+    Ok(())
+}
+
+struct CancelData {
+    current_request_id: Option<i32>,
+    cancelled_request_ids: HashSet<i32>,
+    current_progresses: HashMap<String, UnboundedSender<SequenceNumber>>,
+}
+impl CancelData {
+    fn new() -> Self {
+        CancelData {
+            current_request_id: None,
+            cancelled_request_ids: HashSet::new(),
+            current_progresses: HashMap::new(),
+        }
+    }
+}
+
+pub struct DebugAdapterContextImpl<'l> {
+    outbox: &'l mut Outbox,
+    cancel_data: &'l Mutex<CancelData>,
+}
+impl DebugAdapterContext for &mut DebugAdapterContextImpl<'_> {
+    fn fire_event(&mut self, event: impl Into<Event> + Send) {
+        let event = event.into();
+        self.outbox.send(event);
+    }
+
+    fn start_cancellable_progress(
+        &mut self,
+        title: String,
+        message: Option<String>,
+    ) -> ProgressContext {
+        let progress_id = Uuid::new_v4();
+        let (cancel_sender, cancel_receiver) = unbounded_channel();
+        {
+            let mut cancel_data = self.cancel_data.lock().unwrap();
+            cancel_data
+                .current_progresses
+                .insert(progress_id.to_string(), cancel_sender);
+        }
+
+        let event = ProgressStartEventBody::builder()
+            .progress_id(progress_id.to_string())
+            .title(title)
+            .message(message)
+            .cancellable(true)
+            .build();
+        self.fire_event(event);
+
+        let progress_id = progress_id.to_string();
+        let outbox = self.outbox.clone();
+        ProgressContext::new(progress_id, cancel_receiver, outbox)
+    }
+
+    fn end_cancellable_progress(&mut self, progress_id: String, message: Option<String>) {
+        {
+            let mut cancel_data = self.cancel_data.lock().unwrap();
+            cancel_data.current_progresses.remove(&progress_id);
+        }
+        let event = ProgressEndEventBody::builder()
+            .progress_id(progress_id)
+            .message(message)
+            .build();
+        self.fire_event(event);
+    }
+}
+
+#[derive(Clone)]
+struct Outbox {
+    outbox_sender: UnboundedSender<ProtocolMessageContent>,
+}
+impl Outbox {
+    fn send(&self, message: impl Into<ProtocolMessageContent>) {
+        let _ = self.outbox_sender.send(message.into());
+    }
+
+    fn respond(&self, request_id: SequenceNumber, result: Result<SuccessResponse, ErrorResponse>) {
+        let response = Response {
+            request_seq: request_id,
+            result,
+        };
+        self.send(response);
+    }
+
+    fn respond_unknown_progress(&self, request_id: SequenceNumber, progress_id: String) {
+        let response = Err(CancelErrorResponse::builder()
+            .message(format!("Unknown progress id: {}", progress_id))
+            .build()
+            .into());
+        self.respond(request_id, response);
+    }
+}
 
 pub struct MessageWriter<O>
 where
-    O: Sink<ProtocolMessage> + Unpin,
+    O: Sink<ProtocolMessage>,
 {
     seq: SequenceNumber,
     output: O,
@@ -93,146 +244,5 @@ pub fn get_command(request: &Request) -> String {
         }
     } else {
         panic!("value must be an object");
-    }
-}
-
-#[async_trait]
-trait DebugAdapter {
-    async fn handle_client_request(
-        &mut self,
-        request: Request,
-    ) -> Result<SuccessResponse, DapError> {
-        match request {
-            Request::ConfigurationDone => self
-                .configuration_done()
-                .await
-                .map(|()| SuccessResponse::ConfigurationDone),
-            Request::Continue(args) => self.continue_(args).await.map(SuccessResponse::Continue),
-            Request::Disconnect(args) => self
-                .disconnect(args)
-                .await
-                .map(|()| SuccessResponse::Disconnect),
-            Request::Evaluate(args) => self.evaluate(args).await.map(SuccessResponse::Evaluate),
-            Request::Initialize(args) => {
-                self.initialize(args).await.map(SuccessResponse::Initialize)
-            }
-            Request::Launch(args) => self.launch(args).await.map(|()| SuccessResponse::Launch),
-            Request::Pause(args) => self.pause(args).await.map(|()| SuccessResponse::Pause),
-            Request::Scopes(args) => self.scopes(args).await.map(SuccessResponse::Scopes),
-            Request::SetBreakpoints(args) => self
-                .set_breakpoints(args)
-                .await
-                .map(SuccessResponse::SetBreakpoints),
-            Request::StackTrace(args) => self
-                .stack_trace(args)
-                .await
-                .map(SuccessResponse::StackTrace),
-            Request::Terminate(args) => self
-                .terminate(args)
-                .await
-                .map(|()| SuccessResponse::Terminate),
-            Request::Threads => self.threads().await.map(SuccessResponse::Threads),
-            Request::Variables(args) => self.variables(args).await.map(SuccessResponse::Variables),
-            _ => {
-                let command = get_command(&request);
-                Err(DapError::Respond(PartialErrorResponse::new(format!(
-                    "Unsupported request {}",
-                    command
-                ))))
-            }
-        }
-    }
-
-    async fn configuration_done(&mut self) -> Result<(), DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'configurationDone'".to_string(),
-        )))
-    }
-
-    async fn continue_(
-        &mut self,
-        _args: ContinueRequestArguments,
-    ) -> Result<ContinueResponseBody, DapError>;
-
-    async fn disconnect(&mut self, _args: DisconnectRequestArguments) -> Result<(), DapError> {
-        Ok(())
-    }
-
-    async fn evaluate(
-        &mut self,
-        _args: EvaluateRequestArguments,
-    ) -> Result<EvaluateResponseBody, DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'evaluate'".to_string(),
-        )))
-    }
-
-    async fn initialize(
-        &mut self,
-        _args: InitializeRequestArguments,
-    ) -> Result<Capabilities, DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'initialize'".to_string(),
-        )))
-    }
-
-    async fn launch(&mut self, _args: LaunchRequestArguments) -> Result<(), DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'launch'".to_string(),
-        )))
-    }
-
-    async fn pause(&mut self, _args: PauseRequestArguments) -> Result<(), DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'pause'".to_string(),
-        )))
-    }
-
-    async fn scopes(
-        &mut self,
-        _args: ScopesRequestArguments,
-    ) -> Result<ScopesResponseBody, DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'scopes'".to_string(),
-        )))
-    }
-
-    async fn set_breakpoints(
-        &mut self,
-        _args: SetBreakpointsRequestArguments,
-    ) -> Result<SetBreakpointsResponseBody, DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'setBreakpoints'".to_string(),
-        )))
-    }
-
-    async fn stack_trace(
-        &mut self,
-        _args: StackTraceRequestArguments,
-    ) -> Result<StackTraceResponseBody, DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'stackTrace'".to_string(),
-        )))
-    }
-
-    async fn terminate(&mut self, _args: TerminateRequestArguments) -> Result<(), DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'terminate'".to_string(),
-        )))
-    }
-
-    async fn threads(&mut self) -> Result<ThreadsResponseBody, DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'threads'".to_string(),
-        )))
-    }
-
-    async fn variables(
-        &mut self,
-        _args: VariablesRequestArguments,
-    ) -> Result<VariablesResponseBody, DapError> {
-        Err(DapError::Respond(PartialErrorResponse::new(
-            "Unsupported request 'variables'".to_string(),
-        )))
     }
 }

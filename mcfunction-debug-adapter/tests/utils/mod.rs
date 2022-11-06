@@ -32,7 +32,9 @@ use debug_adapter_protocol::{
     ProtocolMessage, ProtocolMessageContent as Content, SequenceNumber,
 };
 use futures::{Sink, SinkExt, Stream};
-use mcfunction_debug_adapter::adapter::McfunctionDebugAdapter;
+use mcfunction_debug_adapter::{
+    adapter::McfunctionDebugAdapter, error::DebugAdapterError, run_adapter,
+};
 use mcfunction_debugger::{
     parser::command::resource_location::ResourceLocation, utils::logged_command_str,
 };
@@ -61,7 +63,7 @@ where
     I: Sink<io::Result<ProtocolMessage>, Error = io::Error> + Unpin,
     O: Stream<Item = ProtocolMessage> + Unpin,
 {
-    pub handle: JoinHandle<io::Result<()>>,
+    pub handle: JoinHandle<Result<(), DebugAdapterError<io::Error, io::Error>>>,
     pub input: ProtocolMessageSender<I>,
     pub output: TimeoutStream<O, ProtocolMessage>,
 }
@@ -72,8 +74,14 @@ pub fn start_adapter() -> TestAdapter<
 > {
     let (input, adapter_input_stream) = unbound_io_channel();
     let (adapter_output_sink, output) = unbound_io_channel();
-    let mut adapter = McfunctionDebugAdapter::new(adapter_input_stream, adapter_output_sink);
-    let handle = tokio::task::spawn(async move { adapter.run().await });
+    let handle = tokio::task::spawn(async move {
+        run_adapter(
+            adapter_input_stream,
+            adapter_output_sink,
+            McfunctionDebugAdapter::new,
+        )
+        .await
+    });
 
     let adapter_input: Box<dyn Sink<io::Result<ProtocolMessage>, Error = io::Error> + Unpin> =
         Box::new(input);
