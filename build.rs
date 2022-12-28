@@ -48,7 +48,7 @@ fn remove_license_header_from_templates(out_dir: impl AsRef<Path>) {
         let out_path = out_dir.as_ref().join(in_path);
         let file_type = entry.file_type();
         if file_type.is_dir() {
-            println!("Creating dir  {}", out_path.display());
+            println!("Creating dir {}", out_path.display());
             create_dir_all(out_path).unwrap();
         } else if file_type.is_file() {
             println!("Creating file {}", out_path.display());

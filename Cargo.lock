@@ -597,6 +597,7 @@ dependencies = [
  "typed-builder",
  "uuid",
  "vergen",
+ "walkdir",
 ]
 
 [[package]]

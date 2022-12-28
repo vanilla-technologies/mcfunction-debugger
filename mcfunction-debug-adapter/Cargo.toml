@@ -39,3 +39,4 @@ serial_test = "0.8"
 
 [build-dependencies]
 vergen = "7"
+walkdir = "2"

@@ -37,29 +37,6 @@ use tokio::{
     try_join,
 };
 
-macro_rules! include_template {
-    ($path:expr) => {
-        include_str!(concat!("installer_datapack/", $path))
-    };
-}
-
-macro_rules! extract_file {
-    ($out_path:expr, $relative_path:literal) => {
-        create_file(
-            $out_path.join($relative_path),
-            include_template!($relative_path),
-        )
-    };
-}
-
-macro_rules! expand_template {
-    ($engine:expr, $out_path:expr, $relative_path:expr) => {{
-        let path = $out_path.join($engine.expand($relative_path));
-        let content = $engine.expand(include_template!($relative_path));
-        create_file(path, content)
-    }};
-}
-
 pub async fn setup_installer_datapack(minecraft_world_dir: impl AsRef<Path>) -> io::Result<()> {
     let minecraft_world_dir = minecraft_world_dir.as_ref();
     let structure_id = read_structure_id(minecraft_world_dir).await;
@@ -101,11 +78,18 @@ async fn extract_installer_datapack(
     datapack_dir: impl AsRef<Path>,
     structure_id: u64,
 ) -> io::Result<()> {
+    macro_rules! include_datapack_template {
+        ($path:expr) => {
+            include_str!(concat!(env!("OUT_DIR"), "/src/installer_datapack/", $path))
+        };
+    }
     let datapack_dir = datapack_dir.as_ref();
     macro_rules! extract_datapack_file {
-        ($relative_path:literal) => {
-            extract_file!(datapack_dir, $relative_path)
-        };
+        ($relative_path:expr) => {{
+            let path = datapack_dir.join($relative_path);
+            let content = include_datapack_template!($relative_path);
+            create_file(path, content)
+        }};
     }
     let structure_id = structure_id.to_string();
     let engine = TemplateEngine::new(
@@ -113,9 +97,11 @@ async fn extract_installer_datapack(
         None,
     );
     macro_rules! expand_datapack_template {
-        ($relative_path:literal) => {
-            expand_template!(engine, datapack_dir, $relative_path)
-        };
+        ($relative_path:expr) => {{
+            let path = datapack_dir.join(engine.expand($relative_path));
+            let content = engine.expand(include_datapack_template!($relative_path));
+            create_file(path, content)
+        }};
     }
     try_join!(
         extract_datapack_file!("data/mcfd_init/functions/cancel_cleanup.mcfunction"),
