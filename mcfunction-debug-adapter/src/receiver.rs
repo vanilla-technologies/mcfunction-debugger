@@ -23,12 +23,12 @@ use debug_adapter_protocol::{
 };
 use futures::{future::Either, Stream, StreamExt};
 use log::trace;
-use std::{io, sync::Mutex};
+use std::sync::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
 
-pub(super) struct DebugAdapterReceiver<'l, I, M>
+pub(super) struct DebugAdapterReceiver<'l, I, E, M>
 where
-    I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + 'static + Send,
+    I: Stream<Item = Result<ProtocolMessage, E>> + Unpin + 'static + Send,
 {
     pub inbox_sender: UnboundedSender<Either<ProtocolMessage, M>>,
     pub outbox: Outbox,
@@ -37,11 +37,11 @@ where
     pub input: I,
 }
 
-impl<I, M> DebugAdapterReceiver<'_, I, M>
+impl<I, E, M> DebugAdapterReceiver<'_, I, E, M>
 where
-    I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + Send + 'static,
+    I: Stream<Item = Result<ProtocolMessage, E>> + Unpin + Send + 'static,
 {
-    pub async fn run(&mut self) -> Result<(), io::Error> {
+    pub async fn run(&mut self) -> Result<(), E> {
         while let Some(message) = self.input.next().await {
             let message = message?;
             trace!("Received message from client: {}", message);

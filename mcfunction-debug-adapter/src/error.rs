@@ -23,15 +23,15 @@ use debug_adapter_protocol::{
 use std::io;
 
 #[derive(Debug)]
-pub enum DebugAdapterError<O, C> {
-    Canceller(io::Error),
+pub enum DebugAdapterError<I, O, C> {
+    Input(I),
     Output(O),
     Custom(C),
 }
-impl DebugAdapterError<io::Error, io::Error> {
-    pub fn into_inner(self) -> io::Error {
+impl<E> DebugAdapterError<E, E, E> {
+    pub fn into_inner(self) -> E {
         match self {
-            DebugAdapterError::Canceller(e) => e,
+            DebugAdapterError::Input(e) => e,
             DebugAdapterError::Output(e) => e,
             DebugAdapterError::Custom(e) => e,
         }

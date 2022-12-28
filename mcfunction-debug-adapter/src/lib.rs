@@ -42,7 +42,6 @@ use sender::DebugAdapterSender;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
-    io,
     sync::Mutex,
 };
 use tokio::{
@@ -51,7 +50,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-pub async fn run_adapter<D, I, O>(
+pub async fn run_adapter<D, I, O, E>(
     input: I,
     output: O,
     adapter_factory: impl FnOnce(
@@ -59,11 +58,11 @@ pub async fn run_adapter<D, I, O>(
     ) -> D,
 ) -> Result<
     (),
-    DebugAdapterError<<O as Sink<ProtocolMessage>>::Error, <D as DebugAdapter>::CustomError>,
+    DebugAdapterError<E, <O as Sink<ProtocolMessage>>::Error, <D as DebugAdapter>::CustomError>,
 >
 where
     D: DebugAdapter + Send,
-    I: Stream<Item = io::Result<ProtocolMessage>> + Unpin + Send + 'static,
+    I: Stream<Item = Result<ProtocolMessage, E>> + Unpin + Send + 'static,
     O: Sink<ProtocolMessage> + Unpin + Send + 'static,
 {
     let (outbox_sender, outbox_receiver) = unbounded_channel();
@@ -96,7 +95,7 @@ where
     };
 
     try_join!(
-        receiver.run().map_err(DebugAdapterError::Canceller),
+        receiver.run().map_err(DebugAdapterError::Input),
         executor.run().map_err(DebugAdapterError::Custom),
         sender.run().map_err(DebugAdapterError::Output),
     )?;

@@ -63,7 +63,7 @@ where
     I: Sink<io::Result<ProtocolMessage>, Error = io::Error> + Unpin,
     O: Stream<Item = ProtocolMessage> + Unpin,
 {
-    pub handle: JoinHandle<Result<(), DebugAdapterError<io::Error, io::Error>>>,
+    pub handle: JoinHandle<Result<(), DebugAdapterError<io::Error, io::Error, io::Error>>>,
     pub input: ProtocolMessageSender<I>,
     pub output: TimeoutStream<O, ProtocolMessage>,
 }

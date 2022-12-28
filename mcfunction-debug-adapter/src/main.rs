@@ -105,7 +105,7 @@ See the GNU General Public License for more details.
     match run_adapter(input, output, McfunctionDebugAdapter::new).await {
         Err(e) => {
             let e = match e {
-                DebugAdapterError::Canceller(e) => e,
+                DebugAdapterError::Input(e) => e,
                 DebugAdapterError::Output(e) => e,
                 DebugAdapterError::Custom(e) => e,
             };
