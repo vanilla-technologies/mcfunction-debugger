@@ -18,6 +18,7 @@
 
 use crate::{
     error::{PartialErrorResponse, RequestError},
+    minecraft::parse_added_tag_message,
     DebugAdapterContext,
 };
 use futures::{
@@ -26,9 +27,9 @@ use futures::{
 };
 use mcfunction_debugger::{
     template_engine::TemplateEngine,
-    utils::{logged_command_str, named_logged_command_str},
+    utils::{logged_command_str, named_logged_command},
 };
-use minect::MinecraftConnection;
+use minect::{log_observer::LogEvent, MinecraftConnection};
 use std::{collections::BTreeMap, io, iter::FromIterator, path::Path};
 use tokio::{
     fs::{create_dir_all, read_to_string, remove_dir_all, write},
@@ -58,60 +59,12 @@ macro_rules! expand_template {
     }};
 }
 
-pub async fn wait_for_connection(
-    connection: &mut MinecraftConnection,
-    mut context: impl DebugAdapterContext,
-) -> Result<(), RequestError<io::Error>> {
-    let name = "mcfd_init";
-    let mut init_listener = connection.add_listener(name);
-    connection
-        .inject_commands(Vec::new())
-        .map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
-    connection
-        .inject_commands(vec![
-            logged_command_str("function minect:enable_logging"),
-            named_logged_command_str(name, "tag @s add mcfd_connection_established"),
-            logged_command_str("function minect:reset_logging"),
-        ])
-        .map_err(|e| RequestError::Terminate(e))?;
-
-    let mut progress_context = context.start_cancellable_progress(
-        "Connecting to Minecraft".to_string(),
-        Some(
-            "If you are connecting for the first time please execute /reload in Minecraft."
-                .to_string(),
-        ),
-    );
-    let progress_id = progress_context.progress_id.to_string();
-
-    let init_success = init_listener.recv();
-    pin_mut!(init_success);
-    let cancel = progress_context.next_cancel_request();
-    pin_mut!(cancel);
-    match select(init_success, cancel).await {
-        Either::Left(_) => {
-            let message = Some("Successfully established connection to Minecraft".to_string());
-            context.end_cancellable_progress(progress_id, message);
-            Ok(())
-        }
-        Either::Right(_) => {
-            let message = Some("Cancelled: Connecting to Minecraft".to_string());
-            context.end_cancellable_progress(progress_id, message);
-
-            Err(RequestError::Respond(PartialErrorResponse::new(
-                "Successfully cancelled launch.".to_string(),
-            )))
-        }
-    }
-}
-
 pub async fn setup_installer_datapack(minecraft_world_dir: impl AsRef<Path>) -> io::Result<()> {
     let minecraft_world_dir = minecraft_world_dir.as_ref();
     let structure_id = read_structure_id(minecraft_world_dir).await;
 
-    let datapacks_dir = minecraft_world_dir.join("datapacks");
-    let datapack_dir = datapacks_dir.join("mcfd-installer");
-    if datapack_dir.is_dir() {
+    let datapack_dir = get_installer_datapack_dir(minecraft_world_dir);
+    if datapack_dir.as_ref().is_dir() {
         remove_dir_all(&datapack_dir).await?;
     }
     extract_installer_datapack(&datapack_dir, structure_id).await?;
@@ -137,6 +90,12 @@ async fn read_structure_id(minecraft_world_dir: &Path) -> u64 {
     }
 }
 
+fn get_installer_datapack_dir(minecraft_world_dir: impl AsRef<Path>) -> impl AsRef<Path> {
+    minecraft_world_dir
+        .as_ref()
+        .join("datapacks/mcfd-installer")
+}
+
 async fn extract_installer_datapack(
     datapack_dir: impl AsRef<Path>,
     structure_id: u64,
@@ -158,10 +117,13 @@ async fn extract_installer_datapack(
         };
     }
     try_join!(
+        extract_datapack_file!("data/mcfd_init/functions/cancel_cleanup.mcfunction"),
+        extract_datapack_file!("data/mcfd_init/functions/cancel.mcfunction"),
         expand_datapack_template!("data/mcfd_init/functions/choose_chunk.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/confirm_chunk.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/install.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/load.mcfunction"),
+        extract_datapack_file!("data/mcfd_init/functions/remove_chunk_choice.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/uninstall.mcfunction"),
         extract_datapack_file!("data/minecraft/tags/functions/load.json"),
         extract_datapack_file!("pack.mcmeta"),
@@ -174,4 +136,76 @@ async fn create_file(path: impl AsRef<Path>, contents: impl AsRef<str>) -> io::R
         create_dir_all(parent).await?;
     }
     write(path, contents.as_ref()).await
+}
+
+const SUCCESS_TAG: &str = "mcfd_init_success";
+
+pub async fn wait_for_connection(
+    connection: &mut MinecraftConnection,
+    minecraft_world_dir: impl AsRef<Path>,
+    mut context: impl DebugAdapterContext,
+) -> Result<(), RequestError<io::Error>> {
+    const LISTENER_NAME: &str = "mcfd_init"; // Hardcoded in installer datapack as well
+    let mut init_listener = connection.add_listener(LISTENER_NAME);
+    connection
+        .inject_commands(Vec::new())
+        .map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
+    connection
+        .inject_commands(vec![
+            logged_command_str("function minect:enable_logging"),
+            named_logged_command(LISTENER_NAME, format!("tag @s add {}", SUCCESS_TAG)),
+            logged_command_str("function minect:reset_logging"),
+        ])
+        .map_err(|e| RequestError::Terminate(e))?;
+
+    let mut progress_context = context.start_cancellable_progress(
+        "Connecting to Minecraft".to_string(),
+        Some(
+            "If you are connecting for the first time please execute /reload in Minecraft."
+                .to_string(),
+        ),
+    );
+    let progress_id = progress_context.progress_id.to_string();
+
+    let init_result = init_listener.recv();
+    pin_mut!(init_result);
+    let cancel = progress_context.next_cancel_request();
+    pin_mut!(cancel);
+    let success = match select(init_result, cancel).await {
+        Either::Left((log_event, _)) => is_install_success(log_event),
+        Either::Right(_) => false,
+    };
+
+    let message = Some(if success {
+        "Successfully established connection to Minecraft".to_string()
+    } else {
+        "Cancelled: Connecting to Minecraft".to_string()
+    });
+    context.end_cancellable_progress(progress_id, message);
+
+    let datapack_dir = get_installer_datapack_dir(minecraft_world_dir);
+    if datapack_dir.as_ref().is_dir() {
+        remove_dir_all(&datapack_dir)
+            .await
+            .map_err(RequestError::Terminate)?;
+    }
+
+    if success {
+        Ok(())
+    } else {
+        Err(RequestError::Respond(PartialErrorResponse::new(
+            "Launch was cancelled.".to_string(),
+        )))
+    }
+}
+
+fn is_install_success(log_event: Option<LogEvent>) -> bool {
+    if let Some(log_event) = log_event {
+        if let Some(tag) = parse_added_tag_message(&log_event.message) {
+            if tag == SUCCESS_TAG {
+                return true;
+            }
+        }
+    }
+    false
 }

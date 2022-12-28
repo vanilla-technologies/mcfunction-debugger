@@ -346,14 +346,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
     ) -> Result<(), RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
 
-        // FIXME: Proper launch parameters
-        // let datapack = args
-        //     .additional_attributes
-        //     .get("datapack")
-        //     .ok_or_else(|| invalid_data("Missing attribute 'datapack'"))?
-        //     .as_str()
-        //     .ok_or_else(|| invalid_data("Attribute 'datapack' is not of type string"))?;
-
         let config = get_config(&args)?;
 
         setup_installer_datapack(&config.minecraft_world_dir)
@@ -374,9 +366,9 @@ impl DebugAdapter for McfunctionDebugAdapter {
             }
         });
 
-        wait_for_connection(&mut connection, context).await?;
+        wait_for_connection(&mut connection, &config.minecraft_world_dir, context).await?;
 
-        let namespace = "mcfd".to_string(); // Hardcoded in installer aswell
+        let namespace = "mcfd".to_string(); // Hardcoded in installer as well
         let output_path = config
             .minecraft_world_dir
             .join("datapacks")
@@ -401,7 +393,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
         inject_commands(
             &mut minecraft_session.connection,
             vec![
-                // "say injecting command to start debugging".to_string(),
                 "reload".to_string(),
                 format!(
                     "function debug:{}/{}",

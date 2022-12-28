@@ -16,8 +16,7 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute at @e[type=area_effect_cloud,tag=mcfd_installer] run setblock ~ ~ ~ air
-kill @e[type=area_effect_cloud,tag=mcfd_installer]
+function mcfd_init:remove_chunk_choice
 summon area_effect_cloud ~ ~ ~ {Duration: 2147483647, Tags: ["mcfd", "mcfd_installer"]}
 
 execute store result score entityX mcfd_init_global run data get entity @e[type=area_effect_cloud,tag=mcfd_installer,limit=1] Pos[0] 1
@@ -34,4 +33,4 @@ execute store result entity @e[type=area_effect_cloud,tag=mcfd_installer,limit=1
 
 execute at @e[type=area_effect_cloud,tag=mcfd_installer,limit=1] run setblock ~ ~ ~ structure_block{name: "minect:dap/-structure_id-", mode: "LOAD", showboundingbox: true, sizeX: 16, sizeY: 256, sizeZ: 16}
 
-tellraw @a [{"text":""},{"text":"Confirm","clickEvent":{"action":"run_command","value":"/function mcfd_init:confirm_chunk"},"hoverEvent":{"action":"show_text","contents":"Click to execute"},"color":"aqua"},{"text": " or "},{"text":"change","clickEvent":{"action":"suggest_command","value":"/execute positioned ~ ~ ~ run function mcfd_init:choose_chunk"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"},{"text": " chunk"}]
+tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" This chunk will be force loaded to keep the connection active when no player is around.\n "},{"text":"[Confirm]","clickEvent":{"action":"run_command","value":"/function mcfd_init:confirm_chunk"},"hoverEvent":{"action":"show_text","contents":"Click to execute"},"color":"aqua"},{"text": " "},{"text":"[Choose different chunk]","clickEvent":{"action":"suggest_command","value":"/execute positioned ~ ~ ~ run function mcfd_init:choose_chunk"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"},{"text": " "},{"text":"[Cancel]","clickEvent":{"action":"run_command","value":"/function mcfd_init:cancel"},"hoverEvent":{"action":"show_text","contents":"Click to execute"},"color":"aqua"}]
