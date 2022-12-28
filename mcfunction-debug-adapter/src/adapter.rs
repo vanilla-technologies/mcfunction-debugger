@@ -66,7 +66,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tokio::{
-    fs::File,
+    fs::{remove_dir_all, File},
     io::{AsyncBufReadExt, BufReader},
     sync::mpsc::UnboundedSender,
 };
@@ -102,8 +102,8 @@ struct MinecraftSession {
 }
 impl MinecraftSession {
     fn inject_commands(&mut self, commands: Vec<String>) -> Result<(), PartialErrorResponse> {
-        trace!("Injecting commands:\n{}", commands.join("\n"));
         inject_commands(&mut self.connection, commands)
+            .map_err(|e| PartialErrorResponse::new(format!("Failed to inject commands: {}", e)))
     }
 
     fn replace_ns(&self, command: &str) -> String {
@@ -149,14 +149,9 @@ impl MinecraftSession {
     }
 }
 
-fn inject_commands(
-    connection: &mut MinecraftConnection,
-    commands: Vec<String>,
-) -> Result<(), PartialErrorResponse> {
-    connection
-        .inject_commands(commands)
-        .map_err(|e| PartialErrorResponse::new(format!("Failed to inject commands: {}", e)))?;
-    Ok(())
+fn inject_commands(connection: &mut MinecraftConnection, commands: Vec<String>) -> io::Result<()> {
+    trace!("Injecting commands:\n{}", commands.join("\n"));
+    connection.inject_commands(commands)
 }
 
 const MAIN_THREAD_ID: i32 = 0;
@@ -194,7 +189,7 @@ impl McfunctionDebugAdapter {
     async fn on_stopped(
         &mut self,
         tag: McfunctionLineNumber<String>,
-        mut context: impl DebugAdapterContext + Send,
+        context: &mut (impl DebugAdapterContext + Send),
     ) {
         self.client_session.as_mut().unwrap().stopped_at = Some(tag); // TODO unwrap
 
@@ -203,6 +198,26 @@ impl McfunctionDebugAdapter {
             .thread_id(Some(MAIN_THREAD_ID))
             .build();
         context.fire_event(event);
+    }
+
+    async fn on_exited(
+        &mut self,
+        context: &mut (impl DebugAdapterContext + Send),
+    ) -> io::Result<()> {
+        context.fire_event(TerminatedEventBody::builder().build());
+
+        if let Some(client_session) = &mut self.client_session {
+            if let Some(minecraft_session) = &mut client_session.minecraft_session {
+                remove_dir_all(&minecraft_session.output_path).await?;
+                inject_commands(
+                    &mut minecraft_session.connection,
+                    vec!["reload".to_string()],
+                )?;
+            }
+        }
+
+        context.shutdown();
+        Ok(())
     }
 
     fn unwrap_client_session(
@@ -243,12 +258,11 @@ impl DebugAdapter for McfunctionDebugAdapter {
         );
         if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
             if let Some(tag) = suffix.strip_suffix(&format!("' to {}", LISTENER_NAME)) {
-                if tag == "exited" {
-                    context.fire_event(TerminatedEventBody::builder().build());
-                    context.shutdown();
-                }
                 if let Some(tag) = parse_stopped_tag(tag) {
-                    self.on_stopped(tag, context).await;
+                    self.on_stopped(tag, &mut context).await;
+                }
+                if tag == "exited" {
+                    self.on_exited(&mut context).await?;
                 }
             }
         }
@@ -390,17 +404,14 @@ impl DebugAdapter for McfunctionDebugAdapter {
         )
         .await?;
 
-        inject_commands(
-            &mut minecraft_session.connection,
-            vec![
-                "reload".to_string(),
-                format!(
-                    "function debug:{}/{}",
-                    config.function.namespace(),
-                    config.function.path(),
-                ),
-            ],
-        )?;
+        minecraft_session.inject_commands(vec![
+            "reload".to_string(),
+            format!(
+                "function debug:{}/{}",
+                config.function.namespace(),
+                config.function.path(),
+            ),
+        ])?;
 
         client_session.minecraft_session = Some(minecraft_session);
         Ok(())
