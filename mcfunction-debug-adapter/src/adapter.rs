@@ -48,7 +48,7 @@ use debug_adapter_protocol::{
     ProtocolMessage,
 };
 use futures::{future::Either, StreamExt};
-use log::{info, trace};
+use log::trace;
 use mcfunction_debugger::{
     parser::{
         command::{resource_location::ResourceLocation, CommandParser},
@@ -392,7 +392,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
             .minecraft_world_dir
             .join("datapacks")
             .join(format!("debug-{}", config.datapack_name));
-        info!("output_path={}", output_path.display());
 
         let mut minecraft_session = MinecraftSession {
             connection,
