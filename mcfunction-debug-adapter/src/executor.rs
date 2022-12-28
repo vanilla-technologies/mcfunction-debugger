@@ -53,6 +53,9 @@ where
                 Either::Left(client_msg) => {
                     trace!("Handling message from client: {}", client_msg);
 
+                    let mut context =
+                        DebugAdapterContextImpl::new(self.outbox.clone(), self.cancel_data);
+
                     let seq = client_msg.seq; // TODO: seq zu i32 machen
                     let mut maybe_cancel_request_id = None;
                     // TODO: ugly
@@ -66,12 +69,8 @@ where
                         {
                             let cancel = self.cancel_receiver.recv();
                             pin_mut!(cancel);
-                            let context = DebugAdapterContextImpl {
-                                outbox: &mut self.outbox,
-                                cancel_data: self.cancel_data,
-                            };
                             let handle_message =
-                                handle_client_message(client_msg, &mut self.adapter, context);
+                                handle_client_message(client_msg, &mut self.adapter, &mut context);
                             pin_mut!(handle_message);
 
                             match select(cancel, handle_message).await {
@@ -87,10 +86,7 @@ where
                                     // ))
                                 }
                                 Either::Right((result, _)) => {
-                                    let should_continue = result?;
-                                    if !should_continue {
-                                        break;
-                                    }
+                                    result?;
                                 }
                             }
                         }
@@ -108,17 +104,19 @@ where
                         // TODO panic
                         self.finish_request().unwrap();
                     }
+                    if context.shutdown {
+                        trace!("Shutting down executor");
+                        break;
+                    }
                 }
                 Either::Right(message) => {
-                    let mut context = DebugAdapterContextImpl {
-                        outbox: &mut self.outbox,
-                        cancel_data: self.cancel_data,
-                    };
-                    let should_continue = self
-                        .adapter
+                    let mut context =
+                        DebugAdapterContextImpl::new(self.outbox.clone(), self.cancel_data);
+                    self.adapter
                         .handle_other_message(message, &mut context)
                         .await?;
-                    if !should_continue {
+                    if context.shutdown {
+                        trace!("Shutting down executor");
                         break;
                     }
                 }
@@ -147,8 +145,8 @@ where
 async fn handle_client_message<D>(
     msg: ProtocolMessage,
     adapter: &mut D,
-    mut context: DebugAdapterContextImpl<'_>,
-) -> Result<bool, <D as DebugAdapter>::CustomError>
+    context: &mut DebugAdapterContextImpl<'_>,
+) -> Result<(), <D as DebugAdapter>::CustomError>
 where
     D: DebugAdapter + Send,
 {
@@ -156,21 +154,17 @@ where
         ProtocolMessageContent::Request(request) => {
             let command = get_command(&request);
 
-            let result = adapter.handle_client_request(request, &mut context).await;
+            // Reborrow context to allow reusing &mut after handle_client_request
+            let c = &mut *context;
+            let result = adapter.handle_client_request(request, c).await;
 
-            let mut should_continue = true;
             let response = match result {
-                Ok(response) => {
-                    if response == SuccessResponse::Disconnect {
-                        should_continue = true;
-                    }
-                    Ok(response)
-                }
+                Ok(response) => Ok(response),
                 Err(RequestError::Respond(response)) => Err(response.with_command(command)),
                 Err(RequestError::Terminate(e)) => return Err(e),
             };
             context.outbox.respond(msg.seq, response);
-            Ok(should_continue)
+            Ok(())
         }
         _ => {
             todo!("Only requests and RunInTerminalResponse should be sent by the client");

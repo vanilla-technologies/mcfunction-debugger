@@ -119,8 +119,18 @@ impl CancelData {
 }
 
 pub struct DebugAdapterContextImpl<'l> {
-    outbox: &'l mut Outbox,
+    outbox: Outbox,
     cancel_data: &'l Mutex<CancelData>,
+    shutdown: bool,
+}
+impl DebugAdapterContextImpl<'_> {
+    fn new<'l>(outbox: Outbox, cancel_data: &'l Mutex<CancelData>) -> DebugAdapterContextImpl<'l> {
+        DebugAdapterContextImpl {
+            outbox,
+            cancel_data,
+            shutdown: false,
+        }
+    }
 }
 impl DebugAdapterContext for &mut DebugAdapterContextImpl<'_> {
     fn fire_event(&mut self, event: impl Into<Event> + Send) {
@@ -165,6 +175,10 @@ impl DebugAdapterContext for &mut DebugAdapterContextImpl<'_> {
             .message(message)
             .build();
         self.fire_event(event);
+    }
+
+    fn shutdown(&mut self) {
+        self.shutdown = true
     }
 }
 

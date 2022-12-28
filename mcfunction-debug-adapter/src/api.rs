@@ -50,6 +50,8 @@ pub trait DebugAdapterContext {
     ) -> ProgressContext;
 
     fn end_cancellable_progress(&mut self, progress_id: String, message: Option<String>);
+
+    fn shutdown(&mut self);
 }
 
 pub struct ProgressContext {
@@ -156,8 +158,8 @@ pub trait DebugAdapter {
         &mut self,
         _message: Self::Message,
         _context: impl DebugAdapterContext + Send,
-    ) -> Result<bool, Self::CustomError> {
-        Ok(true)
+    ) -> Result<(), Self::CustomError> {
+        Ok(())
     }
 
     async fn handle_client_request(
@@ -243,8 +245,9 @@ pub trait DebugAdapter {
     async fn disconnect(
         &mut self,
         _args: DisconnectRequestArguments,
-        _context: impl DebugAdapterContext + Send,
+        mut context: impl DebugAdapterContext + Send,
     ) -> Result<(), RequestError<Self::CustomError>> {
+        context.shutdown();
         Ok(())
     }
 

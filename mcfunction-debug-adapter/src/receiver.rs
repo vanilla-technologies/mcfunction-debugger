@@ -48,6 +48,9 @@ where
             if let ProtocolMessageContent::Request(Request::Cancel(args)) = message.content {
                 self.handle_cancel_request(message.seq, args);
             } else {
+                if let ProtocolMessageContent::Request(Request::Terminate(_)) = &message.content {
+                    self.handle_terminate_request();
+                }
                 let _ = self.inbox_sender.send(Either::Left(message));
             }
         }
@@ -55,7 +58,7 @@ where
     }
 
     fn handle_cancel_request(
-        &mut self,
+        &self,
         cancel_request_id: SequenceNumber,
         args: CancelRequestArguments,
     ) {
@@ -80,5 +83,12 @@ where
                 cancel_data.cancelled_request_ids.insert(request_id);
             }
         }
+    }
+
+    fn handle_terminate_request(&self) {
+        let mut cancel_data = self.cancel_data.lock().unwrap();
+        cancel_data.current_progresses.clear();
+
+        // TODO: cancel all queued requests
     }
 }

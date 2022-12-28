@@ -235,7 +235,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         &mut self,
         msg: Self::Message,
         mut context: impl DebugAdapterContext + Send,
-    ) -> Result<bool, Self::CustomError> {
+    ) -> Result<(), Self::CustomError> {
         trace!(
             "Received message from Minecraft by {}: {}",
             msg.executor,
@@ -245,14 +245,14 @@ impl DebugAdapter for McfunctionDebugAdapter {
             if let Some(tag) = suffix.strip_suffix(&format!("' to {}", LISTENER_NAME)) {
                 if tag == "exited" {
                     context.fire_event(TerminatedEventBody::builder().build());
-                    return Ok(false);
+                    context.shutdown();
                 }
                 if let Some(tag) = parse_stopped_tag(tag) {
                     self.on_stopped(tag, context).await;
                 }
             }
         }
-        Ok(true)
+        Ok(())
     }
 
     async fn continue_(
@@ -596,11 +596,15 @@ impl DebugAdapter for McfunctionDebugAdapter {
     async fn terminate(
         &mut self,
         _args: TerminateRequestArguments,
-        _context: impl DebugAdapterContext + Send,
+        mut context: impl DebugAdapterContext + Send,
     ) -> Result<(), RequestError<Self::CustomError>> {
-        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
-        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
-        mc_session.inject_commands(vec!["function debug:stop".to_string()])?;
+        if let Some(client_session) = &mut self.client_session {
+            if let Some(minecraft_session) = &mut client_session.minecraft_session {
+                minecraft_session.inject_commands(vec!["function debug:stop".to_string()])?;
+                return Ok(());
+            }
+        }
+        context.shutdown();
         Ok(())
     }
 
