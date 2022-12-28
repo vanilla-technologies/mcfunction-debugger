@@ -194,7 +194,9 @@ impl McfunctionDebugAdapter {
         tag: McfunctionLineNumber<String>,
         context: &mut (impl DebugAdapterContext + Send),
     ) {
-        self.client_session.as_mut().unwrap().stopped_at = Some(tag); // TODO unwrap
+        if let Some(client_session) = &mut self.client_session {
+            client_session.stopped_at = Some(tag);
+        }
 
         let event = StoppedEventBody::builder()
             .reason(StoppedEventReason::Breakpoint)
