@@ -149,7 +149,10 @@ impl MinecraftSession {
     }
 }
 
-fn inject_commands(connection: &mut MinecraftConnection, commands: Vec<String>) -> io::Result<()> {
+pub(crate) fn inject_commands(
+    connection: &mut MinecraftConnection,
+    commands: Vec<String>,
+) -> io::Result<()> {
     trace!("Injecting commands:\n{}", commands.join("\n"));
     connection.inject_commands(commands)
 }

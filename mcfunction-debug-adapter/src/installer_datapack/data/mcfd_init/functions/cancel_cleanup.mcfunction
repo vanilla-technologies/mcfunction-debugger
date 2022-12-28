@@ -20,4 +20,7 @@ kill @e[type=command_block_minecart,tag=mcfd_install_canceller]
 function mcfd_init:remove_chunk_choice
 function mcfd_init:uninstall
 
-tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Installation was cancelled."}]
+tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Installation cancelled."}]
+
+# This loads the removal of the installer datapack on disk
+schedule function mcfd_init:reload 1t

@@ -16,7 +16,4 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-execute at @e[type=area_effect_cloud,tag=mcfd_installer] run setblock ~ ~1 ~ redstone_block
-execute at @e[type=area_effect_cloud,tag=mcfd_installer] run forceload add ~ ~
-kill @e[type=area_effect_cloud,tag=mcfd_installer]
-tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text": " Installation finished."}]
+reload

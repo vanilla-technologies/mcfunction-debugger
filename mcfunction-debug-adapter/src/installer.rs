@@ -17,6 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::{
+    adapter::inject_commands,
     error::{PartialErrorResponse, RequestError},
     minecraft::parse_added_tag_message,
     DebugAdapterContext,
@@ -123,6 +124,7 @@ async fn extract_installer_datapack(
         extract_datapack_file!("data/mcfd_init/functions/confirm_chunk.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/install.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/load.mcfunction"),
+        extract_datapack_file!("data/mcfd_init/functions/reload.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/remove_chunk_choice.mcfunction"),
         extract_datapack_file!("data/mcfd_init/functions/uninstall.mcfunction"),
         extract_datapack_file!("data/minecraft/tags/functions/load.json"),
@@ -147,16 +149,16 @@ pub async fn wait_for_connection(
 ) -> Result<(), RequestError<io::Error>> {
     const LISTENER_NAME: &str = "mcfd_init"; // Hardcoded in installer datapack as well
     let mut init_listener = connection.add_listener(LISTENER_NAME);
-    connection
-        .inject_commands(Vec::new())
-        .map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
-    connection
-        .inject_commands(vec![
+    inject_commands(connection, Vec::new()).map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
+    inject_commands(
+        connection,
+        vec![
             logged_command_str("function minect:enable_logging"),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", SUCCESS_TAG)),
             logged_command_str("function minect:reset_logging"),
-        ])
-        .map_err(|e| RequestError::Terminate(e))?;
+        ],
+    )
+    .map_err(|e| RequestError::Terminate(e))?;
 
     let mut progress_context = context.start_cancellable_progress(
         "Connecting to Minecraft".to_string(),
