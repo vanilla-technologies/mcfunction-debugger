@@ -35,9 +35,9 @@ use debug_adapter_protocol::{
         TerminatedEventBody,
     },
     requests::{
-        ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
-        LaunchRequestArguments, PathFormat, PauseRequestArguments, ScopesRequestArguments,
-        SetBreakpointsRequestArguments, StackTraceRequestArguments, TerminateRequestArguments,
+        ContinueRequestArguments, DisconnectRequestArguments, EvaluateRequestArguments,
+        InitializeRequestArguments, LaunchRequestArguments, PathFormat, PauseRequestArguments,
+        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
         VariablesRequestArguments,
     },
     responses::{
@@ -63,6 +63,7 @@ use std::{
     convert::TryFrom,
     future::ready,
     io,
+    mem::replace,
     path::{Path, PathBuf},
 };
 use tokio::{
@@ -212,7 +213,8 @@ impl McfunctionDebugAdapter {
         context.fire_event(TerminatedEventBody::builder().build());
 
         if let Some(client_session) = &mut self.client_session {
-            if let Some(minecraft_session) = &mut client_session.minecraft_session {
+            let minecraft_session = replace(&mut client_session.minecraft_session, None);
+            if let Some(mut minecraft_session) = minecraft_session {
                 remove_dir_all(&minecraft_session.output_path).await?;
                 inject_commands(
                     &mut minecraft_session.connection,
@@ -221,7 +223,6 @@ impl McfunctionDebugAdapter {
             }
         }
 
-        context.shutdown();
         Ok(())
     }
 
@@ -317,6 +318,21 @@ impl DebugAdapter for McfunctionDebugAdapter {
         Ok(ContinueResponseBody::builder().build())
     }
 
+    async fn disconnect(
+        &mut self,
+        _args: DisconnectRequestArguments,
+        mut context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
+        if let Some(client_session) = &mut self.client_session {
+            if let Some(minecraft_session) = &mut client_session.minecraft_session {
+                minecraft_session.inject_commands(vec!["function debug:stop".to_string()])?;
+                return Ok(());
+            }
+        }
+        context.shutdown();
+        Ok(())
+    }
+
     async fn evaluate(
         &mut self,
         _args: EvaluateRequestArguments,
@@ -354,7 +370,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         Ok(Capabilities::builder()
             .supports_cancel_request(true)
-            .supports_terminate_request(true)
             .build())
     }
 
@@ -594,21 +609,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
             .total_frames(Some(stack_trace.len() as i32))
             .stack_frames(stack_trace)
             .build())
-    }
-
-    async fn terminate(
-        &mut self,
-        _args: TerminateRequestArguments,
-        mut context: impl DebugAdapterContext + Send,
-    ) -> Result<(), RequestError<Self::CustomError>> {
-        if let Some(client_session) = &mut self.client_session {
-            if let Some(minecraft_session) = &mut client_session.minecraft_session {
-                minecraft_session.inject_commands(vec!["function debug:stop".to_string()])?;
-                return Ok(());
-            }
-        }
-        context.shutdown();
-        Ok(())
     }
 
     async fn threads(
