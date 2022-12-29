@@ -30,21 +30,39 @@ use mcfunction_debugger::{
     template_engine::TemplateEngine,
     utils::{logged_command_str, named_logged_command},
 };
-use minect::{log_observer::LogEvent, MinecraftConnection};
+use minect::{log_observer::LogEvent, MinecraftConnection, MinecraftConnectionBuilder};
 use std::{collections::BTreeMap, io, iter::FromIterator, path::Path};
 use tokio::{
     fs::{create_dir_all, read_to_string, remove_dir_all, write},
     try_join,
 };
 
-pub async fn setup_installer_datapack(minecraft_world_dir: impl AsRef<Path>) -> io::Result<()> {
+pub async fn establish_connection(
+    minecraft_world_dir: impl AsRef<Path>,
+    minecraft_log_file: impl AsRef<Path>,
+    context: impl DebugAdapterContext,
+) -> Result<MinecraftConnection, RequestError<io::Error>> {
+    setup_installer_datapack(&minecraft_world_dir)
+        .await
+        .map_err(RequestError::Terminate)?;
+
+    let mut connection = MinecraftConnectionBuilder::from_ref("dap", &minecraft_world_dir)
+        .log_file(minecraft_log_file.as_ref().to_path_buf())
+        .build();
+    let wait_for_connection_result = wait_for_connection(&mut connection, context).await;
+
+    // Delete datapack even if cancelled or injection failed
+    remove_installer_datapack(minecraft_world_dir).await?;
+    wait_for_connection_result?;
+
+    Ok(connection)
+}
+
+async fn setup_installer_datapack(minecraft_world_dir: impl AsRef<Path>) -> io::Result<()> {
     let minecraft_world_dir = minecraft_world_dir.as_ref();
     let structure_id = read_structure_id(minecraft_world_dir).await;
 
-    let datapack_dir = get_installer_datapack_dir(minecraft_world_dir);
-    if datapack_dir.as_ref().is_dir() {
-        remove_dir_all(&datapack_dir).await?;
-    }
+    let datapack_dir = get_installer_datapack_dir(&minecraft_world_dir);
     extract_installer_datapack(&datapack_dir, structure_id).await?;
     Ok(())
 }
@@ -66,12 +84,6 @@ async fn read_structure_id(minecraft_world_dir: &Path) -> u64 {
     } else {
         0
     }
-}
-
-fn get_installer_datapack_dir(minecraft_world_dir: impl AsRef<Path>) -> impl AsRef<Path> {
-    minecraft_world_dir
-        .as_ref()
-        .join("datapacks/mcfd-installer")
 }
 
 async fn extract_installer_datapack(
@@ -128,9 +140,8 @@ async fn create_file(path: impl AsRef<Path>, contents: impl AsRef<str>) -> io::R
 
 const SUCCESS_TAG: &str = "mcfd_init_success";
 
-pub async fn wait_for_connection(
+async fn wait_for_connection(
     connection: &mut MinecraftConnection,
-    minecraft_world_dir: impl AsRef<Path>,
     mut context: impl DebugAdapterContext,
 ) -> Result<(), RequestError<io::Error>> {
     const LISTENER_NAME: &str = "mcfd_init"; // Hardcoded in installer datapack as well
@@ -171,13 +182,6 @@ pub async fn wait_for_connection(
     });
     context.end_cancellable_progress(progress_id, message);
 
-    let datapack_dir = get_installer_datapack_dir(minecraft_world_dir);
-    if datapack_dir.as_ref().is_dir() {
-        remove_dir_all(&datapack_dir)
-            .await
-            .map_err(RequestError::Terminate)?;
-    }
-
     if success {
         Ok(())
     } else {
@@ -196,4 +200,22 @@ fn is_install_success(log_event: Option<LogEvent>) -> bool {
         }
     }
     false
+}
+
+async fn remove_installer_datapack(
+    minecraft_world_dir: impl AsRef<Path>,
+) -> Result<(), RequestError<io::Error>> {
+    let datapack_dir = get_installer_datapack_dir(minecraft_world_dir);
+    if datapack_dir.as_ref().is_dir() {
+        remove_dir_all(&datapack_dir)
+            .await
+            .map_err(RequestError::Terminate)?;
+    }
+    Ok(())
+}
+
+fn get_installer_datapack_dir(minecraft_world_dir: impl AsRef<Path>) -> impl AsRef<Path> {
+    minecraft_world_dir
+        .as_ref()
+        .join("datapacks/mcfd-installer")
 }

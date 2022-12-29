@@ -24,7 +24,7 @@ use crate::{
         parse_stopped_tag, McfunctionLineNumber,
     },
     error::{PartialErrorResponse, RequestError},
-    installer::{setup_installer_datapack, wait_for_connection},
+    installer::establish_connection,
     minecraft::{is_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
     DebugAdapter, DebugAdapterContext,
 };
@@ -57,7 +57,7 @@ use mcfunction_debugger::{
     utils::{logged_command, logged_command_str, named_logged_command},
     BreakpointKind, LocalBreakpoint,
 };
-use minect::{log_observer::LogEvent, MinecraftConnection, MinecraftConnectionBuilder};
+use minect::{log_observer::LogEvent, MinecraftConnection};
 use multimap::MultiMap;
 use std::{
     convert::TryFrom,
@@ -367,14 +367,13 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         let config = get_config(&args)?;
 
-        setup_installer_datapack(&config.minecraft_world_dir)
-            .await
-            .map_err(Self::map_custom_error)?;
+        let mut connection = establish_connection(
+            &config.minecraft_world_dir,
+            &config.minecraft_log_file,
+            context,
+        )
+        .await?;
 
-        let mut connection =
-            MinecraftConnectionBuilder::from_ref("dap", config.minecraft_world_dir)
-                .log_file(config.minecraft_log_file.into())
-                .build();
         let mut listener = connection.add_listener(LISTENER_NAME);
         let message_sender = self.message_sender.clone();
         tokio::spawn(async move {
@@ -384,8 +383,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
                 }
             }
         });
-
-        wait_for_connection(&mut connection, &config.minecraft_world_dir, context).await?;
 
         let namespace = "mcfd".to_string(); // Hardcoded in installer as well
         let output_path = config
