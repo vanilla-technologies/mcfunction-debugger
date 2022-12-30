@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::parser::{command::resource_location::ResourceLocationRef, Line, ScheduleOperation};
-use minect::LoggedCommand;
+use minect::named_logged_command;
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter::FromIterator,
@@ -83,12 +83,8 @@ impl<'l> TemplateEngine<'l> {
             if line.trim() == "# -minect_log-" {
                 if let Some(command) = lines.next() {
                     if let Some(adapter_listener_name) = self.adapter_listener_name {
-                        result.push_str(
-                            &LoggedCommand::builder(command.trim().to_string())
-                                .name(adapter_listener_name)
-                                .build()
-                                .to_string(),
-                        );
+                        result
+                            .push_str(&named_logged_command(adapter_listener_name, command.trim()));
                         if command.ends_with('\n') {
                             result.push('\n');
                         }

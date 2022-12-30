@@ -26,7 +26,7 @@ use mcfunction_debugger::{
     parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
     AdapterConfig, Config, LocalBreakpoint,
 };
-use minect::log_observer::LogEvent;
+use minect::log::LogEvent;
 use multimap::MultiMap;
 use std::{future::ready, path::Path};
 use tokio::fs::remove_dir_all;

@@ -54,10 +54,12 @@ use mcfunction_debugger::{
         command::{resource_location::ResourceLocation, CommandParser},
         parse_line, Line,
     },
-    utils::{logged_command, logged_command_str, named_logged_command},
     BreakpointKind, LocalBreakpoint,
 };
-use minect::{log_observer::LogEvent, MinecraftConnection};
+use minect::{
+    enable_logging_command, log::LogEvent, logged_command, named_logged_command,
+    reset_logging_command, MinecraftConnection,
+};
 use multimap::MultiMap;
 use std::{
     convert::TryFrom,
@@ -102,7 +104,7 @@ struct MinecraftSession {
     scopes: Vec<ScopeReference>,
 }
 impl MinecraftSession {
-    fn inject_commands(&mut self, commands: Vec<String>) -> Result<(), PartialErrorResponse> {
+    fn inject_commands(&mut self, commands: &[String]) -> Result<(), PartialErrorResponse> {
         inject_commands(&mut self.connection, commands)
             .map_err(|e| PartialErrorResponse::new(format!("Failed to inject commands: {}", e)))
     }
@@ -112,13 +114,13 @@ impl MinecraftSession {
     }
 
     async fn get_context_entity_id(&mut self, depth: i32) -> Result<i32, PartialErrorResponse> {
-        let stream = UnboundedReceiverStream::new(self.connection.add_general_listener());
+        let stream = UnboundedReceiverStream::new(self.connection.add_listener());
 
         const START_TAG: &str = "get_context_entity_id.start";
         const END_TAG: &str = "get_context_entity_id.end";
 
-        self.inject_commands(vec![
-            logged_command_str("function minect:enable_logging"),
+        self.inject_commands(&[
+            enable_logging_command(),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
             logged_command(
                 format!(
@@ -134,7 +136,7 @@ impl MinecraftSession {
                 .replace("-ns-", &self.namespace),
             ),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
-            logged_command_str("function minect:reset_logging"),
+            reset_logging_command(),
         ])?;
 
         events_between_tags(stream, START_TAG, END_TAG)
@@ -152,7 +154,7 @@ impl MinecraftSession {
 
 pub(crate) fn inject_commands(
     connection: &mut MinecraftConnection,
-    commands: Vec<String>,
+    commands: &[String],
 ) -> io::Result<()> {
     trace!("Injecting commands:\n{}", commands.join("\n"));
     connection.inject_commands(commands)
@@ -216,10 +218,7 @@ impl McfunctionDebugAdapter {
             let minecraft_session = replace(&mut client_session.minecraft_session, None);
             if let Some(mut minecraft_session) = minecraft_session {
                 remove_dir_all(&minecraft_session.output_path).await?;
-                inject_commands(
-                    &mut minecraft_session.connection,
-                    vec!["reload".to_string()],
-                )?;
+                inject_commands(&mut minecraft_session.connection, &["reload".to_string()])?;
             }
         }
 
@@ -310,7 +309,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
             };
 
             commands.push("function debug:resume".to_string());
-            mc_session.inject_commands(commands)?;
+            mc_session.inject_commands(&commands)?;
             client_session.stopped_at = None;
             mc_session.scopes.clear();
         }
@@ -325,7 +324,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
     ) -> Result<(), RequestError<Self::CustomError>> {
         if let Some(client_session) = &mut self.client_session {
             if let Some(minecraft_session) = &mut client_session.minecraft_session {
-                minecraft_session.inject_commands(vec!["function debug:stop".to_string()])?;
+                minecraft_session.inject_commands(&["function debug:stop".to_string()])?;
                 return Ok(());
             }
         }
@@ -389,7 +388,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         )
         .await?;
 
-        let mut listener = connection.add_listener(LISTENER_NAME);
+        let mut listener = connection.add_named_listener(LISTENER_NAME);
         let message_sender = self.message_sender.clone();
         tokio::spawn(async move {
             while let Some(event) = listener.recv().await {
@@ -420,7 +419,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         )
         .await?;
 
-        minecraft_session.inject_commands(vec![
+        minecraft_session.inject_commands(&[
             "reload".to_string(),
             format!(
                 "function debug:{}/{}",
@@ -546,7 +545,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     &minecraft_session.namespace,
                 ));
             }
-            minecraft_session.inject_commands(commands)?;
+            minecraft_session.inject_commands(&commands)?;
         }
 
         Ok(SetBreakpointsResponseBody::builder()
@@ -566,10 +565,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
         const END_TAG: &str = "stack_trace.end";
         let stack_trace_tag = format!("{}_stack_trace", mc_session.namespace);
 
-        let stream = UnboundedReceiverStream::new(mc_session.connection.add_general_listener());
+        let stream = UnboundedReceiverStream::new(mc_session.connection.add_listener());
 
-        mc_session.inject_commands(vec![
-            logged_command_str("function minect:enable_logging"),
+        mc_session.inject_commands(&[
+            enable_logging_command(),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
             logged_command(mc_session.replace_ns(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] run \
@@ -584,7 +583,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                 stack_trace_tag
             ))),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
-            logged_command_str("function minect:reset_logging"),
+            reset_logging_command(),
         ])?;
 
         let mut stack_trace = Vec::new();
@@ -654,8 +653,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         match scope.kind {
             ScopeKind::SelectedEntityScores => {
-                let stream =
-                    UnboundedReceiverStream::new(mc_session.connection.add_general_listener());
+                let stream = UnboundedReceiverStream::new(mc_session.connection.add_listener());
 
                 let execute_as_context = format!(
                     "execute as @e[\
@@ -675,14 +673,14 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     "{} scoreboard players operation @e[tag=!-ns-_context] -ns-_id += @s -ns-_id",
                     execute_as_context
                 ));
-                mc_session.inject_commands(vec![
-                    logged_command_str("function minect:enable_logging"),
+                mc_session.inject_commands(&[
+                    enable_logging_command(),
                     named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
                     logged_command(decrement_ids),
                     format!("function -ns-:log_scores").replace("-ns-", &mc_session.namespace),
                     logged_command(increment_ids),
                     named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
-                    logged_command_str("function minect:reset_logging"),
+                    reset_logging_command(),
                 ])?;
 
                 let variables = events_between_tags(stream, START_TAG, END_TAG)

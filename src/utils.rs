@@ -16,8 +16,6 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use minect::LoggedCommand;
-
 pub trait Map0<T0, R0> {
     type Output;
 
@@ -30,26 +28,4 @@ impl<T0, T1, R0> Map0<T0, R0> for (T0, T1) {
     fn map0<F: Fn(T0) -> R0>(self, map: F) -> Self::Output {
         (map(self.0), self.1)
     }
-}
-
-pub fn logged_command_str(command: &str) -> String {
-    LoggedCommand::from_str(command).to_string()
-}
-
-pub fn logged_command(command: String) -> String {
-    LoggedCommand::from(command).to_string()
-}
-
-pub fn named_logged_command(name: &str, command: String) -> String {
-    LoggedCommand::builder(command)
-        .name(name)
-        .build()
-        .to_string()
-}
-
-pub fn named_logged_command_str(name: &str, command: &str) -> String {
-    LoggedCommand::builder(command.to_string())
-        .name(name)
-        .build()
-        .to_string()
 }

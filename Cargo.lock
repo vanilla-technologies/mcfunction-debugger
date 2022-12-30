@@ -628,11 +628,12 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 [[package]]
 name = "minect"
 version = "0.1.0"
-source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#0b76e02fe3200e409b0bb10de057469e68885b23"
+source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#9ebc899139d76358109dfc7c19fe9f48c6727316"
 dependencies = [
  "flate2",
  "fs3",
  "hematite-nbt",
+ "log",
  "notify",
  "num-traits",
  "serde",

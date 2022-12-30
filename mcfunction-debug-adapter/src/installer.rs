@@ -26,11 +26,11 @@ use futures::{
     future::{select, Either},
     pin_mut,
 };
-use mcfunction_debugger::{
-    template_engine::TemplateEngine,
-    utils::{logged_command_str, named_logged_command},
+use mcfunction_debugger::template_engine::TemplateEngine;
+use minect::{
+    enable_logging_command, log::LogEvent, named_logged_command, reset_logging_command,
+    MinecraftConnection,
 };
-use minect::{log_observer::LogEvent, MinecraftConnection, MinecraftConnectionBuilder};
 use std::{collections::BTreeMap, io, iter::FromIterator, path::Path};
 use tokio::{
     fs::{create_dir_all, read_to_string, remove_dir_all, write},
@@ -46,13 +46,13 @@ pub async fn establish_connection(
         .await
         .map_err(RequestError::Terminate)?;
 
-    let mut connection = MinecraftConnectionBuilder::from_ref("dap", &minecraft_world_dir)
-        .log_file(minecraft_log_file.as_ref().to_path_buf())
+    let mut connection = MinecraftConnection::builder("dap", minecraft_world_dir.as_ref())
+        .log_file(minecraft_log_file.as_ref())
         .build();
     let wait_for_connection_result = wait_for_connection(&mut connection, context).await;
 
     // Delete datapack even if cancelled or injection failed
-    remove_installer_datapack(minecraft_world_dir).await?;
+    remove_installer_datapack(&minecraft_world_dir).await?;
     wait_for_connection_result?;
 
     Ok(connection)
@@ -145,14 +145,15 @@ async fn wait_for_connection(
     mut context: impl DebugAdapterContext,
 ) -> Result<(), RequestError<io::Error>> {
     const LISTENER_NAME: &str = "mcfd_init"; // Hardcoded in installer datapack as well
-    let mut init_listener = connection.add_listener(LISTENER_NAME);
-    inject_commands(connection, Vec::new()).map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
+    let mut init_listener = connection.add_named_listener(LISTENER_NAME);
+    let commands: &[String] = &[];
+    inject_commands(connection, commands).map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
     inject_commands(
         connection,
-        vec![
-            logged_command_str("function minect:enable_logging"),
+        &[
+            enable_logging_command(),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", SUCCESS_TAG)),
-            logged_command_str("function minect:reset_logging"),
+            reset_logging_command(),
         ],
     )
     .map_err(|e| RequestError::Terminate(e))?;

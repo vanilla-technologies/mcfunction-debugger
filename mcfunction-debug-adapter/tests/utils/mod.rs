@@ -35,10 +35,8 @@ use futures::{Sink, SinkExt, Stream};
 use mcfunction_debug_adapter::{
     adapter::McfunctionDebugAdapter, error::DebugAdapterError, run_adapter,
 };
-use mcfunction_debugger::{
-    parser::command::resource_location::ResourceLocation, utils::logged_command_str,
-};
-use minect::{LoggedCommand, MinecraftConnection};
+use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
+use minect::MinecraftConnection;
 use sender_sink::wrappers::UnboundedSenderSink;
 use serde_json::{json, Map};
 use std::{
@@ -311,19 +309,8 @@ impl Mcfunction {
     }
 }
 
-pub fn enable_logging() -> String {
-    logged_command_str("function minect:enable_logging")
-}
-
-pub fn reset_logging() -> String {
-    logged_command_str("function minect:reset_logging")
-}
-
 pub fn named_logged_command(command: &str) -> String {
-    LoggedCommand::builder(command.to_string())
-        .name(LISTENER_NAME)
-        .build()
-        .to_string()
+    minect::named_logged_command(LISTENER_NAME, command)
 }
 
 pub fn create_and_enable_datapack(functions: Vec<Mcfunction>) {
@@ -352,13 +339,11 @@ pub fn datapack_dir() -> std::path::PathBuf {
 }
 
 fn enable_debug_datapack() {
-    let connection = MinecraftConnection::new(
-        "dap".to_string(),
-        TEST_WORLD_DIR.into(),
-        TEST_LOG_FILE.into(),
-    );
+    let connection = MinecraftConnection::builder("dap", TEST_WORLD_DIR)
+        .log_file(TEST_LOG_FILE)
+        .build();
     connection
-        .inject_commands(vec![
+        .inject_commands([
             "function debug:uninstall".to_string(),
             format!("datapack enable \"file/debug-{}\"", TEST_DATAPACK_NAME),
         ])

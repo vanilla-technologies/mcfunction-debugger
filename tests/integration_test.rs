@@ -1,9 +1,9 @@
 use mcfunction_debugger::{generate_debug_datapack, Config};
-use minect::{LoggedCommand, MinecraftConnection, MinecraftConnectionBuilder};
+use minect::{named_logged_command, MinecraftConnection};
 use serial_test::serial;
 use std::{
     io,
-    path::{Path, PathBuf},
+    path::Path,
     sync::atomic::{AtomicBool, AtomicI8, Ordering},
     time::Duration,
 };
@@ -62,7 +62,7 @@ fn expand_logged_cmds(string: &str) -> String {
     for line in string.lines() {
         if let Some((index, executor, command)) = find_special_say_command(line) {
             expanded.push_str(&line[..index]);
-            expanded.push_str(&log_command(command, executor));
+            expanded.push_str(&named_logged_command(executor, command));
         } else {
             expanded.push_str(&line);
         }
@@ -78,13 +78,6 @@ fn find_special_say_command(line: &str) -> Option<(usize, &str, &str)> {
     let content = &without_closing_bracket[index + prefix.len()..];
     let (executor, command) = content.split_once(": ")?;
     Some((index, executor, command))
-}
-
-fn log_command(command: &str, name: &str) -> String {
-    LoggedCommand::builder(command.to_string())
-        .name(name)
-        .build()
-        .to_string()
 }
 
 macro_rules! include_test_category {
@@ -186,11 +179,11 @@ async fn run_test(
     create_datapacks(namespace, name, &test_fn, after_age_increment, debug).await?;
 
     let mut connection = connection();
-    let mut events = connection.add_listener("test");
+    let mut events = connection.add_named_listener("test");
     let commands = get_commands(&test_fn, after_age_increment, debug);
 
     // when:
-    connection.inject_commands(commands)?;
+    connection.inject_commands(&commands)?;
 
     // then:
     let event = timeout(TIMEOUT, events.recv()).await?.unwrap();
@@ -264,8 +257,8 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
 }
 
 fn connection() -> MinecraftConnection {
-    MinecraftConnectionBuilder::from_ref("test", TEST_WORLD_DIR)
-        .log_file(PathBuf::from(TEST_LOG_FILE))
+    MinecraftConnection::builder("test", TEST_WORLD_DIR)
+        .log_file(TEST_LOG_FILE)
         .build()
 }
 
