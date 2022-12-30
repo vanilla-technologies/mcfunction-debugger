@@ -23,9 +23,9 @@ use assert2::{assert, let_assert};
 use debug_adapter_protocol::{
     events::{Event, StoppedEventReason},
     requests::{
-        ContinueRequestArguments, InitializeRequestArguments, LaunchRequestArguments, Request,
-        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
-        VariablesRequestArguments,
+        ContinueRequestArguments, DisconnectRequestArguments, InitializeRequestArguments,
+        LaunchRequestArguments, Request, ScopesRequestArguments, SetBreakpointsRequestArguments,
+        StackTraceRequestArguments, VariablesRequestArguments,
     },
     responses::{ErrorResponse, Response, SetBreakpointsResponseBody, SuccessResponse},
     types::{Scope, Source, SourceBreakpoint, StackFrame, Thread, Variable},
@@ -107,6 +107,8 @@ where
         let event = self.output.next().await.unwrap();
         assert!(let Content::Event(Event::Terminated(_)) = event.content);
 
+        self.disconnect().await;
+
         timeout(DEFAULT_TIMEOUT, self.handle)
             .await
             .unwrap()
@@ -124,6 +126,14 @@ where
         assert!(let SuccessResponse::Continue(_) = assert_success_response(response, request_seq));
     }
 
+    pub async fn disconnect(&mut self) {
+        let content = DisconnectRequestArguments::builder().build();
+        let request_seq = self.input.send_ok(content).await;
+
+        let response = self.output.next().await.unwrap();
+        assert!(let SuccessResponse::Disconnect = assert_success_response(response, request_seq));
+    }
+
     pub async fn initalize(&mut self) {
         let content = InitializeRequestArguments::builder()
             .adapter_id(ADAPTER_ID.to_string())
@@ -139,6 +149,16 @@ where
 
     pub async fn launch(&mut self, test_fn_path: impl AsRef<Path>) {
         let request_seq = self.send_launch(test_fn_path).await;
+
+        let progress_start = self.output.next().await.unwrap();
+        let_assert!(Content::Event(Event::ProgressStart(body)) = progress_start.content);
+        assert!(body.title == "Connecting to Minecraft");
+
+        let progress_end = self.output.next().await.unwrap();
+        let_assert!(Content::Event(Event::ProgressEnd(body)) = progress_end.content);
+        assert!(
+            body.message == Some("Successfully established connection to Minecraft".to_string())
+        );
 
         let response = self.output.next().await.unwrap();
         assert!(let SuccessResponse::Launch = assert_success_response(response, request_seq));
@@ -310,7 +330,7 @@ impl Mcfunction {
 }
 
 pub fn named_logged_command(command: &str) -> String {
-    minect::named_logged_command(LISTENER_NAME, command)
+    minect::log::named_logged_command(LISTENER_NAME, command)
 }
 
 pub fn create_and_enable_datapack(functions: Vec<Mcfunction>) {
@@ -339,7 +359,7 @@ pub fn datapack_dir() -> std::path::PathBuf {
 }
 
 fn enable_debug_datapack() {
-    let connection = MinecraftConnection::builder("dap", TEST_WORLD_DIR)
+    let mut connection = MinecraftConnection::builder("dap", TEST_WORLD_DIR)
         .log_file(TEST_LOG_FILE)
         .build();
     connection
@@ -378,6 +398,6 @@ pub fn assert_error_response(
     error_response
 }
 
-pub fn added_tag_message(tag_name: &str) -> String {
-    format!("Added tag '{}' to {}", tag_name, LISTENER_NAME)
+pub fn added_tag_output(tag: &str) -> String {
+    format!("Added tag '{}' to {}", tag, LISTENER_NAME)
 }

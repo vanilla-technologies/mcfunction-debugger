@@ -19,7 +19,7 @@
 mod utils;
 
 use crate::utils::{
-    added_tag_message, assert_all_breakpoints_verified, assert_error_response,
+    added_tag_output, assert_all_breakpoints_verified, assert_error_response,
     create_and_enable_datapack, create_datapack, datapack_dir, named_logged_command, start_adapter,
     timeout::{TimeoutStream, TimeoutStreamError},
     Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
@@ -29,7 +29,9 @@ use debug_adapter_protocol::types::SourceBreakpoint;
 use log::LevelFilter;
 use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
-use minect::{enable_logging_command, log::observer::LogObserver, reset_logging_command};
+use minect::log::{
+    enable_logging_command, logged_command, observer::LogObserver, reset_logging_command,
+};
 use serial_test::serial;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 use std::{io, time::Duration};
@@ -51,9 +53,9 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            enable_logging_command(),
+            logged_command(enable_logging_command()),
             named_logged_command("tag @s add some_tag"),
-            reset_logging_command(),
+            logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -65,7 +67,7 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
     adapter.initalize().await;
     adapter.launch(&test_path).await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("some_tag"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("some_tag"));
     Ok(())
 }
 
@@ -96,10 +98,10 @@ async fn test_breakpoint() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add tag1"),
             /* 3 */ named_logged_command("tag @s add tag2"),
-            /* 4 */ reset_logging_command(),
+            /* 4 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -115,11 +117,11 @@ async fn test_breakpoint() -> io::Result<()> {
 
     adapter.launch(&test_path).await;
     adapter.assert_stopped_at_breakpoint().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second line NOT executed
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag2")); // Second line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2")); // Second line executed
     Ok(())
 }
 
@@ -135,9 +137,9 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            enable_logging_command(),
+            logged_command(enable_logging_command()),
             format!("function {}", inner.name),
-            reset_logging_command(),
+            logged_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -156,7 +158,7 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("some_tag"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("some_tag"));
     Ok(())
 }
 
@@ -171,10 +173,10 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add tag1"),
             /* 3 */ format!("function {}", inner.name),
-            /* 4 */ reset_logging_command(),
+            /* 4 */ logged_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -190,11 +192,11 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
 
     adapter.launch(&outer_path).await;
     adapter.assert_stopped_at_breakpoint().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Function NOT executed
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag2")); // Function executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2")); // Function executed
     Ok(())
 }
 
@@ -205,10 +207,10 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add tag1"),
             /* 3 */ named_logged_command("tag @s add tag2"),
-            /* 4 */ reset_logging_command(),
+            /* 4 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -231,11 +233,11 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
 
     adapter.continue_().await;
     adapter.assert_stopped_at_breakpoint().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second line NOT executed
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag2")); // Second line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2")); // Second line executed
     Ok(())
 }
 
@@ -246,10 +248,10 @@ async fn test_breakpoint_removed() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add tag1"),
             /* 3 */ named_logged_command("tag @s add tag2"),
-            /* 4 */ reset_logging_command(),
+            /* 4 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -275,8 +277,8 @@ async fn test_breakpoint_removed() -> io::Result<()> {
 
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag1"));
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag2"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2"));
     Ok(())
 }
 
@@ -288,9 +290,9 @@ async fn test_hot_code_replacement() -> io::Result<()> {
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add tag1"),
-            /* 3 */ reset_logging_command(),
+            /* 3 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -306,7 +308,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
 
     adapter.launch(&test_path).await;
     adapter.assert_stopped_at_breakpoint().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second line NOT executed
 
     test.lines
@@ -315,7 +317,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
 
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag2"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2"));
     Ok(())
 }
 
@@ -326,10 +328,10 @@ async fn test_breakpoint_moved() -> io::Result<()> {
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add tag1"),
             /* 3 */ named_logged_command("tag @s add tag2"),
-            /* 4 */ reset_logging_command(),
+            /* 4 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -345,7 +347,7 @@ async fn test_breakpoint_moved() -> io::Result<()> {
 
     adapter.launch(&test_path).await;
     adapter.assert_stopped_at_breakpoint().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag1")); // First line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second line NOT executed
 
     test.lines.remove(1);
@@ -358,7 +360,7 @@ async fn test_breakpoint_moved() -> io::Result<()> {
 
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("tag2"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2"));
     Ok(())
 }
 
@@ -369,9 +371,9 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add some_tag"),
-            /* 3 */ reset_logging_command(),
+            /* 3 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -396,7 +398,7 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
 
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("some_tag"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("some_tag"));
     Ok(())
 }
 
@@ -407,9 +409,9 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add some_tag"),
-            /* 3 */ reset_logging_command(),
+            /* 3 */ logged_command(reset_logging_command()),
         ],
     };
     let test = Mcfunction {
@@ -438,7 +440,7 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
 
     adapter.launch(&test_path).await;
     adapter.assert_stopped_at_breakpoint().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("some_tag")); // First iteration was executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("some_tag")); // First iteration was executed
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second iteration was NOT executed
 
     breaks.remove(0);
@@ -448,7 +450,7 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
 
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("some_tag")); // Second iteration was executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("some_tag")); // Second iteration was executed
     Ok(())
 }
 
@@ -460,9 +462,9 @@ async fn test_current_breakpoint_removed_continue_folloewd_by_set_breakpoints() 
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ enable_logging_command(),
+            /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command("tag @s add some_tag"),
-            /* 3 */ reset_logging_command(),
+            /* 3 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -490,7 +492,7 @@ async fn test_current_breakpoint_removed_continue_folloewd_by_set_breakpoints() 
     adapter.set_breakpoints_verified(&test_path, &breaks).await;
 
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().message == added_tag_message("some_tag"));
+    assert!(listener.next().await.unwrap().output == added_tag_output("some_tag"));
     Ok(())
 }
 

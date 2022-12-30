@@ -1,5 +1,5 @@
 use mcfunction_debugger::{generate_debug_datapack, Config};
-use minect::{named_logged_command, MinecraftConnection};
+use minect::{log::named_logged_command, MinecraftConnection};
 use serial_test::serial;
 use std::{
     io,
@@ -187,7 +187,7 @@ async fn run_test(
 
     // then:
     let event = timeout(TIMEOUT, events.recv()).await?.unwrap();
-    assert_eq!(event.message, "Added tag 'success' to test");
+    assert_eq!(event.output, "Added tag 'success' to test");
 
     Ok(())
 }

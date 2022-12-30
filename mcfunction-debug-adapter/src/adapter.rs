@@ -25,7 +25,7 @@ use crate::{
     },
     error::{PartialErrorResponse, RequestError},
     installer::establish_connection,
-    minecraft::{is_added_tag_message, parse_scoreboard_value, ScoreboardMessage},
+    minecraft::{is_added_tag_output, parse_scoreboard_value},
     DebugAdapter, DebugAdapterContext,
 };
 use async_trait::async_trait;
@@ -57,8 +57,11 @@ use mcfunction_debugger::{
     BreakpointKind, LocalBreakpoint,
 };
 use minect::{
-    enable_logging_command, log::LogEvent, logged_command, named_logged_command,
-    reset_logging_command, MinecraftConnection,
+    log::{
+        enable_logging_command, logged_command, named_logged_command, reset_logging_command,
+        AddTagOutput, LogEvent, QueryScoreboardOutput,
+    },
+    MinecraftConnection,
 };
 use multimap::MultiMap;
 use std::{
@@ -120,7 +123,7 @@ impl MinecraftSession {
         const END_TAG: &str = "get_context_entity_id.end";
 
         self.inject_commands(&[
-            enable_logging_command(),
+            logged_command(enable_logging_command()),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
             logged_command(
                 format!(
@@ -136,13 +139,13 @@ impl MinecraftSession {
                 .replace("-ns-", &self.namespace),
             ),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
-            reset_logging_command(),
+            logged_command(reset_logging_command()),
         ])?;
 
         events_between_tags(stream, START_TAG, END_TAG)
             .filter_map(|event| {
                 ready(parse_scoreboard_value(
-                    &event.message,
+                    &event.output,
                     &format!("{}_id", &self.namespace),
                 ))
             })
@@ -259,14 +262,14 @@ impl DebugAdapter for McfunctionDebugAdapter {
         trace!(
             "Received message from Minecraft by {}: {}",
             msg.executor,
-            msg.message
+            msg.output
         );
-        if let Some(suffix) = msg.message.strip_prefix("Added tag '") {
-            if let Some(tag) = suffix.strip_suffix(&format!("' to {}", LISTENER_NAME)) {
-                if let Some(tag) = parse_stopped_tag(tag) {
+        if let Ok(output) = msg.output.parse::<AddTagOutput>() {
+            if output.entity == LISTENER_NAME {
+                if let Some(tag) = parse_stopped_tag(&output.tag) {
                     self.on_stopped(tag, &mut context).await;
                 }
-                if tag == "exited" {
+                if output.tag == "exited" {
                     self.on_exited(&mut context).await?;
                 }
             }
@@ -568,7 +571,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let stream = UnboundedReceiverStream::new(mc_session.connection.add_listener());
 
         mc_session.inject_commands(&[
-            enable_logging_command(),
+            logged_command(enable_logging_command()),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
             logged_command(mc_session.replace_ns(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] run \
@@ -583,7 +586,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                 stack_trace_tag
             ))),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
-            reset_logging_command(),
+            logged_command(reset_logging_command()),
         ])?;
 
         let mut stack_trace = Vec::new();
@@ -591,9 +594,9 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let scoreboard = format!("{}_depth", mc_session.namespace);
         while let Some(event) = events.next().await {
             if let Some(function_line) = McfunctionLineNumber::parse(&event.executor, ":") {
-                let id = if let Some(depth) = parse_scoreboard_value(&event.message, &scoreboard) {
+                let id = if let Some(depth) = parse_scoreboard_value(&event.output, &scoreboard) {
                     depth // Function call
-                } else if is_added_tag_message(&event.message, &stack_trace_tag) {
+                } else if is_added_tag_output(&event.output, &stack_trace_tag) {
                     stack_trace.len() as i32 // Breakpoint
                 } else {
                     continue; // Shouldn't actually happen
@@ -674,21 +677,21 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     execute_as_context
                 ));
                 mc_session.inject_commands(&[
-                    enable_logging_command(),
+                    logged_command(enable_logging_command()),
                     named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
                     logged_command(decrement_ids),
                     format!("function -ns-:log_scores").replace("-ns-", &mc_session.namespace),
                     logged_command(increment_ids),
                     named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
-                    reset_logging_command(),
+                    logged_command(reset_logging_command()),
                 ])?;
 
                 let variables = events_between_tags(stream, START_TAG, END_TAG)
-                    .filter_map(|event| ready(ScoreboardMessage::parse(&event.message)))
-                    .map(|message| {
+                    .filter_map(|event| ready(event.output.parse::<QueryScoreboardOutput>().ok()))
+                    .map(|output| {
                         Variable::builder()
-                            .name(message.scoreboard)
-                            .value(message.score.to_string())
+                            .name(output.scoreboard)
+                            .value(output.score.to_string())
                             .variables_reference(0)
                             .build()
                     })

@@ -16,60 +16,65 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-/// Parse an event in the following format:
-///
-/// `[15:58:32] [Server thread/INFO]: [sample:main:2: Added 0 to [mcfd_depth] for 22466a74-94bd-458b-af97-3333c36d7b0b (now 1)]`
-pub fn parse_scoreboard_value(message: &str, scoreboard: &str) -> Option<i32> {
-    let suffix = message.strip_prefix(&format!("Added 0 to [{}] for ", scoreboard))?;
-    const NOW: &str = " (now ";
-    let index = suffix.find(NOW)?;
-    let suffix = &suffix[index + NOW.len()..];
-    let scoreboard_value = suffix.strip_suffix(')')?;
-    scoreboard_value.parse().ok()
-}
+use minect::log::{AddTagOutput, QueryScoreboardOutput};
 
-pub struct ScoreboardMessage {
-    pub scoreboard: String,
-    pub entity: String,
-    pub score: i32,
-}
-impl ScoreboardMessage {
-    pub fn parse(message: &str) -> Option<ScoreboardMessage> {
-        let suffix = message.strip_prefix(&format!("Added 0 to ["))?;
-        const FOR: &str = "] for ";
-        let index = suffix.find(FOR)?;
-        let (scoreboard, suffix) = suffix.split_at(index);
-        let suffix = suffix.strip_prefix(FOR)?;
-
-        const NOW: &str = " (now ";
-        let index = suffix.find(NOW)?;
-        let (entity, suffix) = suffix.split_at(index);
-        let suffix = suffix.strip_prefix(NOW)?;
-        let score = suffix.strip_suffix(')')?;
-        let score = score.parse().ok()?;
-
-        Some(ScoreboardMessage {
-            scoreboard: scoreboard.to_string(),
-            entity: entity.to_string(),
-            score,
-        })
+pub fn parse_scoreboard_value(output: &str, scoreboard: &str) -> Option<i32> {
+    let output = output.parse::<QueryScoreboardOutput>().ok()?;
+    if output.scoreboard == scoreboard {
+        Some(output.score)
+    } else {
+        None
     }
 }
 
-/// Parse an event in the following format:
-///
-/// `[16:09:59] [Server thread/INFO]: [sample:foo:2: Added tag 'mcfd_breakpoint' to sample:foo:2]`
-pub fn parse_added_tag_message(message: &str) -> Option<&str> {
-    let suffix = message.strip_prefix("Added tag '")?;
-    const TO: &str = "' to ";
-    let index = suffix.find(TO)?;
-    Some(&suffix[..index])
-}
-
-pub fn is_added_tag_message(message: &str, tag: &str) -> bool {
-    if let Some(actual_tag) = parse_added_tag_message(message) {
-        actual_tag == tag
+pub fn is_added_tag_output(output: &str, tag: &str) -> bool {
+    if let Ok(output) = output.parse::<AddTagOutput>() {
+        output.tag == tag
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_added_tag_output_correct_tag() {
+        // given:
+        let output = "Added tag 'my_tag' to my_entity";
+        let tag = "my_tag";
+
+        // when:
+        let actual = is_added_tag_output(output, tag);
+
+        // then:
+        assert_eq!(actual, true);
+    }
+
+    #[test]
+    fn test_is_added_tag_output_wrong_tag() {
+        // given:
+        let output = "Added tag 'not_my_tag' to my_entity";
+        let tag = "my_tag";
+
+        // when:
+        let actual = is_added_tag_output(output, tag);
+
+        // then:
+        assert_eq!(actual, false);
+    }
+
+    #[test]
+    fn test_is_added_tag_output_wrong_output() {
+        // given:
+        let output = "Bla bla bla";
+        let tag = "my_tag";
+
+        // when:
+        let actual = is_added_tag_output(output, tag);
+
+        // then:
+        assert_eq!(actual, false);
     }
 }

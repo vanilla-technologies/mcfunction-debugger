@@ -19,7 +19,7 @@
 use crate::{
     adapter::inject_commands,
     error::{PartialErrorResponse, RequestError},
-    minecraft::parse_added_tag_message,
+    minecraft::is_added_tag_output,
     DebugAdapterContext,
 };
 use futures::{
@@ -28,7 +28,10 @@ use futures::{
 };
 use mcfunction_debugger::template_engine::TemplateEngine;
 use minect::{
-    enable_logging_command, log::LogEvent, named_logged_command, reset_logging_command,
+    log::{
+        enable_logging_command, logged_command, named_logged_command, reset_logging_command,
+        LogEvent,
+    },
     MinecraftConnection,
 };
 use std::{collections::BTreeMap, io, iter::FromIterator, path::Path};
@@ -151,9 +154,9 @@ async fn wait_for_connection(
     inject_commands(
         connection,
         &[
-            enable_logging_command(),
+            logged_command(enable_logging_command()),
             named_logged_command(LISTENER_NAME, format!("tag @s add {}", SUCCESS_TAG)),
-            reset_logging_command(),
+            logged_command(reset_logging_command()),
         ],
     )
     .map_err(|e| RequestError::Terminate(e))?;
@@ -172,7 +175,7 @@ async fn wait_for_connection(
     let cancel = progress_context.next_cancel_request();
     pin_mut!(cancel);
     let success = match select(init_result, cancel).await {
-        Either::Left((log_event, _)) => is_install_success(log_event),
+        Either::Left((log_event, _)) => is_install_success_event(log_event),
         Either::Right(_) => false,
     };
 
@@ -192,15 +195,12 @@ async fn wait_for_connection(
     }
 }
 
-fn is_install_success(log_event: Option<LogEvent>) -> bool {
+fn is_install_success_event(log_event: Option<LogEvent>) -> bool {
     if let Some(log_event) = log_event {
-        if let Some(tag) = parse_added_tag_message(&log_event.message) {
-            if tag == SUCCESS_TAG {
-                return true;
-            }
-        }
+        is_added_tag_output(&log_event.output, SUCCESS_TAG)
+    } else {
+        false
     }
-    false
 }
 
 async fn remove_installer_datapack(

@@ -21,7 +21,6 @@ use log::{error, LevelFilter};
 use mcfunction_debug_adapter::{
     adapter::McfunctionDebugAdapter,
     codec::{ProtocolMessageDecoder, ProtocolMessageEncoder},
-    error::DebugAdapterError,
     run_adapter,
 };
 use simplelog::{Config, WriteLogger};
@@ -102,18 +101,13 @@ See the GNU General Public License for more details.
 
     let input = FramedRead::new(tokio::io::stdin(), ProtocolMessageDecoder);
     let output = FramedWrite::new(tokio::io::stdout(), ProtocolMessageEncoder);
-    match run_adapter(input, output, McfunctionDebugAdapter::new).await {
-        Err(e) => {
-            let e = match e {
-                DebugAdapterError::Input(e) => e,
-                DebugAdapterError::Output(e) => e,
-                DebugAdapterError::Custom(e) => e,
-            };
+    run_adapter(input, output, McfunctionDebugAdapter::new)
+        .await
+        .map_err(|e| {
+            let e = e.into_inner();
             error!("Stopping due to: {}", e);
-            Err(e)
-        }
-        _ => Ok(()),
-    }
+            e
+        })
 }
 
 fn parse_log_level(log_level: &str) -> Option<LevelFilter> {

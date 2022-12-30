@@ -19,6 +19,7 @@
 use crate::{
     adapter::{MinecraftSession, LISTENER_NAME},
     error::PartialErrorResponse,
+    minecraft::is_added_tag_output,
 };
 use futures::{Stream, StreamExt};
 use mcfunction_debugger::{
@@ -144,20 +145,18 @@ pub fn contains_breakpoint(
     }
 }
 
-pub fn events_between_tags(
+pub fn events_between_tags<'l>(
     stream: UnboundedReceiverStream<LogEvent>,
-    start_tag: &str,
-    stop_tag: &str,
-) -> impl Stream<Item = LogEvent> {
-    let added_start_tag = format!("Added tag '{1}' to {0}", LISTENER_NAME, start_tag);
-    let added_end_tag = format!("Added tag '{1}' to {0}", LISTENER_NAME, stop_tag);
+    start_tag: &'l str,
+    stop_tag: &'l str,
+) -> impl Stream<Item = LogEvent> + 'l {
     stream
         .skip_while(move |event| {
-            ready(event.executor != LISTENER_NAME && event.message != added_start_tag)
+            ready(event.executor != LISTENER_NAME || !is_added_tag_output(&event.output, start_tag))
         })
         .skip(1) // Skip start tag
         .take_while(move |event| {
-            ready(event.executor != LISTENER_NAME && event.message != added_end_tag)
+            ready(event.executor != LISTENER_NAME || !is_added_tag_output(&event.output, stop_tag))
         })
 }
 
