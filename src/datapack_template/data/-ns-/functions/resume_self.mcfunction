@@ -16,6 +16,7 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
+# -if_not_adapter-
 tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Resuming debugging from "},{"selector":"@s"}]
 
 scoreboard players reset found_continue_function -ns-_global

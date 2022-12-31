@@ -32,8 +32,10 @@ scoreboard players set 1 -ns-_constant 1
 scoreboard players set 88 -ns-_constant 88
 
 scoreboard objectives add -ns-_scores dummy "@s scores"
+# -if_not_adapter-
 function debug:show_scores
 
 function -ns-:id/install
 
+# -if_not_adapter-
 tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Datapack '-datapack-' was installed.\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]

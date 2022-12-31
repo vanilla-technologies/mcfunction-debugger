@@ -80,18 +80,30 @@ impl<'l> TemplateEngine<'l> {
 
         let mut lines = with_replacements_applied.split_inclusive('\n');
         while let Some(line) = lines.next() {
-            if line.trim() == "# -minect_log-" {
-                if let Some(command) = lines.next() {
-                    if let Some(adapter_listener_name) = self.adapter_listener_name {
-                        result
-                            .push_str(&named_logged_command(adapter_listener_name, command.trim()));
-                        if command.ends_with('\n') {
-                            result.push('\n');
+            match line.trim() {
+                "# -minect_log-" => {
+                    if let Some(command) = lines.next() {
+                        if let Some(adapter_listener_name) = self.adapter_listener_name {
+                            result.push_str(&named_logged_command(
+                                adapter_listener_name,
+                                command.trim(),
+                            ));
+                            if command.ends_with('\n') {
+                                result.push('\n');
+                            }
                         }
                     }
                 }
-            } else {
-                result.push_str(line);
+                "# -if_not_adapter-" => {
+                    if let Some(command) = lines.next() {
+                        if self.adapter_listener_name.is_none() {
+                            result.push_str(command);
+                        }
+                    }
+                }
+                _ => {
+                    result.push_str(line);
+                }
             }
         }
 

@@ -22,6 +22,7 @@ teleport @e[type=area_effect_cloud,tag=-ns-_breakpoint] ~ ~ ~ ~ ~
 execute as @e[type=area_effect_cloud,tag=!-ns-_frozen] run function -ns-:freeze_aec
 
 function -ns-:skipped_functions_warning
+# -if_not_adapter-
 tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Suspended at breakpoint -orig_ns-:-orig/fn-:-line_number-\n To resume run: "},{"text":"/function debug:resume","clickEvent":{"action":"run_command","value":"/function debug:resume"},"hoverEvent":{"action":"show_text","contents":"Click to execute"},"color":"aqua"},{"text": "\n To stop run: "},{"text":"/function debug:stop","clickEvent":{"action":"run_command","value":"/function debug:stop"},"hoverEvent":{"action":"show_text","contents":"Click to execute"},"color":"aqua"}]
 
 scoreboard players reset * -ns-_scores
