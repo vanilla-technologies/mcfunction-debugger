@@ -35,17 +35,18 @@ use debug_adapter_protocol::{
 };
 use error::DebugAdapterError;
 use executor::DebugAdapterExecutor;
-use futures::{future::Either, Sink, SinkExt, Stream, TryFutureExt};
+use futures::{future::Either, FutureExt, Sink, SinkExt, Stream, TryFutureExt};
 use log::trace;
 use receiver::DebugAdapterReceiver;
 use sender::DebugAdapterSender;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 use tokio::{
-    sync::mpsc::{unbounded_channel, UnboundedSender},
+    spawn,
+    sync::mpsc::{self, unbounded_channel, UnboundedSender},
     try_join,
 };
 use uuid::Uuid;
@@ -61,44 +62,61 @@ pub async fn run_adapter<D, I, O, E>(
     DebugAdapterError<E, <O as Sink<ProtocolMessage>>::Error, <D as DebugAdapter>::CustomError>,
 >
 where
-    D: DebugAdapter + Send,
+    D: DebugAdapter + Send + 'static,
     I: Stream<Item = Result<ProtocolMessage, E>> + Unpin + Send + 'static,
     O: Sink<ProtocolMessage> + Unpin + Send + 'static,
+    E: Send + 'static,
+    <O as Sink<ProtocolMessage>>::Error: Send + 'static,
+    <D as DebugAdapter>::CustomError: Send + 'static,
 {
     let (outbox_sender, outbox_receiver) = unbounded_channel();
     let outbox = Outbox { outbox_sender };
     let (inbox_sender, inbox_receiver) = unbounded_channel();
     let (cancel_sender, cancel_receiver) = unbounded_channel();
     let adapter = adapter_factory(inbox_sender.clone());
+    let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);
 
-    let cancel_data = Mutex::new(CancelData::new());
-    let mut receiver = DebugAdapterReceiver {
+    let cancel_data = Arc::new(Mutex::new(CancelData::new()));
+    let receiver = DebugAdapterReceiver {
         inbox_sender,
         outbox: outbox.clone(),
-        cancel_data: &cancel_data,
+        cancel_data: cancel_data.clone(),
         cancel_sender,
         input,
+        shutdown_receiver,
     };
 
-    let mut executor = DebugAdapterExecutor {
+    let executor = DebugAdapterExecutor {
         inbox_receiver,
         outbox,
-        cancel_data: &cancel_data,
+        cancel_data,
         cancel_receiver,
         adapter,
+        shutdown_sender,
     };
 
     let message_writer = MessageWriter::new(output);
-    let mut sender = DebugAdapterSender {
+    let sender = DebugAdapterSender {
         message_writer,
         outbox_receiver,
     };
 
+    let receiver = spawn(receiver.run());
+    let executor = spawn(executor.run());
+    let sender = spawn(sender.run());
+
     try_join!(
-        receiver.run().map_err(DebugAdapterError::Input),
-        executor.run().map_err(DebugAdapterError::Custom),
-        sender.run().map_err(DebugAdapterError::Output),
+        receiver
+            .map(Result::unwrap) // Propagate panic
+            .map_err(DebugAdapterError::Input),
+        executor
+            .map(Result::unwrap) // Propagate panic
+            .map_err(DebugAdapterError::Custom),
+        sender
+            .map(Result::unwrap) // Propagate panic
+            .map_err(DebugAdapterError::Output),
     )?;
+
     Ok(())
 }
 
@@ -117,13 +135,13 @@ impl CancelData {
     }
 }
 
-pub struct DebugAdapterContextImpl<'l> {
+pub struct DebugAdapterContextImpl {
     outbox: Outbox,
-    cancel_data: &'l Mutex<CancelData>,
+    cancel_data: Arc<Mutex<CancelData>>,
     shutdown: bool,
 }
-impl DebugAdapterContextImpl<'_> {
-    fn new<'l>(outbox: Outbox, cancel_data: &'l Mutex<CancelData>) -> DebugAdapterContextImpl<'l> {
+impl DebugAdapterContextImpl {
+    fn new(outbox: Outbox, cancel_data: Arc<Mutex<CancelData>>) -> DebugAdapterContextImpl {
         DebugAdapterContextImpl {
             outbox,
             cancel_data,
@@ -131,7 +149,7 @@ impl DebugAdapterContextImpl<'_> {
         }
     }
 }
-impl DebugAdapterContext for &mut DebugAdapterContextImpl<'_> {
+impl DebugAdapterContext for &mut DebugAdapterContextImpl {
     fn fire_event(&mut self, event: impl Into<Event> + Send) {
         let event = event.into();
         self.outbox.send(event);
@@ -177,6 +195,7 @@ impl DebugAdapterContext for &mut DebugAdapterContextImpl<'_> {
     }
 
     fn shutdown(&mut self) {
+        trace!("Shutting down executor");
         self.shutdown = true
     }
 }

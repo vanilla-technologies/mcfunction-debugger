@@ -29,32 +29,37 @@ use futures::{
     pin_mut,
 };
 use log::trace;
-use std::{io, sync::Mutex};
-use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
+use tokio::sync::mpsc::{self, error::TryRecvError, UnboundedReceiver};
 
-pub(super) struct DebugAdapterExecutor<'l, D>
+pub(super) struct DebugAdapterExecutor<D>
 where
     D: DebugAdapter,
 {
-    pub cancel_data: &'l Mutex<CancelData>,
+    pub cancel_data: Arc<Mutex<CancelData>>,
     pub inbox_receiver: UnboundedReceiver<Either<ProtocolMessage, <D as DebugAdapter>::Message>>,
     pub outbox: Outbox,
     pub cancel_receiver: UnboundedReceiver<SequenceNumber>,
     pub adapter: D,
+    pub shutdown_sender: mpsc::Sender<()>,
 }
 
-impl<D> DebugAdapterExecutor<'_, D>
+impl<D> DebugAdapterExecutor<D>
 where
     D: DebugAdapter + Send,
 {
-    pub async fn run(&mut self) -> Result<(), <D as DebugAdapter>::CustomError> {
+    pub async fn run(mut self) -> Result<(), <D as DebugAdapter>::CustomError> {
+        trace!("Starting executor");
         while let Some(msg) = self.inbox_receiver.recv().await {
             match msg {
                 Either::Left(client_msg) => {
                     trace!("Handling message from client: {}", client_msg);
 
                     let mut context =
-                        DebugAdapterContextImpl::new(self.outbox.clone(), self.cancel_data);
+                        DebugAdapterContextImpl::new(self.outbox.clone(), self.cancel_data.clone());
 
                     let seq = client_msg.seq; // TODO: seq zu i32 machen
                     let mut maybe_cancel_request_id = None;
@@ -105,23 +110,27 @@ where
                         self.finish_request().unwrap();
                     }
                     if context.shutdown {
-                        trace!("Shutting down executor");
                         break;
                     }
                 }
                 Either::Right(message) => {
                     let mut context =
-                        DebugAdapterContextImpl::new(self.outbox.clone(), self.cancel_data);
+                        DebugAdapterContextImpl::new(self.outbox.clone(), self.cancel_data.clone());
                     self.adapter
                         .handle_other_message(message, &mut context)
                         .await?;
                     if context.shutdown {
-                        trace!("Shutting down executor");
                         break;
                     }
                 }
             }
         }
+        trace!("Shutting down receiver");
+        // Ignore SendError, because that means the receiver is already shutdown. Technically we
+        // don't need to send at all, because dropping the sender would be sufficient, but this
+        // would cause a dead_code warning, because the field would never be read.
+        let _ = self.shutdown_sender.send(()).await;
+        trace!("Stopped executor");
         Ok(())
     }
 
@@ -145,7 +154,7 @@ where
 async fn handle_client_message<D>(
     msg: ProtocolMessage,
     adapter: &mut D,
-    context: &mut DebugAdapterContextImpl<'_>,
+    context: &mut DebugAdapterContextImpl,
 ) -> Result<(), <D as DebugAdapter>::CustomError>
 where
     D: DebugAdapter + Send,

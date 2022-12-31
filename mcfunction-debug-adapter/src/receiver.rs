@@ -21,40 +21,55 @@ use debug_adapter_protocol::{
     requests::{CancelRequestArguments, Request},
     ProtocolMessage, ProtocolMessageContent, SequenceNumber,
 };
-use futures::{future::Either, Stream, StreamExt};
+use futures::{
+    future::{select, Either},
+    pin_mut, Stream, StreamExt,
+};
 use log::trace;
-use std::sync::Mutex;
-use tokio::sync::mpsc::UnboundedSender;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::{self, UnboundedSender};
 
-pub(super) struct DebugAdapterReceiver<'l, I, E, M>
+pub(super) struct DebugAdapterReceiver<I, E, M>
 where
     I: Stream<Item = Result<ProtocolMessage, E>> + Unpin + 'static + Send,
 {
     pub inbox_sender: UnboundedSender<Either<ProtocolMessage, M>>,
     pub outbox: Outbox,
-    pub cancel_data: &'l Mutex<CancelData>,
+    pub cancel_data: Arc<Mutex<CancelData>>,
     pub cancel_sender: UnboundedSender<SequenceNumber>,
     pub input: I,
+    pub shutdown_receiver: mpsc::Receiver<()>,
 }
 
-impl<I, E, M> DebugAdapterReceiver<'_, I, E, M>
+impl<I, E, M> DebugAdapterReceiver<I, E, M>
 where
     I: Stream<Item = Result<ProtocolMessage, E>> + Unpin + Send + 'static,
 {
-    pub async fn run(&mut self) -> Result<(), E> {
-        while let Some(message) = self.input.next().await {
+    pub async fn run(mut self) -> Result<(), E> {
+        trace!("Starting receiver");
+        while let Some(message) = self.next_input().await {
             let message = message?;
             trace!("Received message from client: {}", message);
             if let ProtocolMessageContent::Request(Request::Cancel(args)) = message.content {
                 self.handle_cancel_request(message.seq, args);
             } else {
-                if let ProtocolMessageContent::Request(Request::Terminate(_)) = &message.content {
-                    self.handle_terminate_request();
+                if let ProtocolMessageContent::Request(Request::Disconnect(_)) = &message.content {
+                    self.cancel_all_progresses();
                 }
                 let _ = self.inbox_sender.send(Either::Left(message));
             }
         }
+        trace!("Stopped receiver");
         Ok(())
+    }
+
+    async fn next_input(&mut self) -> Option<Result<ProtocolMessage, E>> {
+        let shutdown = self.shutdown_receiver.recv();
+        pin_mut!(shutdown);
+        match select(self.input.next(), shutdown).await {
+            Either::Left((result, _)) => result,
+            Either::Right(_) => None,
+        }
     }
 
     fn handle_cancel_request(
@@ -85,10 +100,8 @@ where
         }
     }
 
-    fn handle_terminate_request(&self) {
+    fn cancel_all_progresses(&self) {
         let mut cancel_data = self.cancel_data.lock().unwrap();
         cancel_data.current_progresses.clear();
-
-        // TODO: cancel all queued requests
     }
 }

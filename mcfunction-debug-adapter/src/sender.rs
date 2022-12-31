@@ -19,6 +19,7 @@
 use crate::MessageWriter;
 use debug_adapter_protocol::{ProtocolMessage, ProtocolMessageContent};
 use futures::Sink;
+use log::trace;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 pub(super) struct DebugAdapterSender<O>
@@ -33,10 +34,12 @@ impl<O> DebugAdapterSender<O>
 where
     O: Sink<ProtocolMessage> + Unpin,
 {
-    pub async fn run(&mut self) -> Result<(), O::Error> {
+    pub async fn run(mut self) -> Result<(), O::Error> {
+        trace!("Starting sender");
         while let Some(message) = self.outbox_receiver.recv().await {
             self.message_writer.write_msg(message).await?;
         }
+        trace!("Stopped sender");
         Ok(())
     }
 }
