@@ -329,7 +329,7 @@ impl Mcfunction {
     }
 }
 
-pub fn named_logged_command(command: &str) -> String {
+pub fn named_logged_command(command: impl Into<String>) -> String {
     minect::log::named_logged_command(LISTENER_NAME, command)
 }
 

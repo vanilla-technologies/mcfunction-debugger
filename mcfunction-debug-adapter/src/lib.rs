@@ -22,7 +22,6 @@ pub mod codec;
 pub mod error;
 mod executor;
 mod installer;
-mod minecraft;
 mod receiver;
 mod sender;
 

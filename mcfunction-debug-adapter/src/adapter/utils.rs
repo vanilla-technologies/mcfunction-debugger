@@ -19,19 +19,18 @@
 use crate::{
     adapter::{MinecraftSession, LISTENER_NAME},
     error::PartialErrorResponse,
-    minecraft::is_added_tag_output,
 };
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use mcfunction_debugger::{
     generate_debug_datapack,
     parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
     AdapterConfig, Config, LocalBreakpoint,
 };
-use minect::log::LogEvent;
+use minect::log::{AddTagOutput, LogEvent};
 use multimap::MultiMap;
-use std::{future::ready, path::Path};
+use std::path::Path;
 use tokio::fs::remove_dir_all;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
 pub fn parse_function_path(path: &Path) -> Result<(&Path, ResourceLocation), String> {
     let datapack = find_parent_datapack(path).ok_or_else(|| {
@@ -151,13 +150,19 @@ pub fn events_between_tags<'l>(
     stop_tag: &'l str,
 ) -> impl Stream<Item = LogEvent> + 'l {
     stream
-        .skip_while(move |event| {
-            ready(event.executor != LISTENER_NAME || !is_added_tag_output(&event.output, start_tag))
-        })
+        .skip_while(move |event| !is_add_tag_output(event, start_tag))
         .skip(1) // Skip start tag
-        .take_while(move |event| {
-            ready(event.executor != LISTENER_NAME || !is_added_tag_output(&event.output, stop_tag))
-        })
+        .take_while(move |event| !is_add_tag_output(event, stop_tag))
+}
+
+fn is_add_tag_output(event: &LogEvent, tag: &str) -> bool {
+    event.executor == LISTENER_NAME
+        && event
+            .output
+            .parse::<AddTagOutput>()
+            .ok()
+            .filter(|output| output.tag == tag)
+            .is_some()
 }
 
 pub fn parse_stopped_tag(tag: &str) -> Option<McfunctionLineNumber<String>> {

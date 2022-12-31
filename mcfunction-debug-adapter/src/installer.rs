@@ -19,7 +19,6 @@
 use crate::{
     adapter::inject_commands,
     error::{PartialErrorResponse, RequestError},
-    minecraft::is_added_tag_output,
     DebugAdapterContext,
 };
 use futures::{
@@ -29,8 +28,8 @@ use futures::{
 use mcfunction_debugger::template_engine::TemplateEngine;
 use minect::{
     log::{
-        enable_logging_command, logged_command, named_logged_command, reset_logging_command,
-        LogEvent,
+        add_tag_command, enable_logging_command, logged_command, named_logged_command,
+        reset_logging_command, AddTagOutput, LogEvent,
     },
     MinecraftConnection,
 };
@@ -155,7 +154,7 @@ async fn wait_for_connection(
         connection,
         &[
             logged_command(enable_logging_command()),
-            named_logged_command(LISTENER_NAME, format!("tag @s add {}", SUCCESS_TAG)),
+            named_logged_command(LISTENER_NAME, add_tag_command("@s", SUCCESS_TAG)),
             logged_command(reset_logging_command()),
         ],
     )
@@ -195,12 +194,11 @@ async fn wait_for_connection(
     }
 }
 
-fn is_install_success_event(log_event: Option<LogEvent>) -> bool {
-    if let Some(log_event) = log_event {
-        is_added_tag_output(&log_event.output, SUCCESS_TAG)
-    } else {
-        false
-    }
+fn is_install_success_event(event: Option<LogEvent>) -> bool {
+    event
+        .and_then(|event| event.output.parse::<AddTagOutput>().ok())
+        .filter(|output| output.tag == SUCCESS_TAG)
+        .is_some()
 }
 
 async fn remove_installer_datapack(

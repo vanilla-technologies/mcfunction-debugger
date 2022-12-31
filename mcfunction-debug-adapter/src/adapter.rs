@@ -25,7 +25,6 @@ use crate::{
     },
     error::{PartialErrorResponse, RequestError},
     installer::establish_connection,
-    minecraft::{is_added_tag_output, parse_scoreboard_value},
     DebugAdapter, DebugAdapterContext,
 };
 use async_trait::async_trait;
@@ -35,9 +34,9 @@ use debug_adapter_protocol::{
         TerminatedEventBody,
     },
     requests::{
-        ContinueRequestArguments, DisconnectRequestArguments, EvaluateRequestArguments,
-        InitializeRequestArguments, LaunchRequestArguments, PathFormat, PauseRequestArguments,
-        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
+        ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
+        LaunchRequestArguments, PathFormat, PauseRequestArguments, ScopesRequestArguments,
+        SetBreakpointsRequestArguments, StackTraceRequestArguments, TerminateRequestArguments,
         VariablesRequestArguments,
     },
     responses::{
@@ -47,7 +46,7 @@ use debug_adapter_protocol::{
     types::{Breakpoint, Capabilities, Scope, Source, StackFrame, Thread, Variable},
     ProtocolMessage,
 };
-use futures::{future::Either, StreamExt};
+use futures::future::Either;
 use log::trace;
 use mcfunction_debugger::{
     parser::{
@@ -58,17 +57,16 @@ use mcfunction_debugger::{
 };
 use minect::{
     log::{
-        enable_logging_command, logged_command, named_logged_command, reset_logging_command,
-        AddTagOutput, LogEvent, QueryScoreboardOutput,
+        add_tag_command, enable_logging_command, logged_command, named_logged_command,
+        query_scoreboard_command, reset_logging_command, summon_named_entity_command, AddTagOutput,
+        LogEvent, QueryScoreboardOutput, SummonNamedEntityOutput,
     },
     MinecraftConnection,
 };
 use multimap::MultiMap;
 use std::{
     convert::TryFrom,
-    future::ready,
     io,
-    mem::replace,
     path::{Path, PathBuf},
 };
 use tokio::{
@@ -76,7 +74,10 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     sync::mpsc::UnboundedSender,
 };
-use tokio_stream::wrappers::{LinesStream, UnboundedReceiverStream};
+use tokio_stream::{
+    wrappers::{LinesStream, UnboundedReceiverStream},
+    StreamExt,
+};
 
 const LISTENER_NAME: &'static str = "mcfunction_debugger";
 
@@ -122,36 +123,60 @@ impl MinecraftSession {
         const START_TAG: &str = "get_context_entity_id.start";
         const END_TAG: &str = "get_context_entity_id.end";
 
+        let scoreboard = self.replace_ns("-ns-_id");
         self.inject_commands(&[
             logged_command(enable_logging_command()),
-            named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
-            logged_command(
-                format!(
-                    "scoreboard players add @e[\
+            named_logged_command(LISTENER_NAME, add_tag_command("@s", START_TAG)),
+            logged_command(query_scoreboard_command(
+                self.replace_ns(&format!(
+                    "@e[\
                         type=area_effect_cloud,\
                         tag=-ns-_context,\
                         tag=-ns-_active,\
                         tag=-ns-_current,\
                         scores={{-ns-_depth={}}},\
-                    ] -ns-_id 0",
+                    ]",
                     depth
-                )
-                .replace("-ns-", &self.namespace),
-            ),
-            named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
+                )),
+                &scoreboard,
+            )),
+            named_logged_command(LISTENER_NAME, add_tag_command("@s", END_TAG)),
             logged_command(reset_logging_command()),
         ])?;
 
         events_between_tags(stream, START_TAG, END_TAG)
-            .filter_map(|event| {
-                ready(parse_scoreboard_value(
-                    &event.output,
-                    &format!("{}_id", &self.namespace),
-                ))
-            })
+            .filter_map(|event| event.output.parse::<QueryScoreboardOutput>().ok())
+            .filter(|output| output.scoreboard == scoreboard)
+            .map(|output| output.score)
             .next()
             .await
             .ok_or_else(|| PartialErrorResponse::new("Minecraft connection closed".to_string()))
+    }
+
+    async fn uninstall_datapack(&mut self) -> io::Result<()> {
+        let stream = UnboundedReceiverStream::new(self.connection.add_listener());
+
+        let uninstalled = format!("{}.uninstalled", LISTENER_NAME);
+        inject_commands(
+            &mut self.connection,
+            &[
+                "function debug:uninstall".to_string(),
+                enable_logging_command(),
+                summon_named_entity_command(&uninstalled),
+                reset_logging_command(),
+            ],
+        )?;
+
+        trace!("Waiting for datapack to be uninstalled...");
+        stream
+            .filter_map(|e| e.output.parse::<SummonNamedEntityOutput>().ok())
+            .filter(|o| o.name == uninstalled)
+            .next()
+            .await;
+        trace!("Datapack is uninstalled");
+
+        remove_dir_all(&self.output_path).await?;
+        Ok(())
     }
 }
 
@@ -215,15 +240,13 @@ impl McfunctionDebugAdapter {
         &mut self,
         context: &mut (impl DebugAdapterContext + Send),
     ) -> io::Result<()> {
-        context.fire_event(TerminatedEventBody::builder().build());
-
         if let Some(client_session) = &mut self.client_session {
-            let minecraft_session = replace(&mut client_session.minecraft_session, None);
-            if let Some(mut minecraft_session) = minecraft_session {
-                remove_dir_all(&minecraft_session.output_path).await?;
-                inject_commands(&mut minecraft_session.connection, &["reload".to_string()])?;
+            if let Some(minecraft_session) = &mut client_session.minecraft_session {
+                minecraft_session.uninstall_datapack().await?;
             }
         }
+
+        context.fire_event(TerminatedEventBody::builder().build());
 
         Ok(())
     }
@@ -320,21 +343,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
         Ok(ContinueResponseBody::builder().build())
     }
 
-    async fn disconnect(
-        &mut self,
-        _args: DisconnectRequestArguments,
-        mut context: impl DebugAdapterContext + Send,
-    ) -> Result<(), RequestError<Self::CustomError>> {
-        if let Some(client_session) = &mut self.client_session {
-            if let Some(minecraft_session) = &mut client_session.minecraft_session {
-                minecraft_session.inject_commands(&["function debug:stop".to_string()])?;
-                return Ok(());
-            }
-        }
-        context.shutdown();
-        Ok(())
-    }
-
     async fn evaluate(
         &mut self,
         _args: EvaluateRequestArguments,
@@ -372,6 +380,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         Ok(Capabilities::builder()
             .supports_cancel_request(true)
+            .supports_terminate_request(true)
             .build())
     }
 
@@ -402,10 +411,11 @@ impl DebugAdapter for McfunctionDebugAdapter {
         });
 
         let namespace = "mcfd".to_string(); // Hardcoded in installer as well
+        let debug_datapack_name = format!("debug-{}", config.datapack_name);
         let output_path = config
             .minecraft_world_dir
             .join("datapacks")
-            .join(format!("debug-{}", config.datapack_name));
+            .join(&debug_datapack_name);
 
         let mut minecraft_session = MinecraftSession {
             connection,
@@ -424,8 +434,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         minecraft_session.inject_commands(&[
             "reload".to_string(),
+            format!("datapack enable \"file/{}\"", debug_datapack_name),
+            // After loading the datapack we must wait one tick for it to install itself
             format!(
-                "function debug:{}/{}",
+                "schedule function debug:{}/{} 1t",
                 config.function.namespace(),
                 config.function.path(),
             ),
@@ -566,17 +578,18 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         const START_TAG: &str = "stack_trace.start";
         const END_TAG: &str = "stack_trace.end";
-        let stack_trace_tag = format!("{}_stack_trace", mc_session.namespace);
+        let stack_trace_tag = mc_session.replace_ns("-ns-_stack_trace");
+        let depth_scoreboard = mc_session.replace_ns("-ns-_depth");
 
         let stream = UnboundedReceiverStream::new(mc_session.connection.add_listener());
 
         mc_session.inject_commands(&[
             logged_command(enable_logging_command()),
-            named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
-            logged_command(mc_session.replace_ns(
-                "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] run \
-                scoreboard players add @s -ns-_depth 0",
-            )),
+            named_logged_command(LISTENER_NAME, add_tag_command("@s", START_TAG)),
+            logged_command(mc_session.replace_ns(&format!(
+                "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] run {}",
+                query_scoreboard_command("@s", &depth_scoreboard)
+            ))),
             logged_command(mc_session.replace_ns(&format!(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tag @s add {}",
                 stack_trace_tag
@@ -585,18 +598,27 @@ impl DebugAdapter for McfunctionDebugAdapter {
                 "execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tag @s remove {}",
                 stack_trace_tag
             ))),
-            named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
+            named_logged_command(LISTENER_NAME, add_tag_command("@s", END_TAG)),
             logged_command(reset_logging_command()),
         ])?;
 
         let mut stack_trace = Vec::new();
         let mut events = events_between_tags(stream, START_TAG, END_TAG);
-        let scoreboard = format!("{}_depth", mc_session.namespace);
         while let Some(event) = events.next().await {
             if let Some(function_line) = McfunctionLineNumber::parse(&event.executor, ":") {
-                let id = if let Some(depth) = parse_scoreboard_value(&event.output, &scoreboard) {
-                    depth // Function call
-                } else if is_added_tag_output(&event.output, &stack_trace_tag) {
+                let id = if let Some(output) = event
+                    .output
+                    .parse::<QueryScoreboardOutput>()
+                    .ok()
+                    .filter(|output| output.scoreboard == depth_scoreboard)
+                {
+                    output.score // depth
+                } else if let Some(_) = event
+                    .output
+                    .parse::<AddTagOutput>()
+                    .ok()
+                    .filter(|output| output.tag == stack_trace_tag)
+                {
                     stack_trace.len() as i32 // Breakpoint
                 } else {
                     continue; // Shouldn't actually happen
@@ -611,6 +633,19 @@ impl DebugAdapter for McfunctionDebugAdapter {
             .total_frames(Some(stack_trace.len() as i32))
             .stack_frames(stack_trace)
             .build())
+    }
+
+    async fn terminate(
+        &mut self,
+        _args: TerminateRequestArguments,
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
+        if let Some(client_session) = &mut self.client_session {
+            if let Some(minecraft_session) = &mut client_session.minecraft_session {
+                minecraft_session.inject_commands(&["function debug:stop".to_string()])?;
+            }
+        }
+        Ok(())
     }
 
     async fn threads(
@@ -678,16 +713,16 @@ impl DebugAdapter for McfunctionDebugAdapter {
                 ));
                 mc_session.inject_commands(&[
                     logged_command(enable_logging_command()),
-                    named_logged_command(LISTENER_NAME, format!("tag @s add {}", START_TAG)),
+                    named_logged_command(LISTENER_NAME, add_tag_command("@s", START_TAG)),
                     logged_command(decrement_ids),
-                    format!("function -ns-:log_scores").replace("-ns-", &mc_session.namespace),
+                    mc_session.replace_ns("function -ns-:log_scores"),
                     logged_command(increment_ids),
-                    named_logged_command(LISTENER_NAME, format!("tag @s add {}", END_TAG)),
+                    named_logged_command(LISTENER_NAME, add_tag_command("@s", END_TAG)),
                     logged_command(reset_logging_command()),
                 ])?;
 
                 let variables = events_between_tags(stream, START_TAG, END_TAG)
-                    .filter_map(|event| ready(event.output.parse::<QueryScoreboardOutput>().ok()))
+                    .filter_map(|event| event.output.parse::<QueryScoreboardOutput>().ok())
                     .map(|output| {
                         Variable::builder()
                             .name(output.scoreboard)

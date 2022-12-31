@@ -53,7 +53,7 @@ where
             if let ProtocolMessageContent::Request(Request::Cancel(args)) = message.content {
                 self.handle_cancel_request(message.seq, args);
             } else {
-                if let ProtocolMessageContent::Request(Request::Disconnect(_)) = &message.content {
+                if let ProtocolMessageContent::Request(Request::Terminate(_)) = &message.content {
                     self.cancel_all_progresses();
                 }
                 let _ = self.inbox_sender.send(Either::Left(message));

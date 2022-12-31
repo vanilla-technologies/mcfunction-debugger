@@ -30,7 +30,8 @@ use log::LevelFilter;
 use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::log::{
-    enable_logging_command, logged_command, observer::LogObserver, reset_logging_command,
+    add_tag_command, enable_logging_command, logged_command, observer::LogObserver,
+    reset_logging_command,
 };
 use serial_test::serial;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
@@ -54,7 +55,7 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             logged_command(enable_logging_command()),
-            named_logged_command("tag @s add some_tag"),
+            named_logged_command(add_tag_command("@s", "some_tag")),
             logged_command(reset_logging_command()),
         ],
     };
@@ -99,8 +100,8 @@ async fn test_breakpoint() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add tag1"),
-            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
             /* 4 */ logged_command(reset_logging_command()),
         ],
     };
@@ -131,7 +132,7 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
     before_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
-        lines: vec![named_logged_command("tag @s add some_tag")],
+        lines: vec![named_logged_command(add_tag_command("@s", "some_tag"))],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
@@ -168,13 +169,13 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
     before_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
-        lines: vec![named_logged_command("tag @s add tag2")],
+        lines: vec![named_logged_command(add_tag_command("@s", "tag2"))],
     };
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
             /* 3 */ format!("function {}", inner.name),
             /* 4 */ logged_command(reset_logging_command()),
         ],
@@ -208,8 +209,8 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add tag1"),
-            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
             /* 4 */ logged_command(reset_logging_command()),
         ],
     };
@@ -249,8 +250,8 @@ async fn test_breakpoint_removed() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add tag1"),
-            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
             /* 4 */ logged_command(reset_logging_command()),
         ],
     };
@@ -291,7 +292,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add tag1"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
             /* 3 */ logged_command(reset_logging_command()),
         ],
     };
@@ -312,7 +313,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second line NOT executed
 
     test.lines
-        .insert(2, named_logged_command("tag @s add tag2"));
+        .insert(2, named_logged_command(add_tag_command("@s", "tag2")));
     create_datapack(vec![test]);
 
     adapter.continue_().await;
@@ -329,8 +330,8 @@ async fn test_breakpoint_moved() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add tag1"),
-            /* 3 */ named_logged_command("tag @s add tag2"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
             /* 4 */ logged_command(reset_logging_command()),
         ],
     };
@@ -372,7 +373,7 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add some_tag"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "some_tag")),
             /* 3 */ logged_command(reset_logging_command()),
         ],
     };
@@ -410,7 +411,7 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add some_tag"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "some_tag")),
             /* 3 */ logged_command(reset_logging_command()),
         ],
     };
@@ -457,13 +458,13 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
 /// Reproducer for race condition mentioned in https://github.com/vanilla-technologies/mcfunction-debugger/issues/63
 #[tokio::test]
 #[serial]
-async fn test_current_breakpoint_removed_continue_folloewd_by_set_breakpoints() -> io::Result<()> {
+async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() -> io::Result<()> {
     before_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command("tag @s add some_tag"),
+            /* 2 */ named_logged_command(add_tag_command("@s", "some_tag")),
             /* 3 */ logged_command(reset_logging_command()),
         ],
     };
