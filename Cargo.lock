@@ -628,7 +628,7 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 [[package]]
 name = "minect"
 version = "0.1.0"
-source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#63931490ac8f05f81426d2c3abca258579bed5aa"
+source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#3fea006e801961d6d0ee4c27e65477949f915bd9"
 dependencies = [
  "flate2",
  "fs3",
@@ -638,6 +638,7 @@ dependencies = [
  "num-traits",
  "serde",
  "tokio",
+ "tokio-stream",
  "walkdir",
 ]
 

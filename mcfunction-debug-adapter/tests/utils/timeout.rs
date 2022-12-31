@@ -16,10 +16,10 @@
 // You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use futures::{FutureExt, Stream, StreamExt};
+use futures::{FutureExt, Stream};
 use std::time::Duration;
-use tokio::{sync::mpsc::UnboundedReceiver, time::timeout};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::time::timeout;
+use tokio_stream::StreamExt;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -34,14 +34,6 @@ where
 pub enum TimeoutStreamError {
     Timeout,
     Closed,
-}
-
-impl<I> TimeoutStream<UnboundedReceiverStream<I>, I> {
-    pub fn from_receiver(receiver: UnboundedReceiver<I>) -> Self {
-        TimeoutStream {
-            inner: UnboundedReceiverStream::new(receiver),
-        }
-    }
 }
 
 impl<S, I> TimeoutStream<S, I>

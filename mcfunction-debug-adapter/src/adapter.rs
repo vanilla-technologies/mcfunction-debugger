@@ -74,10 +74,7 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     sync::mpsc::UnboundedSender,
 };
-use tokio_stream::{
-    wrappers::{LinesStream, UnboundedReceiverStream},
-    StreamExt,
-};
+use tokio_stream::{wrappers::LinesStream, StreamExt};
 
 const LISTENER_NAME: &'static str = "mcfunction_debugger";
 
@@ -118,7 +115,7 @@ impl MinecraftSession {
     }
 
     async fn get_context_entity_id(&mut self, depth: i32) -> Result<i32, PartialErrorResponse> {
-        let stream = UnboundedReceiverStream::new(self.connection.add_listener());
+        let events = self.connection.add_listener();
 
         const START_TAG: &str = "get_context_entity_id.start";
         const END_TAG: &str = "get_context_entity_id.end";
@@ -144,7 +141,7 @@ impl MinecraftSession {
             logged_command(reset_logging_command()),
         ])?;
 
-        events_between_tags(stream, START_TAG, END_TAG)
+        events_between_tags(events, START_TAG, END_TAG)
             .filter_map(|event| event.output.parse::<QueryScoreboardOutput>().ok())
             .filter(|output| output.scoreboard == scoreboard)
             .map(|output| output.score)
@@ -154,7 +151,7 @@ impl MinecraftSession {
     }
 
     async fn uninstall_datapack(&mut self) -> io::Result<()> {
-        let stream = UnboundedReceiverStream::new(self.connection.add_listener());
+        let events = self.connection.add_listener();
 
         let uninstalled = format!("{}.uninstalled", LISTENER_NAME);
         inject_commands(
@@ -168,7 +165,7 @@ impl MinecraftSession {
         )?;
 
         trace!("Waiting for datapack to be uninstalled...");
-        stream
+        events
             .filter_map(|e| e.output.parse::<SummonNamedEntityOutput>().ok())
             .filter(|o| o.name == uninstalled)
             .next()
@@ -400,10 +397,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
         )
         .await?;
 
-        let mut listener = connection.add_named_listener(LISTENER_NAME);
+        let mut events = connection.add_named_listener(LISTENER_NAME);
         let message_sender = self.message_sender.clone();
         tokio::spawn(async move {
-            while let Some(event) = listener.recv().await {
+            while let Some(event) = events.next().await {
                 if let Err(_) = message_sender.send(Either::Right(event)) {
                     break;
                 }
@@ -581,7 +578,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let stack_trace_tag = mc_session.replace_ns("-ns-_stack_trace");
         let depth_scoreboard = mc_session.replace_ns("-ns-_depth");
 
-        let stream = UnboundedReceiverStream::new(mc_session.connection.add_listener());
+        let events = mc_session.connection.add_listener();
 
         mc_session.inject_commands(&[
             logged_command(enable_logging_command()),
@@ -603,7 +600,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         ])?;
 
         let mut stack_trace = Vec::new();
-        let mut events = events_between_tags(stream, START_TAG, END_TAG);
+        let mut events = events_between_tags(events, START_TAG, END_TAG);
         while let Some(event) = events.next().await {
             if let Some(function_line) = McfunctionLineNumber::parse(&event.executor, ":") {
                 let id = if let Some(output) = event
@@ -691,7 +688,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         match scope.kind {
             ScopeKind::SelectedEntityScores => {
-                let stream = UnboundedReceiverStream::new(mc_session.connection.add_listener());
+                let events = mc_session.connection.add_listener();
 
                 let execute_as_context = format!(
                     "execute as @e[\
@@ -721,7 +718,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     logged_command(reset_logging_command()),
                 ])?;
 
-                let variables = events_between_tags(stream, START_TAG, END_TAG)
+                let variables = events_between_tags(events, START_TAG, END_TAG)
                     .filter_map(|event| event.output.parse::<QueryScoreboardOutput>().ok())
                     .map(|output| {
                         Variable::builder()

@@ -1,3 +1,4 @@
+use futures::StreamExt;
 use mcfunction_debugger::{generate_debug_datapack, Config};
 use minect::{log::named_logged_command, MinecraftConnection};
 use serial_test::serial;
@@ -186,7 +187,7 @@ async fn run_test(
     connection.inject_commands(&commands)?;
 
     // then:
-    let event = timeout(TIMEOUT, events.recv()).await?.unwrap();
+    let event = timeout(TIMEOUT, events.next()).await?.unwrap();
     assert_eq!(event.output, "Added tag 'success' to test");
 
     Ok(())

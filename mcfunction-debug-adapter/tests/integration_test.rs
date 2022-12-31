@@ -63,7 +63,7 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
     create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
     adapter.launch(&test_path).await;
@@ -109,7 +109,7 @@ async fn test_breakpoint() -> io::Result<()> {
     create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -147,7 +147,7 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
     create_and_enable_datapack(vec![outer, inner]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -184,7 +184,7 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
     create_and_enable_datapack(vec![outer, inner]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -218,7 +218,7 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
     create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -259,7 +259,7 @@ async fn test_breakpoint_removed() -> io::Result<()> {
     create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -300,7 +300,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
     create_and_enable_datapack(vec![test.clone()]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -339,7 +339,7 @@ async fn test_breakpoint_moved() -> io::Result<()> {
     create_and_enable_datapack(vec![test.clone()]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -381,7 +381,7 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
     create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -432,7 +432,7 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
     create_and_enable_datapack(vec![test, inner]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 
@@ -472,7 +472,7 @@ async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() 
     create_and_enable_datapack(vec![test]);
 
     let mut log_observer = LogObserver::new(TEST_LOG_FILE);
-    let mut listener = TimeoutStream::from_receiver(log_observer.add_named_listener(LISTENER_NAME));
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
     let mut adapter = start_adapter();
     adapter.initalize().await;
 

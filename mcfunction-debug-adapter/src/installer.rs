@@ -29,7 +29,7 @@ use mcfunction_debugger::template_engine::TemplateEngine;
 use minect::{
     log::{
         add_tag_command, enable_logging_command, logged_command, named_logged_command,
-        reset_logging_command, AddTagOutput, LogEvent,
+        reset_logging_command, AddTagOutput,
     },
     MinecraftConnection,
 };
@@ -38,6 +38,7 @@ use tokio::{
     fs::{create_dir_all, read_to_string, remove_dir_all, write},
     try_join,
 };
+use tokio_stream::StreamExt;
 
 pub async fn establish_connection(
     minecraft_world_dir: impl AsRef<Path>,
@@ -147,7 +148,7 @@ async fn wait_for_connection(
     mut context: impl DebugAdapterContext,
 ) -> Result<(), RequestError<io::Error>> {
     const LISTENER_NAME: &str = "mcfd_init"; // Hardcoded in installer datapack as well
-    let mut init_listener = connection.add_named_listener(LISTENER_NAME);
+    let events = connection.add_named_listener(LISTENER_NAME);
     let commands: &[String] = &[];
     inject_commands(connection, commands).map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
     inject_commands(
@@ -169,12 +170,15 @@ async fn wait_for_connection(
     );
     let progress_id = progress_context.progress_id.to_string();
 
-    let init_result = init_listener.recv();
+    let mut events = events.filter_map(|event| event.output.parse::<AddTagOutput>().ok());
+    let init_result = events.next();
     pin_mut!(init_result);
     let cancel = progress_context.next_cancel_request();
     pin_mut!(cancel);
     let success = match select(init_result, cancel).await {
-        Either::Left((log_event, _)) => is_install_success_event(log_event),
+        Either::Left((log_event, _)) => log_event
+            .map(|output| output.tag == SUCCESS_TAG)
+            .unwrap_or(false),
         Either::Right(_) => false,
     };
 
@@ -192,13 +196,6 @@ async fn wait_for_connection(
             "Launch was cancelled.".to_string(),
         )))
     }
-}
-
-fn is_install_success_event(event: Option<LogEvent>) -> bool {
-    event
-        .and_then(|event| event.output.parse::<AddTagOutput>().ok())
-        .filter(|output| output.tag == SUCCESS_TAG)
-        .is_some()
 }
 
 async fn remove_installer_datapack(

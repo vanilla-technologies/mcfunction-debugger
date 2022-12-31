@@ -30,7 +30,7 @@ use minect::log::{AddTagOutput, LogEvent};
 use multimap::MultiMap;
 use std::path::Path;
 use tokio::fs::remove_dir_all;
-use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
+use tokio_stream::StreamExt;
 
 pub fn parse_function_path(path: &Path) -> Result<(&Path, ResourceLocation), String> {
     let datapack = find_parent_datapack(path).ok_or_else(|| {
@@ -145,11 +145,11 @@ pub fn contains_breakpoint(
 }
 
 pub fn events_between_tags<'l>(
-    stream: UnboundedReceiverStream<LogEvent>,
+    events: impl Stream<Item = LogEvent> + 'l,
     start_tag: &'l str,
     stop_tag: &'l str,
 ) -> impl Stream<Item = LogEvent> + 'l {
-    stream
+    events
         .skip_while(move |event| !is_add_tag_output(event, start_tag))
         .skip(1) // Skip start tag
         .take_while(move |event| !is_add_tag_output(event, stop_tag))
