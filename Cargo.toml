@@ -23,7 +23,7 @@ minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 multimap = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-simple_logger = "2"
+simple_logger = "4"
 tokio = { version = "1", features = [
     "fs",
     "macros",
@@ -34,7 +34,7 @@ tokio = { version = "1", features = [
 walkdir = "2"
 
 [dev-dependencies]
-serial_test = "0.8"
+serial_test = "0.10"
 
 [build-dependencies]
 vergen = "7"

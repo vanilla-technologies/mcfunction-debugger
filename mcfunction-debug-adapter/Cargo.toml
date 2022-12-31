@@ -30,12 +30,12 @@ tokio = { version = "1", features = [
 ] }
 tokio-stream = { version = "0.1", features = ["io-util"] }
 tokio-util = { version = "0.7", features = ["codec"] }
-typed-builder = "0.10"
+typed-builder = "0.11"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 assert2 = "0.3"
-serial_test = "0.8"
+serial_test = "0.10"
 
 [build-dependencies]
 vergen = "7"
