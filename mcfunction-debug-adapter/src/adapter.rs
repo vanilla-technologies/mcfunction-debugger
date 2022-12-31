@@ -182,7 +182,8 @@ pub(crate) fn inject_commands(
     commands: &[String],
 ) -> io::Result<()> {
     trace!("Injecting commands:\n{}", commands.join("\n"));
-    connection.inject_commands(commands)
+    connection.inject_commands(commands)?;
+    Ok(())
 }
 
 const MAIN_THREAD_ID: i32 = 0;
