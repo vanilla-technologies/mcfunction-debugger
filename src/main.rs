@@ -1,7 +1,7 @@
 // mcfunction-debugger is a debugger for Minecraft's *.mcfunction files that does not require any
 // Minecraft mods.
 //
-// © Copyright (C) 2021, 2022 Adrodoc <adrodoc55@googlemail.com> & skess42 <skagaros@gmail.com>
+// © Copyright (C) 2021-2023 Adrodoc <adrodoc55@googlemail.com> & skess42 <skagaros@gmail.com>
 //
 // This file is part of mcfunction-debugger.
 //
@@ -53,7 +53,7 @@ async fn main() -> io::Result<()> {
         .author(&*format!(
             "
 Vanilla Technologies
-© Copyright (C) 2021, 2022 {}
+© Copyright (C) 2021-2023 {}
 
 mcfunction-debugger is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the Free
