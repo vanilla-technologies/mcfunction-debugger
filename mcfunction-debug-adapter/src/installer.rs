@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::{
-    adapter::inject_commands,
+    api::ProgressContext,
     error::{PartialErrorResponse, RequestError},
     DebugAdapterContext,
 };
@@ -25,193 +25,71 @@ use futures::{
     future::{select, Either},
     pin_mut,
 };
-use mcfunction_debugger::template_engine::TemplateEngine;
-use minect::{
-    log::{
-        add_tag_command, enable_logging_command, logged_command, named_logged_command,
-        reset_logging_command, AddTagOutput,
-    },
-    MinecraftConnection,
-};
-use std::{collections::BTreeMap, io, iter::FromIterator, path::Path};
-use tokio::{
-    fs::{create_dir_all, read_to_string, remove_dir_all, write},
-    try_join,
-};
-use tokio_stream::StreamExt;
+use minect::MinecraftConnection;
+use std::{io, path::Path};
 
 pub async fn establish_connection(
     minecraft_world_dir: impl AsRef<Path>,
     minecraft_log_file: impl AsRef<Path>,
-    context: impl DebugAdapterContext,
-) -> Result<MinecraftConnection, RequestError<io::Error>> {
-    setup_installer_datapack(&minecraft_world_dir)
-        .await
-        .map_err(RequestError::Terminate)?;
-
-    let mut connection = MinecraftConnection::builder("dap", minecraft_world_dir.as_ref())
-        .log_file(minecraft_log_file.as_ref())
-        .build();
-    let wait_for_connection_result = wait_for_connection(&mut connection, context).await;
-
-    // Delete datapack even if cancelled or injection failed
-    remove_installer_datapack(&minecraft_world_dir).await?;
-    wait_for_connection_result?;
-
-    Ok(connection)
-}
-
-async fn setup_installer_datapack(minecraft_world_dir: impl AsRef<Path>) -> io::Result<()> {
-    let minecraft_world_dir = minecraft_world_dir.as_ref();
-    let structure_id = read_structure_id(minecraft_world_dir).await;
-
-    let datapack_dir = get_installer_datapack_dir(&minecraft_world_dir);
-    extract_installer_datapack(&datapack_dir, structure_id).await?;
-    Ok(())
-}
-
-async fn read_structure_id(minecraft_world_dir: &Path) -> u64 {
-    let id_txt_path = minecraft_world_dir.join("generated/minect/structures/dap/id.txt");
-    let content = read_to_string(id_txt_path).await;
-    if let Ok(content) = content {
-        if !content.is_empty() {
-            let id = content.parse::<u64>();
-            if let Ok(id) = id {
-                id.wrapping_add(1)
-            } else {
-                0
-            }
-        } else {
-            0
-        }
-    } else {
-        0
-    }
-}
-
-async fn extract_installer_datapack(
-    datapack_dir: impl AsRef<Path>,
-    structure_id: u64,
-) -> io::Result<()> {
-    macro_rules! include_datapack_template {
-        ($path:expr) => {
-            include_str!(concat!(env!("OUT_DIR"), "/src/installer_datapack/", $path))
-        };
-    }
-    let datapack_dir = datapack_dir.as_ref();
-    macro_rules! extract_datapack_file {
-        ($relative_path:expr) => {{
-            let path = datapack_dir.join($relative_path);
-            let content = include_datapack_template!($relative_path);
-            create_file(path, content)
-        }};
-    }
-    let structure_id = structure_id.to_string();
-    let engine = TemplateEngine::new(
-        BTreeMap::from_iter([("-structure_id-", structure_id.as_str())]),
-        None,
-    );
-    macro_rules! expand_datapack_template {
-        ($relative_path:expr) => {{
-            let path = datapack_dir.join(engine.expand($relative_path));
-            let content = engine.expand(include_datapack_template!($relative_path));
-            create_file(path, content)
-        }};
-    }
-    try_join!(
-        extract_datapack_file!("data/mcfd_init/functions/cancel_cleanup.mcfunction"),
-        extract_datapack_file!("data/mcfd_init/functions/cancel.mcfunction"),
-        expand_datapack_template!("data/mcfd_init/functions/choose_chunk.mcfunction"),
-        extract_datapack_file!("data/mcfd_init/functions/confirm_chunk.mcfunction"),
-        extract_datapack_file!("data/mcfd_init/functions/install.mcfunction"),
-        extract_datapack_file!("data/mcfd_init/functions/load.mcfunction"),
-        extract_datapack_file!("data/mcfd_init/functions/reload.mcfunction"),
-        extract_datapack_file!("data/mcfd_init/functions/remove_chunk_choice.mcfunction"),
-        extract_datapack_file!("data/mcfd_init/functions/uninstall.mcfunction"),
-        extract_datapack_file!("data/minecraft/tags/functions/load.json"),
-        extract_datapack_file!("pack.mcmeta"),
-    )?;
-    Ok(())
-}
-
-async fn create_file(path: impl AsRef<Path>, contents: impl AsRef<str>) -> io::Result<()> {
-    if let Some(parent) = path.as_ref().parent() {
-        create_dir_all(parent).await?;
-    }
-    write(path, contents.as_ref()).await
-}
-
-const SUCCESS_TAG: &str = "mcfd_init_success";
-
-async fn wait_for_connection(
-    connection: &mut MinecraftConnection,
     mut context: impl DebugAdapterContext,
-) -> Result<(), RequestError<io::Error>> {
-    const LISTENER_NAME: &str = "mcfd_init"; // Hardcoded in installer datapack as well
-    let events = connection.add_named_listener(LISTENER_NAME);
-    let commands: &[String] = &[];
-    inject_commands(connection, commands).map_err(|e| RequestError::Terminate(e))?; // TODO: Hack: connection is not initialized for first inject
-    inject_commands(
-        connection,
-        &[
-            logged_command(enable_logging_command()),
-            named_logged_command(LISTENER_NAME, add_tag_command("@s", SUCCESS_TAG)),
-            logged_command(reset_logging_command()),
-        ],
-    )
-    .map_err(|e| RequestError::Terminate(e))?;
-
-    let mut progress_context = context.start_cancellable_progress(
+) -> Result<MinecraftConnection, RequestError<io::Error>> {
+    let mut progress = context.start_cancellable_progress(
         "Connecting to Minecraft".to_string(),
         Some(
             "If you are connecting for the first time please execute /reload in Minecraft."
                 .to_string(),
         ),
     );
-    let progress_id = progress_context.progress_id.to_string();
 
-    let mut events = events.filter_map(|event| event.output.parse::<AddTagOutput>().ok());
-    let init_result = events.next();
-    pin_mut!(init_result);
-    let cancel = progress_context.next_cancel_request();
-    pin_mut!(cancel);
-    let success = match select(init_result, cancel).await {
-        Either::Left((log_event, _)) => log_event
-            .map(|output| output.tag == SUCCESS_TAG)
-            .unwrap_or(false),
-        Either::Right(_) => false,
+    let mut connection = MinecraftConnection::builder("dap", minecraft_world_dir.as_ref())
+        .log_file(minecraft_log_file.as_ref())
+        .build();
+    let result = connect(&mut connection, &mut progress).await;
+
+    let progress_id = progress.progress_id.to_string();
+    let progress_end_message = match &result {
+        Ok(()) => "Successfully connected to Minecraft".to_string(),
+        Err(ConnectError::Cancelled) => "Cancelled connecting to Minecraft".to_string(),
+        Err(ConnectError::Failed(error)) => format!("Failed to connect to Minecraft: {}", error),
     };
+    context.end_cancellable_progress(progress_id, Some(progress_end_message));
 
-    let message = Some(if success {
-        "Successfully established connection to Minecraft".to_string()
-    } else {
-        "Cancelled: Connecting to Minecraft".to_string()
-    });
-    context.end_cancellable_progress(progress_id, message);
+    result
+        .map_err(|e| match e {
+            ConnectError::Cancelled => "Launch was cancelled.".to_string(),
+            ConnectError::Failed(error) => format!("Failed to connect to Minecraft: {}", error),
+        })
+        .map_err(PartialErrorResponse::new)?;
 
-    if success {
-        Ok(())
-    } else {
-        Err(RequestError::Respond(PartialErrorResponse::new(
-            "Launch was cancelled.".to_string(),
-        )))
-    }
+    Ok(connection)
 }
 
-async fn remove_installer_datapack(
-    minecraft_world_dir: impl AsRef<Path>,
-) -> Result<(), RequestError<io::Error>> {
-    let datapack_dir = get_installer_datapack_dir(minecraft_world_dir);
-    if datapack_dir.as_ref().is_dir() {
-        remove_dir_all(&datapack_dir)
-            .await
-            .map_err(RequestError::Terminate)?;
-    }
-    Ok(())
+enum ConnectError {
+    Cancelled,
+    Failed(minect::ConnectError),
 }
-
-fn get_installer_datapack_dir(minecraft_world_dir: impl AsRef<Path>) -> impl AsRef<Path> {
-    minecraft_world_dir
-        .as_ref()
-        .join("datapacks/mcfd-installer")
+impl From<minect::ConnectError> for ConnectError {
+    fn from(error: minect::ConnectError) -> Self {
+        if error.is_cancelled() {
+            ConnectError::Cancelled
+        } else {
+            ConnectError::Failed(error)
+        }
+    }
+}
+async fn connect(
+    connection: &mut MinecraftConnection,
+    progress: &mut ProgressContext,
+) -> Result<(), ConnectError> {
+    let connect = connection.connect();
+    pin_mut!(connect);
+    let cancel = progress.next_cancel_request();
+    pin_mut!(cancel);
+    match select(connect, cancel).await {
+        Either::Left((result, _)) => {
+            result?;
+            Ok(())
+        }
+        Either::Right(_) => return Err(ConnectError::Cancelled),
+    }
 }

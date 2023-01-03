@@ -455,6 +455,7 @@ checksum = "1885e79c1fc4b10f0e172c475f458b7f7b93061064d98c3293e98c5ba0c8b399"
 dependencies = [
  "autocfg",
  "hashbrown",
+ "serde",
 ]
 
 [[package]]
@@ -601,7 +602,6 @@ dependencies = [
  "typed-builder 0.11.0",
  "uuid",
  "vergen",
- "walkdir",
 ]
 
 [[package]]
@@ -632,16 +632,19 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 [[package]]
 name = "minect"
 version = "0.1.0"
-source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#391543640faa0a372983e169a7a0a7f9548a59cf"
+source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#ebc2713de3e194218215354c3262228be18006ff"
 dependencies = [
  "encoding_rs",
  "flate2",
  "fs3",
+ "futures",
  "hematite-nbt",
+ "indexmap",
  "log",
  "notify",
  "num-traits",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "walkdir",
