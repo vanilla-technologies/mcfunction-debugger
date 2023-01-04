@@ -41,9 +41,10 @@ pub async fn establish_connection(
         ),
     );
 
-    let mut connection = MinecraftConnection::builder("dap", minecraft_world_dir.as_ref())
-        .log_file(minecraft_log_file.as_ref())
-        .build();
+    let mut connection =
+        MinecraftConnection::builder("mcfunction-debugger", minecraft_world_dir.as_ref())
+            .log_file(minecraft_log_file.as_ref())
+            .build();
     let result = connect(&mut connection, &mut progress).await;
 
     let progress_id = progress.progress_id.to_string();
