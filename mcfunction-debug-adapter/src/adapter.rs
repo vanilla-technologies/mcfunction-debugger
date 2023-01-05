@@ -20,7 +20,7 @@ pub mod utils;
 
 use crate::{
     adapter::utils::{
-        contains_breakpoint, events_between_tags, generate_datapack, parse_function_path,
+        contains_breakpoint, events_between, generate_datapack, parse_function_path,
         parse_stopped_tag, McfunctionLineNumber,
     },
     error::{PartialErrorResponse, RequestError},
@@ -57,11 +57,11 @@ use mcfunction_debugger::{
 };
 use minect::{
     log::{
-        add_tag_command, enable_logging_command, logged_command, named_logged_command,
-        query_scoreboard_command, reset_logging_command, summon_named_entity_command, AddTagOutput,
-        LogEvent, QueryScoreboardOutput, SummonNamedEntityOutput,
+        enable_logging_command, logged_command, named_logged_command, query_scoreboard_command,
+        reset_logging_command, summon_named_entity_command, AddTagOutput, LogEvent,
+        QueryScoreboardOutput, SummonNamedEntityOutput,
     },
-    MinecraftConnection,
+    Command, MinecraftConnection,
 };
 use multimap::MultiMap;
 use std::{
@@ -105,7 +105,7 @@ struct MinecraftSession {
     scopes: Vec<ScopeReference>,
 }
 impl MinecraftSession {
-    fn inject_commands(&mut self, commands: &[String]) -> Result<(), PartialErrorResponse> {
+    fn inject_commands(&mut self, commands: Vec<Command>) -> Result<(), PartialErrorResponse> {
         inject_commands(&mut self.connection, commands)
             .map_err(|e| PartialErrorResponse::new(format!("Failed to inject commands: {}", e)))
     }
@@ -117,14 +117,14 @@ impl MinecraftSession {
     async fn get_context_entity_id(&mut self, depth: i32) -> Result<i32, PartialErrorResponse> {
         let events = self.connection.add_listener();
 
-        const START_TAG: &str = "get_context_entity_id.start";
-        const END_TAG: &str = "get_context_entity_id.end";
+        const START: &str = "get_context_entity_id.start";
+        const END: &str = "get_context_entity_id.end";
 
         let scoreboard = self.replace_ns("-ns-_id");
-        self.inject_commands(&[
-            logged_command(enable_logging_command()),
-            named_logged_command(LISTENER_NAME, add_tag_command("@s", START_TAG)),
-            logged_command(query_scoreboard_command(
+        self.inject_commands(vec![
+            Command::new(enable_logging_command()),
+            Command::named(LISTENER_NAME, summon_named_entity_command(START)),
+            Command::new(query_scoreboard_command(
                 self.replace_ns(&format!(
                     "@e[\
                         type=area_effect_cloud,\
@@ -137,11 +137,11 @@ impl MinecraftSession {
                 )),
                 &scoreboard,
             )),
-            named_logged_command(LISTENER_NAME, add_tag_command("@s", END_TAG)),
-            logged_command(reset_logging_command()),
+            Command::named(LISTENER_NAME, summon_named_entity_command(END)),
+            Command::new(reset_logging_command()),
         ])?;
 
-        events_between_tags(events, START_TAG, END_TAG)
+        events_between(events, START, END)
             .filter_map(|event| event.output.parse::<QueryScoreboardOutput>().ok())
             .filter(|output| output.scoreboard == scoreboard)
             .map(|output| output.score)
@@ -156,11 +156,11 @@ impl MinecraftSession {
         let uninstalled = format!("{}.uninstalled", LISTENER_NAME);
         inject_commands(
             &mut self.connection,
-            &[
-                "function debug:uninstall".to_string(),
-                enable_logging_command(),
-                summon_named_entity_command(&uninstalled),
-                reset_logging_command(),
+            vec![
+                Command::new("function debug:uninstall"),
+                Command::new(enable_logging_command()),
+                Command::new(summon_named_entity_command(&uninstalled)),
+                Command::new(reset_logging_command()),
             ],
         )?;
 
@@ -179,9 +179,15 @@ impl MinecraftSession {
 
 pub(crate) fn inject_commands(
     connection: &mut MinecraftConnection,
-    commands: &[String],
+    commands: Vec<Command>,
 ) -> io::Result<()> {
-    trace!("Injecting commands:\n{}", commands.join("\n"));
+    trace!(
+        "Injecting commands:{}",
+        commands
+            .iter()
+            .map(|it| it.get_command())
+            .fold(String::new(), |joined, command| joined + "\n" + command)
+    );
     connection.inject_commands(commands)?;
     Ok(())
 }
@@ -329,11 +335,11 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     &client_session.generated_breakpoints,
                 )
                 .await?;
-                commands.push("reload".to_string());
+                commands.push(Command::new("reload"));
             };
 
-            commands.push("function debug:resume".to_string());
-            mc_session.inject_commands(&commands)?;
+            commands.push(Command::new("function debug:resume"));
+            mc_session.inject_commands(commands)?;
             client_session.stopped_at = None;
             mc_session.scopes.clear();
         }
@@ -430,15 +436,15 @@ impl DebugAdapter for McfunctionDebugAdapter {
         )
         .await?;
 
-        minecraft_session.inject_commands(&[
-            "reload".to_string(),
-            format!("datapack enable \"file/{}\"", debug_datapack_name),
+        minecraft_session.inject_commands(vec![
+            Command::new("reload"),
+            Command::new(format!("datapack enable \"file/{}\"", debug_datapack_name)),
             // After loading the datapack we must wait one tick for it to install itself
-            format!(
+            Command::new(format!(
                 "schedule function debug:{}/{} 1t",
                 config.function.namespace(),
                 config.function.path(),
-            ),
+            )),
         ])?;
 
         client_session.minecraft_session = Some(minecraft_session);
@@ -549,7 +555,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                 &client_session.generated_breakpoints,
             )
             .await?;
-            let mut commands = vec!["reload".to_string()];
+            let mut commands = vec![Command::new("reload")];
             if args.source_modified && old_breakpoints.len() == new_breakpoints.len() {
                 commands.extend(get_move_breakpoint_commands(
                     &function,
@@ -558,7 +564,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     &minecraft_session.namespace,
                 ));
             }
-            minecraft_session.inject_commands(&commands)?;
+            minecraft_session.inject_commands(commands)?;
         }
 
         Ok(SetBreakpointsResponseBody::builder()
@@ -574,34 +580,34 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        const START_TAG: &str = "stack_trace.start";
-        const END_TAG: &str = "stack_trace.end";
+        const START: &str = "stack_trace.start";
+        const END: &str = "stack_trace.end";
         let stack_trace_tag = mc_session.replace_ns("-ns-_stack_trace");
         let depth_scoreboard = mc_session.replace_ns("-ns-_depth");
 
         let events = mc_session.connection.add_listener();
 
-        mc_session.inject_commands(&[
-            logged_command(enable_logging_command()),
-            named_logged_command(LISTENER_NAME, add_tag_command("@s", START_TAG)),
-            logged_command(mc_session.replace_ns(&format!(
+        mc_session.inject_commands(vec![
+            Command::new(enable_logging_command()),
+            Command::named(LISTENER_NAME, summon_named_entity_command(START)),
+            Command::new(mc_session.replace_ns(&format!(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] run {}",
                 query_scoreboard_command("@s", &depth_scoreboard)
             ))),
-            logged_command(mc_session.replace_ns(&format!(
+            Command::new(mc_session.replace_ns(&format!(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tag @s add {}",
                 stack_trace_tag
             ))),
-            logged_command(mc_session.replace_ns(&format!(
+            Command::new(mc_session.replace_ns(&format!(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_breakpoint] run tag @s remove {}",
                 stack_trace_tag
             ))),
-            named_logged_command(LISTENER_NAME, add_tag_command("@s", END_TAG)),
-            logged_command(reset_logging_command()),
+            Command::named(LISTENER_NAME, summon_named_entity_command(END)),
+            Command::new(reset_logging_command()),
         ])?;
 
         let mut stack_trace = Vec::new();
-        let mut events = events_between_tags(events, START_TAG, END_TAG);
+        let mut events = events_between(events, START, END);
         while let Some(event) = events.next().await {
             if let Some(function_line) = McfunctionLineNumber::parse(&event.executor, ":") {
                 let id = if let Some(output) = event
@@ -640,7 +646,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
     ) -> Result<(), RequestError<Self::CustomError>> {
         if let Some(client_session) = &mut self.client_session {
             if let Some(minecraft_session) = &mut client_session.minecraft_session {
-                minecraft_session.inject_commands(&["function debug:stop".to_string()])?;
+                minecraft_session.inject_commands(vec![Command::new("function debug:stop")])?;
             }
         }
         Ok(())
@@ -684,8 +690,8 @@ impl DebugAdapter for McfunctionDebugAdapter {
             .get(scope_id)
             .ok_or_else(unknown_variables_reference)?;
 
-        const START_TAG: &str = "variables.start";
-        const END_TAG: &str = "variables.end";
+        const START: &str = "variables.start";
+        const END: &str = "variables.end";
 
         match scope.kind {
             ScopeKind::SelectedEntityScores => {
@@ -709,17 +715,23 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     "{} scoreboard players operation @e[tag=!-ns-_context] -ns-_id += @s -ns-_id",
                     execute_as_context
                 ));
-                mc_session.inject_commands(&[
-                    logged_command(enable_logging_command()),
-                    named_logged_command(LISTENER_NAME, add_tag_command("@s", START_TAG)),
-                    logged_command(decrement_ids),
-                    mc_session.replace_ns("function -ns-:log_scores"),
-                    logged_command(increment_ids),
-                    named_logged_command(LISTENER_NAME, add_tag_command("@s", END_TAG)),
-                    logged_command(reset_logging_command()),
+                mc_session.inject_commands(vec![
+                    Command::new(logged_command(enable_logging_command())),
+                    Command::new(named_logged_command(
+                        LISTENER_NAME,
+                        summon_named_entity_command(START),
+                    )),
+                    Command::new(logged_command(decrement_ids)),
+                    Command::new(mc_session.replace_ns("function -ns-:log_scores")),
+                    Command::new(logged_command(increment_ids)),
+                    Command::new(named_logged_command(
+                        LISTENER_NAME,
+                        summon_named_entity_command(END),
+                    )),
+                    Command::new(logged_command(reset_logging_command())),
                 ])?;
 
-                let variables = events_between_tags(events, START_TAG, END_TAG)
+                let variables = events_between(events, START, END)
                     .filter_map(|event| event.output.parse::<QueryScoreboardOutput>().ok())
                     .map(|output| {
                         Variable::builder()
@@ -828,7 +840,7 @@ fn get_move_breakpoint_commands(
     old_line_numbers: impl ExactSizeIterator<Item = usize>,
     new_line_numbers: impl ExactSizeIterator<Item = usize>,
     namespace: &str,
-) -> Vec<String> {
+) -> Vec<Command> {
     let tmp_tag = format!("{}_tmp", namespace);
     let breakpoint_tag = format!("{}_breakpoint", namespace);
     let mut commands = Vec::new();
@@ -846,24 +858,24 @@ fn get_move_breakpoint_commands(
             .get_tag();
             let old_tag = format!("{}+{}", namespace, old_tag);
             let new_tag = format!("{}+{}", namespace, new_tag);
-            commands.push(format!(
+            commands.push(Command::new(format!(
                 "tag @e[tag={},tag={},tag=!{}] add {}",
                 breakpoint_tag, old_tag, tmp_tag, new_tag,
-            ));
-            commands.push(format!(
+            )));
+            commands.push(Command::new(format!(
                 "tag @e[tag={},tag={}] add {}",
                 breakpoint_tag, old_tag, tmp_tag
-            ));
-            commands.push(format!(
+            )));
+            commands.push(Command::new(format!(
                 "tag @e[tag={},tag={},tag={}] remove {}",
                 breakpoint_tag, old_tag, new_tag, old_tag
-            ));
+            )));
         }
     }
-    commands.push(format!(
+    commands.push(Command::new(format!(
         "tag @e[tag={},tag={}] remove {}",
         breakpoint_tag, tmp_tag, tmp_tag
-    ));
+    )));
     commands
 }
 

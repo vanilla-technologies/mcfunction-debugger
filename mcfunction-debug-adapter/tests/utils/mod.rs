@@ -36,7 +36,7 @@ use mcfunction_debug_adapter::{
     adapter::McfunctionDebugAdapter, error::DebugAdapterError, run_adapter,
 };
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
-use minect::MinecraftConnection;
+use minect::{Command, MinecraftConnection};
 use sender_sink::wrappers::UnboundedSenderSink;
 use serde_json::{json, Map};
 use std::{
@@ -363,9 +363,12 @@ fn enable_debug_datapack() {
         .log_file(TEST_LOG_FILE)
         .build();
     connection
-        .inject_commands([
-            "function debug:uninstall".to_string(),
-            format!("datapack enable \"file/debug-{}\"", TEST_DATAPACK_NAME),
+        .inject_commands(vec![
+            Command::new("function debug:uninstall"),
+            Command::new(format!(
+                "datapack enable \"file/debug-{}\"",
+                TEST_DATAPACK_NAME
+            )),
         ])
         .unwrap();
 }

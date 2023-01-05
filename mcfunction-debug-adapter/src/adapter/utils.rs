@@ -26,7 +26,7 @@ use mcfunction_debugger::{
     parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
     AdapterConfig, Config, LocalBreakpoint,
 };
-use minect::log::{AddTagOutput, LogEvent};
+use minect::log::{LogEvent, SummonNamedEntityOutput};
 use multimap::MultiMap;
 use std::path::Path;
 use tokio::fs::remove_dir_all;
@@ -144,24 +144,24 @@ pub fn contains_breakpoint(
     }
 }
 
-pub fn events_between_tags<'l>(
+pub fn events_between<'l>(
     events: impl Stream<Item = LogEvent> + 'l,
-    start_tag: &'l str,
-    stop_tag: &'l str,
+    start: &'l str,
+    stop: &'l str,
 ) -> impl Stream<Item = LogEvent> + 'l {
     events
-        .skip_while(move |event| !is_add_tag_output(event, start_tag))
+        .skip_while(move |event| !is_summon_output(event, start))
         .skip(1) // Skip start tag
-        .take_while(move |event| !is_add_tag_output(event, stop_tag))
+        .take_while(move |event| !is_summon_output(event, stop))
 }
 
-fn is_add_tag_output(event: &LogEvent, tag: &str) -> bool {
+fn is_summon_output(event: &LogEvent, name: &str) -> bool {
     event.executor == LISTENER_NAME
         && event
             .output
-            .parse::<AddTagOutput>()
+            .parse::<SummonNamedEntityOutput>()
             .ok()
-            .filter(|output| output.tag == tag)
+            .filter(|output| output.name == name)
             .is_some()
 }
 
