@@ -89,13 +89,15 @@ pub enum BreakpointKind {
     Normal,
     Invalid,
     Continue,
+    Step { after_function: bool },
 }
 impl BreakpointKind {
-    fn can_resume(&self) -> bool {
+    pub fn can_resume(&self) -> bool {
         match self {
             BreakpointKind::Normal => true,
             BreakpointKind::Invalid => false,
             BreakpointKind::Continue => true,
+            BreakpointKind::Step { .. } => true,
         }
     }
 }
@@ -586,7 +588,7 @@ async fn expand_function_templates(
             .join("\n");
 
         let terminator = match partition.terminator {
-            Terminator::Breakpoint => {
+            Terminator::Breakpoint | Terminator::StepAfterFunction => {
                 let line_number = (partition.end.line_number).to_string();
                 let engine = engine.extend([("-line_number-", line_number.as_str())]);
                 let template =
@@ -744,6 +746,7 @@ enum PositionInLine {
     Entry,
     Breakpoint,
     Function,
+    AfterFunction,
     Return,
 }
 impl Display for PositionInLine {
@@ -752,12 +755,14 @@ impl Display for PositionInLine {
             PositionInLine::Entry => write!(f, "entry"),
             PositionInLine::Breakpoint => write!(f, "breakpoint"),
             PositionInLine::Function => write!(f, "function"),
+            PositionInLine::AfterFunction => write!(f, "after_function"),
             PositionInLine::Return => write!(f, "return"),
         }
     }
 }
 enum Terminator<'l> {
     Breakpoint,
+    StepAfterFunction,
     Continue,
     FunctionCall {
         line: &'l str,
@@ -771,6 +776,7 @@ impl Terminator<'_> {
     fn get_position_in_line(&self) -> PositionInLine {
         match self {
             Terminator::Breakpoint => PositionInLine::Breakpoint,
+            Terminator::StepAfterFunction => PositionInLine::AfterFunction,
             Terminator::Continue => PositionInLine::Breakpoint,
             Terminator::FunctionCall { .. } => PositionInLine::Function,
             Terminator::Return => PositionInLine::Return,
@@ -815,6 +821,14 @@ fn partition<'l>(
             Some(BreakpointKind::Continue) => {
                 partitions.push(next_partition(Terminator::Continue));
             }
+            Some(BreakpointKind::Step {
+                after_function: false,
+            }) => {
+                partitions.push(next_partition(Terminator::Breakpoint));
+            }
+            Some(BreakpointKind::Step {
+                after_function: true,
+            }) => {} // Is added after function
             None => {}
         }
         if matches!(command, Line::Breakpoint) {
@@ -834,6 +848,14 @@ fn partition<'l>(
                 selectors,
             }));
         }
+
+        if let Some(BreakpointKind::Step {
+            after_function: true,
+        }) = config.get_breakpoint_kind(fn_name, line_number)
+        {
+            partitions.push(next_partition(Terminator::StepAfterFunction));
+        }
+
         if matches!(command, Line::Breakpoint | Line::FunctionCall { .. }) {
             start_line_index += 1; // Skip the line containing the breakpoint / function call
         }

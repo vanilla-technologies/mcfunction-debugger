@@ -25,8 +25,9 @@ use debug_adapter_protocol::{
     events::Event,
     requests::{
         ContinueRequestArguments, DisconnectRequestArguments, EvaluateRequestArguments,
-        InitializeRequestArguments, LaunchRequestArguments, PauseRequestArguments, Request,
-        ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
+        InitializeRequestArguments, LaunchRequestArguments, NextRequestArguments,
+        PauseRequestArguments, Request, ScopesRequestArguments, SetBreakpointsRequestArguments,
+        StackTraceRequestArguments, StepInRequestArguments, StepOutRequestArguments,
         TerminateRequestArguments, VariablesRequestArguments,
     },
     responses::{
@@ -192,6 +193,10 @@ pub trait DebugAdapter {
                 .launch(args, context)
                 .await
                 .map(|()| SuccessResponse::Launch),
+            Request::Next(args) => self
+                .next(args, context)
+                .await
+                .map(|()| SuccessResponse::Next),
             Request::Pause(args) => self
                 .pause(args, context)
                 .await
@@ -208,6 +213,14 @@ pub trait DebugAdapter {
                 .stack_trace(args, context)
                 .await
                 .map(SuccessResponse::StackTrace),
+            Request::StepIn(args) => self
+                .step_in(args, context)
+                .await
+                .map(|()| SuccessResponse::StepIn),
+            Request::StepOut(args) => self
+                .step_out(args, context)
+                .await
+                .map(|()| SuccessResponse::StepOut),
             Request::Terminate(args) => self
                 .terminate(args, context)
                 .await
@@ -281,6 +294,16 @@ pub trait DebugAdapter {
         )))
     }
 
+    async fn next(
+        &mut self,
+        _args: NextRequestArguments,
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
+        Err(RequestError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'next'".to_string(),
+        )))
+    }
+
     async fn pause(
         &mut self,
         _args: PauseRequestArguments,
@@ -318,6 +341,26 @@ pub trait DebugAdapter {
     ) -> Result<StackTraceResponseBody, RequestError<Self::CustomError>> {
         Err(RequestError::Respond(PartialErrorResponse::new(
             "Unsupported request 'stackTrace'".to_string(),
+        )))
+    }
+
+    async fn step_in(
+        &mut self,
+        _args: StepInRequestArguments,
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
+        Err(RequestError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'stepIn'".to_string(),
+        )))
+    }
+
+    async fn step_out(
+        &mut self,
+        _args: StepOutRequestArguments,
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
+        Err(RequestError::Respond(PartialErrorResponse::new(
+            "Unsupported request 'stepOut'".to_string(),
         )))
     }
 

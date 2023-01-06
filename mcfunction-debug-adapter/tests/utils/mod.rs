@@ -25,7 +25,7 @@ use debug_adapter_protocol::{
     requests::{
         ContinueRequestArguments, DisconnectRequestArguments, InitializeRequestArguments,
         LaunchRequestArguments, Request, ScopesRequestArguments, SetBreakpointsRequestArguments,
-        StackTraceRequestArguments, VariablesRequestArguments,
+        StackTraceRequestArguments, StepOutRequestArguments, VariablesRequestArguments,
     },
     responses::{ErrorResponse, Response, SetBreakpointsResponseBody, SuccessResponse},
     types::{Scope, Source, SourceBreakpoint, StackFrame, Thread, Variable},
@@ -97,6 +97,12 @@ where
     I: Sink<io::Result<ProtocolMessage>, Error = io::Error> + Unpin,
     O: Stream<Item = ProtocolMessage> + Unpin,
 {
+    pub async fn assert_stopped_after_step(&mut self) {
+        let event = self.output.next().await.unwrap();
+        let_assert!(Content::Event(Event::Stopped(body)) = event.content);
+        assert!(body.reason == StoppedEventReason::Step);
+    }
+
     pub async fn assert_stopped_at_breakpoint(&mut self) {
         let event = self.output.next().await.unwrap();
         let_assert!(Content::Event(Event::Stopped(body)) = event.content);
@@ -156,9 +162,7 @@ where
 
         let progress_end = self.output.next().await.unwrap();
         let_assert!(Content::Event(Event::ProgressEnd(body)) = progress_end.content);
-        assert!(
-            body.message == Some("Successfully established connection to Minecraft".to_string())
-        );
+        assert!(body.message == Some("Successfully connected to Minecraft".to_string()));
 
         let response = self.output.next().await.unwrap();
         assert!(let SuccessResponse::Launch = assert_success_response(response, request_seq));
@@ -234,6 +238,16 @@ where
             SuccessResponse::StackTrace(body) = assert_success_response(response, request_seq)
         );
         body.stack_frames
+    }
+
+    pub async fn step_out(&mut self, thread_id: i32) {
+        let args = StepOutRequestArguments::builder()
+            .thread_id(thread_id)
+            .build();
+        let request_seq = self.input.send_ok(args).await;
+
+        let response = self.output.next().await.unwrap();
+        assert!(let SuccessResponse::StepOut = assert_success_response(response, request_seq));
     }
 
     pub async fn threads(&mut self) -> Vec<Thread> {

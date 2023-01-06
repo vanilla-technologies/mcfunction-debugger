@@ -24,7 +24,7 @@ use futures::Stream;
 use mcfunction_debugger::{
     generate_debug_datapack,
     parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
-    AdapterConfig, Config, LocalBreakpoint,
+    AdapterConfig, BreakpointKind, Config, LocalBreakpoint,
 };
 use minect::log::{LogEvent, SummonNamedEntityOutput};
 use multimap::MultiMap;
@@ -133,15 +133,25 @@ pub fn contains_breakpoint(
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
     breakpoint: &McfunctionLineNumber<String>,
 ) -> bool {
-    let breakpoints = breakpoints.get_vec(&breakpoint.function);
-    if let Some(breakpoints) = breakpoints {
+    get_breakpoint_kind(breakpoints, breakpoint).is_some()
+}
+
+pub fn get_breakpoint_kind(
+    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+    breakpoint: &McfunctionLineNumber<String>,
+) -> Option<BreakpointKind> {
+    if let Some(breakpoints) = breakpoints.get_vec(&breakpoint.function) {
         breakpoints
             .iter()
             .find(|it| it.line_number == breakpoint.line_number)
-            .is_some()
+            .map(|it| it.kind)
     } else {
-        false
+        None
     }
+}
+
+pub fn is_temporary(kind: BreakpointKind) -> bool {
+    matches!(kind, BreakpointKind::Continue | BreakpointKind::Step { .. })
 }
 
 pub fn events_between<'l>(
@@ -170,6 +180,7 @@ pub fn parse_stopped_tag(tag: &str) -> Option<McfunctionLineNumber<String>> {
     McfunctionLineNumber::parse(breakpoint_tag, "+")
 }
 
+#[derive(Clone, Debug)]
 pub struct McfunctionLineNumber<S: AsRef<str>> {
     pub function: ResourceLocationRef<S>,
     pub line_number: usize,
