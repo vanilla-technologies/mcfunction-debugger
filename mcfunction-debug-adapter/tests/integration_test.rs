@@ -20,12 +20,13 @@ mod utils;
 
 use crate::utils::{
     added_tag_output, assert_all_breakpoints_verified, assert_error_response,
-    create_and_enable_datapack, create_datapack, datapack_dir, named_logged_command, start_adapter,
+    create_and_enable_datapack, create_datapack, datapack_dir, get_source_path,
+    named_logged_command, start_adapter,
     timeout::{TimeoutStream, TimeoutStreamError},
     Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
 };
 use assert2::assert;
-use debug_adapter_protocol::types::{SourceBreakpoint, StackFrame};
+use debug_adapter_protocol::types::SourceBreakpoint;
 use log::LevelFilter;
 use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
@@ -1112,6 +1113,66 @@ async fn test_step_out_into_start_of_function_with_breakpoint_via_recursion() ->
     Ok(())
 }
 
-fn get_source_path(stack_frame: &StackFrame) -> &str {
-    stack_frame.source.as_ref().unwrap().path.as_ref().unwrap()
+#[tokio::test]
+#[serial]
+async fn test_step_out_of_inner_function_that_recursively_calls_outer_function() -> io::Result<()> {
+    before_each_test();
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![
+            /* 1 */ logged_command(enable_logging_command()),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_command(reset_logging_command()),
+            /* 4 */ "scoreboard players set test test_global 1".to_string(),
+            /* 5 */ "function adapter_test:outer".to_string(),
+        ],
+    };
+    let inner_path = inner.full_path();
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            /* 1 */ "scoreboard objectives add test_global dummy".to_string(),
+            /* 2 */
+            format!(
+                "execute unless score test test_global matches 1 run function {}",
+                inner.name
+            ),
+            /* 3 */ "scoreboard objectives remove test_global".to_string(),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_and_enable_datapack(vec![outer, inner]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let breaks = vec![];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    adapter.step_out(threads[0].id).await;
+    adapter.assert_stopped_after_step().await;
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    let stack_trace = adapter.stack_trace(threads[0].id).await;
+    assert!(stack_trace.len() == 1);
+    assert!(get_source_path(&stack_trace[0]) == &outer_path.display().to_string());
+    assert!(stack_trace[0].line == 2);
+    assert!(stack_trace[0].column == 1);
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    Ok(())
 }

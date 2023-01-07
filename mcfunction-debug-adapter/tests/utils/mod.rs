@@ -418,3 +418,7 @@ pub fn assert_error_response(
 pub fn added_tag_output(tag: &str) -> String {
     format!("Added tag '{}' to {}", tag, LISTENER_NAME)
 }
+
+pub fn get_source_path(stack_frame: &StackFrame) -> &str {
+    stack_frame.source.as_ref().unwrap().path.as_ref().unwrap()
+}
