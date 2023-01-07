@@ -360,6 +360,13 @@ impl McfunctionDebugAdapter {
                 });
             }
 
+            for (function, breakpoint) in temporary_breakpoints {
+                client_session
+                    .generated_breakpoints
+                    .insert(function, breakpoint);
+                dirty = true;
+            }
+
             client_session.generated_breakpoints.insert(
                 stopped_event.position.function.clone(),
                 LocalBreakpoint {
@@ -374,13 +381,6 @@ impl McfunctionDebugAdapter {
             );
             // If there isn't already a breakpoint that can resume we need to load the continue point
             if !can_resume_from(&client_session.breakpoints, &stopped_event.position) {
-                dirty = true;
-            }
-
-            for (function, breakpoint) in temporary_breakpoints {
-                client_session
-                    .generated_breakpoints
-                    .insert(function, breakpoint);
                 dirty = true;
             }
 

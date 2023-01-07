@@ -1176,3 +1176,81 @@ async fn test_step_out_of_inner_function_that_recursively_calls_outer_function()
     adapter.assert_terminated().await;
     Ok(())
 }
+
+/// This was a bug caused by a resumption point and a step point at the same position
+#[tokio::test]
+#[serial]
+async fn test_step_out_of_recursive_function_to_same_position() -> io::Result<()> {
+    before_each_test();
+    let inner_name = ResourceLocation::new("adapter_test", "inner");
+    let inner = Mcfunction {
+        lines: vec![
+            /* 1 */ "scoreboard players remove test test_global 1".to_string(),
+            /* 2 */
+            format!(
+                "execute if score test test_global matches 1.. run function {}",
+                inner_name
+            ),
+            /* 3 */ "scoreboard players reset test test_global".to_string(),
+        ],
+        name: inner_name,
+    };
+    let inner_path = inner.full_path();
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            /* 1 */ "scoreboard objectives add test_global dummy".to_string(),
+            /* 2 */ "scoreboard players set test test_global 2".to_string(),
+            /* 3 */ format!("function {}", inner.name),
+            /* 4 */ "scoreboard objectives remove test_global".to_string(),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_and_enable_datapack(vec![outer, inner]);
+
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(3).build()];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    let stack_trace = adapter.stack_trace(threads[0].id).await;
+    assert!(stack_trace.len() == 3);
+    assert!(get_source_path(&stack_trace[0]) == &inner_path.display().to_string());
+    assert!(stack_trace[0].line == 3);
+    assert!(stack_trace[0].column == 1);
+    assert!(get_source_path(&stack_trace[1]) == &inner_path.display().to_string());
+    assert!(stack_trace[1].line == 2);
+    assert!(stack_trace[1].column == 1);
+    assert!(get_source_path(&stack_trace[2]) == &outer_path.display().to_string());
+    assert!(stack_trace[2].line == 3);
+    assert!(stack_trace[2].column == 1);
+
+    let breaks = vec![];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    adapter.step_out(threads[0].id).await;
+    adapter.assert_stopped_after_step().await;
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    let stack_trace = adapter.stack_trace(threads[0].id).await;
+    assert!(stack_trace.len() == 2);
+    assert!(get_source_path(&stack_trace[0]) == &inner_path.display().to_string());
+    assert!(stack_trace[0].line == 3);
+    assert!(stack_trace[0].column == 1);
+    assert!(get_source_path(&stack_trace[1]) == &outer_path.display().to_string());
+    assert!(stack_trace[1].line == 3);
+    assert!(stack_trace[1].column == 1);
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    Ok(())
+}
