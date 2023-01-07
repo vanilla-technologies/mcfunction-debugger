@@ -97,6 +97,7 @@ impl<S: AsRef<str>> ResourceLocationRef<S> {
 
     pub fn mcfunction_path(&self) -> String {
         format!("{}/functions/{}.mcfunction", self.namespace(), self.path())
+            .replace('/', &std::path::MAIN_SEPARATOR.to_string())
     }
 }
 

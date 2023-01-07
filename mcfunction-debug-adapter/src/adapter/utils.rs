@@ -99,13 +99,7 @@ pub(super) async fn generate_datapack(
     // Add all generated breakpoints that are not at the same position as user breakpoints
     for (key, values) in generated_breakpoints.iter_all() {
         for value in values {
-            if !contains_breakpoint(
-                &breakpoints,
-                &McfunctionLineNumber {
-                    function: key.clone(),
-                    line_number: value.line_number,
-                },
-            ) {
+            if !contains_breakpoint(&breakpoints, &Position::from_breakpoint(key.clone(), value)) {
                 breakpoints.insert(key.clone(), value.clone());
             }
         }
@@ -130,41 +124,35 @@ pub(super) async fn generate_datapack(
     Ok(())
 }
 
-pub(crate) fn contains_breakpoint(
-    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    breakpoint: &McfunctionLineNumber<String>,
-) -> bool {
-    get_breakpoint_kind(breakpoints, breakpoint).is_some()
-}
-
-pub(crate) fn get_breakpoint_kind(
-    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    breakpoint: &McfunctionLineNumber<String>,
-) -> Option<BreakpointKind> {
-    if let Some(breakpoints) = breakpoints.get_vec(&breakpoint.function) {
-        breakpoints
-            .iter()
-            .find(|it| it.line_number == breakpoint.line_number)
-            .map(|it| it.kind)
-    } else {
-        None
-    }
-}
-
 pub(crate) fn can_resume_from(
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
     position: &Position,
 ) -> bool {
+    get_breakpoint_kind(breakpoints, position)
+        .map(|it| it.can_resume())
+        .unwrap_or(false)
+}
+
+pub(crate) fn contains_breakpoint(
+    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+    position: &Position,
+) -> bool {
+    get_breakpoint_kind(breakpoints, position).is_some()
+}
+
+pub(crate) fn get_breakpoint_kind(
+    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+    position: &Position,
+) -> Option<BreakpointKind> {
     if let Some(breakpoints) = breakpoints.get_vec(&position.function) {
         breakpoints
             .iter()
             .filter(|it| it.line_number == position.line_number)
             .filter(|it| SuspensionPositionInLine::from(it.kind) == position.position_in_line)
-            .filter(|it| it.kind.can_resume())
+            .map(|it| it.kind)
             .next()
-            .is_some()
     } else {
-        false
+        None
     }
 }
 
@@ -241,6 +229,15 @@ pub(crate) struct Position {
     pub(crate) function: ResourceLocation,
     pub(crate) line_number: usize,
     pub(crate) position_in_line: SuspensionPositionInLine,
+}
+impl Position {
+    fn from_breakpoint(function: ResourceLocation, breakpoint: &LocalBreakpoint) -> Position {
+        Position {
+            function,
+            line_number: breakpoint.line_number,
+            position_in_line: breakpoint.kind.into(),
+        }
+    }
 }
 impl FromStr for Position {
     type Err = ();
@@ -324,7 +321,7 @@ impl StackFrameLocation {
                 executor[last_delimiter + 1..].parse().ok()?,
             )
         } else {
-            (executor, 0)
+            (executor, 1)
         };
         let function_line = McfunctionLineNumber::parse(function_line, ":")?;
         Some(StackFrameLocation {

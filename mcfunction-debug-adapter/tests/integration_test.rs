@@ -25,7 +25,7 @@ use crate::utils::{
     Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
 };
 use assert2::assert;
-use debug_adapter_protocol::types::SourceBreakpoint;
+use debug_adapter_protocol::types::{SourceBreakpoint, StackFrame};
 use log::LevelFilter;
 use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
@@ -979,4 +979,139 @@ async fn test_step_out_into_end_of_function() -> io::Result<()> {
     adapter.continue_().await;
     adapter.assert_terminated().await;
     Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_step_out_into_end_of_function_with_breakpoint() -> io::Result<()> {
+    before_each_test();
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![
+            /* 1 */ logged_command(enable_logging_command()),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_command(reset_logging_command()),
+        ],
+    };
+    let inner_path = inner.full_path();
+    let outer_line = format!("function {}", inner.name);
+    let outer_line_len = outer_line.len();
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![outer_line],
+    };
+    let outer_path = outer.full_path();
+    create_and_enable_datapack(vec![outer, inner]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter.set_breakpoints_verified(&outer_path, &breaks).await;
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    adapter.step_out(threads[0].id).await;
+    adapter.assert_stopped_after_step().await;
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    let stack_trace = adapter.stack_trace(threads[0].id).await;
+    assert!(stack_trace.len() == 1);
+    assert!(stack_trace[0].line == 1);
+    assert!(stack_trace[0].column == outer_line_len as i32 + 1);
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_step_out_into_start_of_function_with_breakpoint_via_recursion() -> io::Result<()> {
+    before_each_test();
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![
+            /* 1 */ logged_command(enable_logging_command()),
+            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_command(reset_logging_command()),
+            /* 4 */ "scoreboard players set test test_global 1".to_string(),
+            /* 5 */ "function adapter_test:outer".to_string(),
+        ],
+    };
+    let inner_path = inner.full_path();
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            /* 1 */ "scoreboard objectives add test_global dummy".to_string(),
+            /* 2 */
+            format!(
+                "execute unless score test test_global matches 1 run function {}",
+                inner.name
+            ),
+            /* 3 */ "scoreboard objectives remove test_global".to_string(),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_and_enable_datapack(vec![outer, inner]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let breaks = vec![SourceBreakpoint::builder().line(2).build()];
+    adapter.set_breakpoints_verified(&outer_path, &breaks).await;
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    adapter.step_out(threads[0].id).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    let stack_trace = adapter.stack_trace(threads[0].id).await;
+    assert!(stack_trace.len() == 3);
+    assert!(get_source_path(&stack_trace[0]) == &outer_path.display().to_string());
+    assert!(stack_trace[0].line == 2);
+    assert!(stack_trace[0].column == 1);
+    assert!(get_source_path(&stack_trace[1]) == &inner_path.display().to_string());
+    assert!(stack_trace[1].line == 5);
+    assert!(stack_trace[1].column == 1);
+    assert!(get_source_path(&stack_trace[2]) == &outer_path.display().to_string());
+    assert!(stack_trace[2].line == 2);
+    assert!(stack_trace[2].column == 1);
+
+    let breaks = Vec::new();
+    adapter.set_breakpoints_verified(&outer_path, &breaks).await;
+
+    let breaks = Vec::new();
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    Ok(())
+}
+
+fn get_source_path(stack_frame: &StackFrame) -> &str {
+    stack_frame.source.as_ref().unwrap().path.as_ref().unwrap()
 }

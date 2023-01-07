@@ -57,12 +57,15 @@ impl Config<'_> {
         &self,
         function: &ResourceLocation,
         line_number: usize,
+        after_function: bool,
     ) -> Option<BreakpointKind> {
         if let Some(config) = self.adapter.as_ref() {
             if let Some(vec) = config.breakpoints.get_vec(function) {
                 return vec
                     .iter()
-                    .find(|breakpoint| breakpoint.line_number == line_number)
+                    .filter(|breakpoint| breakpoint.line_number == line_number)
+                    .filter(|breakpoint| breakpoint.kind.is_after_function() == after_function)
+                    .next()
                     .map(|it| it.kind);
             }
         }
@@ -109,18 +112,20 @@ impl BreakpointKind {
         }
     }
 
-    fn get_position_in_line(&self) -> PositionInLine {
+    fn is_after_function(&self) -> bool {
         match self {
-            BreakpointKind::Normal => PositionInLine::Breakpoint,
-            BreakpointKind::Invalid => PositionInLine::Breakpoint,
+            BreakpointKind::Normal => false,
+            BreakpointKind::Invalid => false,
             BreakpointKind::Continue { after_function }
-            | BreakpointKind::Step { after_function } => {
-                if *after_function {
-                    PositionInLine::AfterFunction
-                } else {
-                    PositionInLine::Breakpoint
-                }
-            }
+            | BreakpointKind::Step { after_function } => *after_function,
+        }
+    }
+
+    fn get_position_in_line(&self) -> PositionInLine {
+        if self.is_after_function() {
+            PositionInLine::AfterFunction
+        } else {
+            PositionInLine::Breakpoint
         }
     }
 }
@@ -923,7 +928,7 @@ fn partition<'l>(
             start_line_index = line_index;
             partition
         };
-        match config.get_breakpoint_kind(fn_name, line_number) {
+        match config.get_breakpoint_kind(fn_name, line_number, false) {
             Some(BreakpointKind::Normal) => {
                 partitions.push(next_partition(Terminator::Breakpoint));
             }
@@ -966,13 +971,13 @@ fn partition<'l>(
 
         if let Some(BreakpointKind::Continue {
             after_function: true,
-        }) = config.get_breakpoint_kind(fn_name, line_number)
+        }) = config.get_breakpoint_kind(fn_name, line_number, true)
         {
             partitions.push(next_partition(Terminator::ContinueAfterFunction));
         }
         if let Some(BreakpointKind::Step {
             after_function: true,
-        }) = config.get_breakpoint_kind(fn_name, line_number)
+        }) = config.get_breakpoint_kind(fn_name, line_number, true)
         {
             partitions.push(next_partition(Terminator::StepAfterFunction));
         }
