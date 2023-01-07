@@ -38,6 +38,7 @@ use std::{
     io::{self, BufRead},
     iter::{repeat, FromIterator},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 use tokio::{
     fs::{create_dir_all, write},
@@ -82,13 +83,20 @@ impl LocalBreakpoint {
     fn can_resume(&self) -> bool {
         self.kind.can_resume()
     }
+
+    fn get_position(&self) -> Position {
+        Position {
+            line_number: self.line_number,
+            position_in_line: self.kind.get_position_in_line(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BreakpointKind {
     Normal,
     Invalid,
-    Continue,
+    Continue { after_function: bool },
     Step { after_function: bool },
 }
 impl BreakpointKind {
@@ -96,8 +104,23 @@ impl BreakpointKind {
         match self {
             BreakpointKind::Normal => true,
             BreakpointKind::Invalid => false,
-            BreakpointKind::Continue => true,
+            BreakpointKind::Continue { .. } => true,
             BreakpointKind::Step { .. } => true,
+        }
+    }
+
+    fn get_position_in_line(&self) -> PositionInLine {
+        match self {
+            BreakpointKind::Normal => PositionInLine::Breakpoint,
+            BreakpointKind::Invalid => PositionInLine::Breakpoint,
+            BreakpointKind::Continue { after_function }
+            | BreakpointKind::Step { after_function } => {
+                if *after_function {
+                    PositionInLine::AfterFunction
+                } else {
+                    PositionInLine::Breakpoint
+                }
+            }
         }
     }
 }
@@ -300,7 +323,10 @@ async fn expand_resume_self_template(
                 lines
                     .iter()
                     .filter(|(_, _, command)| matches!(command, Line::Breakpoint))
-                    .map(|it| it.0),
+                    .map(|it| Position {
+                        line_number: it.0,
+                        position_in_line: PositionInLine::Breakpoint,
+                    }),
             )
         })
         .collect::<Vec<_>>();
@@ -312,23 +338,23 @@ async fn expand_resume_self_template(
                 local_breakpoints
                     .iter()
                     .filter(|breakpoint| breakpoint.can_resume())
-                    .map(move |breakpoint| (function, breakpoint.line_number))
+                    .map(move |breakpoint| (function, breakpoint.get_position()))
             },
         ));
     }
 
     let resume_cases = breakpoints
         .into_iter()
-        .map(|(name, line_number)| {
+        .map(|(name, position)| {
             engine.expand(&format!(
                 "execute \
-                if entity @s[tag=-ns-+{original_namespace}+{original_function_tag}+{line_number}] \
+                if entity @s[tag=-ns-+{original_namespace}+{original_function_tag}+{position}] \
                 run function -ns-:{original_namespace}/{original_function}/\
-                continue_current_iteration_at_{line_number}_breakpoint",
+                continue_current_iteration_at_{position}",
                 original_namespace = name.namespace(),
                 original_function = name.path(),
                 original_function_tag = name.path().replace("/", "+"),
-                line_number = line_number,
+                position = position,
             ))
         })
         .collect::<Vec<_>>()
@@ -588,14 +614,18 @@ async fn expand_function_templates(
             .join("\n");
 
         let terminator = match partition.terminator {
-            Terminator::Breakpoint | Terminator::StepAfterFunction => {
-                let line_number = (partition.end.line_number).to_string();
-                let engine = engine.extend([("-line_number-", line_number.as_str())]);
-                let template =
-                    include_template!("data/template/functions/set_breakpoint.mcfunction");
-                engine.expand(&template)
+            Terminator::Breakpoint => {
+                expand_breakpoint_template(partition, &engine, StoppedReason::Breakpoint, 0)
             }
-            Terminator::Continue => {
+            Terminator::StepBeforeFunction => {
+                expand_breakpoint_template(partition, &engine, StoppedReason::Step, 0)
+            }
+            Terminator::StepAfterFunction => {
+                let (_line_number, line, _parsed) = &lines[partition.end.line_number - 1];
+                let column = line.len() + 1;
+                expand_breakpoint_template(partition, &engine, StoppedReason::Step, column)
+            }
+            Terminator::ContinueBeforeFunction | Terminator::ContinueAfterFunction => {
                 let next_partition = &partitions[partition_index + 1];
                 let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
                 let engine = engine.extend([("-next_positions-", next_positions.as_str())]);
@@ -725,29 +755,105 @@ async fn expand_function_templates(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StoppedReason {
+    Breakpoint,
+    Step,
+}
+impl FromStr for StoppedReason {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "breakpoint" => Ok(StoppedReason::Breakpoint),
+            "step" => Ok(StoppedReason::Step),
+            _ => Err(()),
+        }
+    }
+}
+impl Display for StoppedReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoppedReason::Breakpoint => write!(f, "breakpoint"),
+            StoppedReason::Step => write!(f, "step"),
+        }
+    }
+}
+
+fn expand_breakpoint_template(
+    partition: &Partition,
+    engine: &TemplateEngine,
+    reason: StoppedReason,
+    column: usize,
+) -> String {
+    let line_number = partition.end.line_number.to_string();
+    let position = partition.end.to_string();
+    let reason = reason.to_string();
+    let column_str = &format!(":{}", column);
+    let optional_column = if column == 0 { "" } else { column_str };
+    let engine = engine.extend([
+        ("-line_number-", line_number.as_str()),
+        ("-position-", &position),
+        ("-reason-", &reason),
+        ("-optional_column-", optional_column),
+    ]);
+    let template = include_template!("data/template/functions/set_breakpoint.mcfunction");
+    engine.expand(&template)
+}
+
 struct Partition<'l> {
     start: Position,
     end: Position,
     regular_lines: &'l [(usize, String, Line)],
     terminator: Terminator<'l>,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Position {
     line_number: usize,
     position_in_line: PositionInLine,
+}
+impl FromStr for Position {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        fn from_str_inner(s: &str) -> Option<Position> {
+            let (line_number, position_in_line) = s.split_once('_')?;
+            let line_number = line_number.parse().ok()?;
+            let position_in_line = position_in_line.parse().ok()?;
+            Some(Position {
+                line_number,
+                position_in_line,
+            })
+        }
+        from_str_inner(s).ok_or(())
+    }
 }
 impl Display for Position {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}_{}", self.line_number, self.position_in_line)
     }
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PositionInLine {
     Entry,
     Breakpoint,
     Function,
     AfterFunction,
     Return,
+}
+impl FromStr for PositionInLine {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "entry" => Ok(PositionInLine::Entry),
+            "breakpoint" => Ok(PositionInLine::Breakpoint),
+            "function" => Ok(PositionInLine::Function),
+            "after_function" => Ok(PositionInLine::AfterFunction),
+            "return" => Ok(PositionInLine::Return),
+            _ => Err(()),
+        }
+    }
 }
 impl Display for PositionInLine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -762,8 +868,10 @@ impl Display for PositionInLine {
 }
 enum Terminator<'l> {
     Breakpoint,
+    ContinueBeforeFunction,
+    ContinueAfterFunction,
+    StepBeforeFunction,
     StepAfterFunction,
-    Continue,
     FunctionCall {
         line: &'l str,
         name: &'l ResourceLocation,
@@ -776,8 +884,10 @@ impl Terminator<'_> {
     fn get_position_in_line(&self) -> PositionInLine {
         match self {
             Terminator::Breakpoint => PositionInLine::Breakpoint,
+            Terminator::ContinueBeforeFunction => PositionInLine::Breakpoint,
+            Terminator::ContinueAfterFunction => PositionInLine::AfterFunction,
+            Terminator::StepBeforeFunction => PositionInLine::Breakpoint,
             Terminator::StepAfterFunction => PositionInLine::AfterFunction,
-            Terminator::Continue => PositionInLine::Breakpoint,
             Terminator::FunctionCall { .. } => PositionInLine::Function,
             Terminator::Return => PositionInLine::Return,
         }
@@ -818,13 +928,18 @@ fn partition<'l>(
                 partitions.push(next_partition(Terminator::Breakpoint));
             }
             Some(BreakpointKind::Invalid) => {}
-            Some(BreakpointKind::Continue) => {
-                partitions.push(next_partition(Terminator::Continue));
+            Some(BreakpointKind::Continue {
+                after_function: false,
+            }) => {
+                partitions.push(next_partition(Terminator::ContinueBeforeFunction));
             }
+            Some(BreakpointKind::Continue {
+                after_function: true,
+            }) => {} // Is added after function
             Some(BreakpointKind::Step {
                 after_function: false,
             }) => {
-                partitions.push(next_partition(Terminator::Breakpoint));
+                partitions.push(next_partition(Terminator::StepBeforeFunction));
             }
             Some(BreakpointKind::Step {
                 after_function: true,
@@ -849,6 +964,12 @@ fn partition<'l>(
             }));
         }
 
+        if let Some(BreakpointKind::Continue {
+            after_function: true,
+        }) = config.get_breakpoint_kind(fn_name, line_number)
+        {
+            partitions.push(next_partition(Terminator::ContinueAfterFunction));
+        }
         if let Some(BreakpointKind::Step {
             after_function: true,
         }) = config.get_breakpoint_kind(fn_name, line_number)

@@ -17,7 +17,7 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 scoreboard players set breakpoint -ns-_global 1
-summon area_effect_cloud ~ ~ ~ {Age: -2147483648, Duration: -1, WaitTime: -2147483648, Tags: [-ns-, -ns-_breakpoint, -ns-+-orig_ns-+-orig+fn-+-line_number-], CustomName: '{"text":"-orig_ns-:-orig/fn-:-line_number-"}'}
+summon area_effect_cloud ~ ~ ~ {Age: -2147483648, Duration: -1, WaitTime: -2147483648, Tags: [-ns-, -ns-_breakpoint, -ns-+-orig_ns-+-orig+fn-+-position-], CustomName: '{"text":"-orig_ns-:-orig/fn-:-line_number--optional_column-"}'}
 teleport @e[type=area_effect_cloud,tag=-ns-_breakpoint] ~ ~ ~ ~ ~
 execute as @e[type=area_effect_cloud,tag=!-ns-_frozen] run function -ns-:freeze_aec
 
@@ -31,6 +31,6 @@ function -ns-:update_scores
 # -minect_log-
 function minect:enable_logging
 # -minect_log-
-tag @s add stopped_at_breakpoint.-orig_ns-+-orig+fn-+-line_number-
+tag @s add stopped+-reason-+-orig_ns-+-orig+fn-+-position-
 # -minect_log-
 function minect:reset_logging

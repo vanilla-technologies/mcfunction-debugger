@@ -35,22 +35,29 @@ use minect::log::{
 };
 use serial_test::serial;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
-use std::{io, time::Duration};
+use std::{io, sync::Once, time::Duration};
 use tokio::time::sleep;
 
-fn before_test() {
-    let _ = TermLogger::init(
+fn before_all_tests() {
+    TermLogger::init(
         LevelFilter::Trace,
         Config::default(),
         TerminalMode::Mixed,
         ColorChoice::Auto,
-    );
+    )
+    .unwrap();
+}
+
+static BEFORE_ALL_TESTS: Once = Once::new();
+
+fn before_each_test() {
+    BEFORE_ALL_TESTS.call_once(before_all_tests);
 }
 
 #[tokio::test]
 #[serial]
 async fn test_program_without_breakpoint() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -75,7 +82,7 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
-    before_test();
+    before_each_test();
     create_and_enable_datapack(Vec::new());
     let test_path = datapack_dir().join("not-data").join("test.mcfunction");
 
@@ -95,7 +102,7 @@ async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -129,7 +136,7 @@ async fn test_breakpoint() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![named_logged_command(add_tag_command("@s", "some_tag"))],
@@ -166,7 +173,7 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_at_function_call() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![named_logged_command(add_tag_command("@s", "tag2"))],
@@ -204,7 +211,7 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_after_launch() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -245,7 +252,7 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_removed() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -287,7 +294,7 @@ async fn test_breakpoint_removed() -> io::Result<()> {
 #[serial]
 #[ignore = "https://github.com/vanilla-technologies/mcfunction-debugger/issues/70"]
 async fn test_hot_code_replacement() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -325,7 +332,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_moved() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -368,7 +375,7 @@ async fn test_breakpoint_moved() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_current_breakpoint_removed() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -406,7 +413,7 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -459,7 +466,7 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -500,7 +507,7 @@ async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() 
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score() -> io::Result<()> {
-    before_test();
+    before_each_test();
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let inner = Mcfunction {
@@ -552,7 +559,7 @@ async fn test_scope_selected_entity_score() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score_can_be_removed() -> io::Result<()> {
-    before_test();
+    before_each_test();
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let inner = Mcfunction {
@@ -617,7 +624,7 @@ async fn test_scope_selected_entity_score_can_be_removed() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score_multiple_depths() -> io::Result<()> {
-    before_test();
+    before_each_test();
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let pig = Mcfunction {
@@ -688,7 +695,7 @@ async fn test_scope_selected_entity_score_multiple_depths() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score_server_context() -> io::Result<()> {
-    before_test();
+    before_each_test();
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let test = Mcfunction {
@@ -726,7 +733,7 @@ async fn test_scope_selected_entity_score_server_context() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_root_function() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -761,7 +768,7 @@ async fn test_step_out_of_root_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_inner_function() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -811,7 +818,7 @@ async fn test_step_out_of_inner_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_inner_function_with_multiple_executors() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -872,7 +879,7 @@ async fn test_step_out_of_inner_function_with_multiple_executors() -> io::Result
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_inner_function_with_breakpoint() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -925,7 +932,7 @@ async fn test_step_out_of_inner_function_with_breakpoint() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_into_end_of_function() -> io::Result<()> {
-    before_test();
+    before_each_test();
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![

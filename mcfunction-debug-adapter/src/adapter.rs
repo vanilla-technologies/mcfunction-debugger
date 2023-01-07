@@ -20,8 +20,8 @@ pub mod utils;
 
 use crate::{
     adapter::utils::{
-        events_between, generate_datapack, get_breakpoint_kind, is_temporary, parse_function_path,
-        parse_stopped_tag, McfunctionLineNumber,
+        events_between, generate_datapack, is_temporary, parse_function_path,
+        to_stopped_event_reason, StackFrameLocation, StoppedEvent,
     },
     error::{PartialErrorResponse, RequestError},
     installer::establish_connection,
@@ -29,10 +29,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use debug_adapter_protocol::{
-    events::{
-        Event, OutputCategory, OutputEventBody, StoppedEventBody, StoppedEventReason,
-        TerminatedEventBody,
-    },
+    events::{Event, OutputCategory, OutputEventBody, StoppedEventBody, TerminatedEventBody},
     requests::{
         ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
         LaunchRequestArguments, PathFormat, PauseRequestArguments, ScopesRequestArguments,
@@ -76,20 +73,31 @@ use tokio::{
 };
 use tokio_stream::{wrappers::LinesStream, StreamExt};
 
+use self::utils::{can_resume_from, Position, SuspensionPositionInLine};
+
 const LISTENER_NAME: &'static str = "mcfunction_debugger";
 
 struct ClientSession {
     lines_start_at_1: bool,
+    columns_start_at_1: bool,
     path_format: PathFormat,
     minecraft_session: Option<MinecraftSession>,
     breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
     generated_breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
-    stopped_at: Option<McfunctionLineNumber<String>>,
+    stopped_event: Option<StoppedEvent>,
     parser: CommandParser,
 }
 impl ClientSession {
-    fn get_line_offset(&self) -> i32 {
+    fn get_line_offset(&self) -> usize {
         if self.lines_start_at_1 {
+            0
+        } else {
+            1
+        }
+    }
+
+    fn get_column_offset(&self) -> usize {
+        if self.columns_start_at_1 {
             0
         } else {
             1
@@ -180,7 +188,7 @@ impl MinecraftSession {
         let mut stack_trace = Vec::new();
         let mut events = events_between(events, START, END);
         while let Some(event) = events.next().await {
-            if let Some(function_line) = McfunctionLineNumber::parse(&event.executor, ":") {
+            if let Some(location) = StackFrameLocation::parse(&event.executor) {
                 let id = if let Some(output) = event
                     .output
                     .parse::<QueryScoreboardOutput>()
@@ -198,7 +206,7 @@ impl MinecraftSession {
                 } else {
                     continue; // Shouldn't actually happen
                 };
-                stack_trace.push(McfunctionStackFrame { id, function_line });
+                stack_trace.push(McfunctionStackFrame { id, location });
             }
         }
         stack_trace.sort_by_key(|it| -it.id);
@@ -281,29 +289,16 @@ impl McfunctionDebugAdapter {
 
     async fn on_stopped(
         &mut self,
-        function_line: McfunctionLineNumber<String>,
+        event: StoppedEvent,
         context: &mut (impl DebugAdapterContext + Send),
     ) {
-        let mut kind = BreakpointKind::Normal;
+        let reason = event.reason;
         if let Some(client_session) = &mut self.client_session {
-            if let Some(actual_kind) =
-                get_breakpoint_kind(&client_session.generated_breakpoints, &function_line)
-            {
-                kind = actual_kind;
-            }
-
-            client_session.stopped_at = Some(function_line);
+            client_session.stopped_event = Some(event);
         }
 
-        let reason = match kind {
-            BreakpointKind::Normal => StoppedEventReason::Breakpoint,
-            BreakpointKind::Invalid => StoppedEventReason::Breakpoint, // Can't actually happen
-            BreakpointKind::Continue => StoppedEventReason::Breakpoint, // Can't actually happen
-            BreakpointKind::Step { .. } => StoppedEventReason::Step,
-        };
-
         let event = StoppedEventBody::builder()
-            .reason(reason)
+            .reason(to_stopped_event_reason(reason))
             .thread_id(Some(MAIN_THREAD_ID))
             .build();
         context.fire_event(event);
@@ -351,7 +346,7 @@ impl McfunctionDebugAdapter {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        if let Some(stopped_at) = client_session.stopped_at.as_ref() {
+        if let Some(stopped_event) = client_session.stopped_event.as_ref() {
             let mut dirty = false;
 
             // Remove all temporary generated breakpoints
@@ -366,17 +361,20 @@ impl McfunctionDebugAdapter {
             }
 
             client_session.generated_breakpoints.insert(
-                stopped_at.function.clone(),
+                stopped_event.position.function.clone(),
                 LocalBreakpoint {
-                    line_number: stopped_at.line_number,
-                    kind: BreakpointKind::Continue,
+                    line_number: stopped_event.position.line_number,
+                    kind: BreakpointKind::Continue {
+                        after_function: match stopped_event.position.position_in_line {
+                            SuspensionPositionInLine::Breakpoint => false,
+                            SuspensionPositionInLine::AfterFunction => true,
+                        },
+                    },
                 },
             );
             // If there isn't already a breakpoint that can resume we need to load the continue point
-            if let Some(kind) = get_breakpoint_kind(&client_session.breakpoints, stopped_at) {
-                if !kind.can_resume() {
-                    dirty = true;
-                }
+            if !can_resume_from(&client_session.breakpoints, &stopped_event.position) {
+                dirty = true;
             }
 
             for (function, breakpoint) in temporary_breakpoints {
@@ -400,7 +398,7 @@ impl McfunctionDebugAdapter {
 
             commands.push(Command::new("function debug:resume"));
             mc_session.inject_commands(commands)?;
-            client_session.stopped_at = None;
+            client_session.stopped_event = None;
             mc_session.scopes.clear();
         }
 
@@ -425,8 +423,8 @@ impl DebugAdapter for McfunctionDebugAdapter {
         );
         if let Ok(output) = msg.output.parse::<AddTagOutput>() {
             if output.entity == LISTENER_NAME {
-                if let Some(tag) = parse_stopped_tag(&output.tag) {
-                    self.on_stopped(tag, &mut context).await;
+                if let Ok(event) = output.tag.parse() {
+                    self.on_stopped(event, &mut context).await;
                 }
                 if output.tag == "exited" {
                     self.on_exited(&mut context).await?;
@@ -471,11 +469,12 @@ impl DebugAdapter for McfunctionDebugAdapter {
             .map_err(Self::map_custom_error)?;
         self.client_session = Some(ClientSession {
             lines_start_at_1: args.lines_start_at_1,
+            columns_start_at_1: args.columns_start_at_1,
             path_format: args.path_format,
             minecraft_session: None,
             breakpoints: MultiMap::new(),
             generated_breakpoints: MultiMap::new(),
-            stopped_at: None,
+            stopped_event: None,
             parser,
         });
 
@@ -605,7 +604,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let breakpoints = args
             .breakpoints
             .iter()
-            .map(|source_breakpoint| (function.clone(), (source_breakpoint.line + offset) as usize))
+            .map(|source_breakpoint| (function.clone(), source_breakpoint.line as usize + offset))
             .collect::<Vec<_>>();
 
         let mut response = Vec::new();
@@ -636,7 +635,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                 Breakpoint::builder()
                     .id(verified.then(|| id))
                     .verified(verified)
-                    .line(Some(line_number as i32 - offset))
+                    .line(Some((line_number - offset) as i32))
                     .build(),
             );
         }
@@ -657,9 +656,16 @@ impl DebugAdapter for McfunctionDebugAdapter {
             let mut commands = vec![Command::new("reload")];
             if args.source_modified && old_breakpoints.len() == new_breakpoints.len() {
                 commands.extend(get_move_breakpoint_commands(
-                    &function,
-                    old_breakpoints.iter().map(|it| it.line_number),
-                    new_breakpoints.iter().map(|it| it.line_number),
+                    old_breakpoints.iter().map(|it| Position {
+                        function: function.clone(),
+                        line_number: it.line_number,
+                        position_in_line: it.kind.into(),
+                    }),
+                    new_breakpoints.iter().map(|it| Position {
+                        function: function.clone(),
+                        line_number: it.line_number,
+                        position_in_line: it.kind.into(),
+                    }),
                     &minecraft_session.namespace,
                 ));
             }
@@ -677,13 +683,15 @@ impl DebugAdapter for McfunctionDebugAdapter {
         _context: impl DebugAdapterContext + Send,
     ) -> Result<StackTraceResponseBody, RequestError<Self::CustomError>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let get_line_offset = client_session.get_line_offset();
+        let get_column_offset = client_session.get_column_offset();
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
         let stack_trace = mc_session
             .get_stack_trace()
             .await?
             .into_iter()
-            .map(|it| it.to_stack_frame(&mc_session.datapack))
+            .map(|it| it.to_stack_frame(&mc_session.datapack, get_line_offset, get_column_offset))
             .collect::<Vec<_>>();
 
         Ok(StackTraceResponseBody::builder()
@@ -721,21 +729,21 @@ impl DebugAdapter for McfunctionDebugAdapter {
             let path = mc_session
                 .datapack
                 .join("data")
-                .join(caller.function_line.function.mcfunction_path());
+                .join(caller.location.function.mcfunction_path());
 
             let line_number = find_step_target_line_number(
                 path,
-                caller.function_line.line_number,
+                caller.location.line_number,
                 &client_session.parser,
             )
             .await?;
 
             temporary_breakpoints.push((
-                caller.function_line.function.clone(),
+                caller.location.function.clone(),
                 LocalBreakpoint {
                     line_number,
                     kind: BreakpointKind::Step {
-                        after_function: line_number == caller.function_line.line_number,
+                        after_function: line_number == caller.location.line_number,
                     },
                 },
             ));
@@ -966,28 +974,17 @@ async fn verify_breakpoint(
     }
 }
 fn get_move_breakpoint_commands(
-    function: &ResourceLocation,
-    old_line_numbers: impl ExactSizeIterator<Item = usize>,
-    new_line_numbers: impl ExactSizeIterator<Item = usize>,
+    old_positions: impl ExactSizeIterator<Item = Position>,
+    new_positions: impl ExactSizeIterator<Item = Position>,
     namespace: &str,
 ) -> Vec<Command> {
     let tmp_tag = format!("{}_tmp", namespace);
     let breakpoint_tag = format!("{}_breakpoint", namespace);
     let mut commands = Vec::new();
-    for (old_line_number, new_line_number) in old_line_numbers.zip(new_line_numbers) {
-        if old_line_number != new_line_number {
-            let old_tag = McfunctionLineNumber {
-                function: function.to_ref(),
-                line_number: old_line_number,
-            }
-            .get_tag();
-            let new_tag = McfunctionLineNumber {
-                function: function.to_ref(),
-                line_number: new_line_number,
-            }
-            .get_tag();
-            let old_tag = format!("{}+{}", namespace, old_tag);
-            let new_tag = format!("{}+{}", namespace, new_tag);
+    for (old_position, new_position) in old_positions.zip(new_positions) {
+        if old_position != new_position {
+            let old_tag = format!("{}+{}", namespace, old_position);
+            let new_tag = format!("{}+{}", namespace, new_position);
             commands.push(Command::new(format!(
                 "tag @e[tag={},tag={},tag=!{}] add {}",
                 breakpoint_tag, old_tag, tmp_tag, new_tag,
@@ -1015,22 +1012,27 @@ fn is_command(line: Line) -> bool {
 
 struct McfunctionStackFrame {
     id: i32,
-    function_line: McfunctionLineNumber<String>,
+    location: StackFrameLocation,
 }
 impl McfunctionStackFrame {
-    fn to_stack_frame(&self, datapack: impl AsRef<Path>) -> StackFrame {
+    fn to_stack_frame(
+        &self,
+        datapack: impl AsRef<Path>,
+        line_offset: usize,
+        column_offset: usize,
+    ) -> StackFrame {
         let path = datapack
             .as_ref()
             .join("data")
-            .join(self.function_line.function.mcfunction_path())
+            .join(self.location.function.mcfunction_path())
             .display()
             .to_string();
         StackFrame::builder()
             .id(self.id)
-            .name(self.function_line.get_name())
+            .name(self.location.get_name())
             .source(Some(Source::builder().path(Some(path)).build()))
-            .line(self.function_line.line_number as i32)
-            .column(0)
+            .line((self.location.line_number - line_offset) as i32)
+            .column((self.location.column_number - column_offset) as i32)
             .build()
     }
 }

@@ -18,10 +18,7 @@
 
 use crate::parser::{command::resource_location::ResourceLocationRef, Line, ScheduleOperation};
 use minect::log::named_logged_command;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    iter::FromIterator,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub struct TemplateEngine<'l> {
     replacements: BTreeMap<&'l str, &'l str>,
@@ -45,8 +42,8 @@ impl<'l> TemplateEngine<'l> {
         &self,
         iter: T,
     ) -> TemplateEngine<'l> {
-        let mut replacements = BTreeMap::from_iter(iter);
-        replacements.extend(self.replacements.iter());
+        let mut replacements = self.replacements.clone();
+        replacements.extend(iter);
         TemplateEngine {
             replacements,
             replacements_owned: self.replacements_owned.clone(),

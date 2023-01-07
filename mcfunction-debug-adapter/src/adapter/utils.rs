@@ -20,15 +20,16 @@ use crate::{
     adapter::{MinecraftSession, LISTENER_NAME},
     error::PartialErrorResponse,
 };
+use debug_adapter_protocol::events::StoppedEventReason;
 use futures::Stream;
 use mcfunction_debugger::{
     generate_debug_datapack,
     parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
-    AdapterConfig, BreakpointKind, Config, LocalBreakpoint,
+    AdapterConfig, BreakpointKind, Config, LocalBreakpoint, StoppedReason,
 };
 use minect::log::{LogEvent, SummonNamedEntityOutput};
 use multimap::MultiMap;
-use std::path::Path;
+use std::{fmt::Display, path::Path, str::FromStr};
 use tokio::fs::remove_dir_all;
 use tokio_stream::StreamExt;
 
@@ -129,14 +130,14 @@ pub(super) async fn generate_datapack(
     Ok(())
 }
 
-pub fn contains_breakpoint(
+pub(crate) fn contains_breakpoint(
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
     breakpoint: &McfunctionLineNumber<String>,
 ) -> bool {
     get_breakpoint_kind(breakpoints, breakpoint).is_some()
 }
 
-pub fn get_breakpoint_kind(
+pub(crate) fn get_breakpoint_kind(
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
     breakpoint: &McfunctionLineNumber<String>,
 ) -> Option<BreakpointKind> {
@@ -150,11 +151,31 @@ pub fn get_breakpoint_kind(
     }
 }
 
-pub fn is_temporary(kind: BreakpointKind) -> bool {
-    matches!(kind, BreakpointKind::Continue | BreakpointKind::Step { .. })
+pub(crate) fn can_resume_from(
+    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+    position: &Position,
+) -> bool {
+    if let Some(breakpoints) = breakpoints.get_vec(&position.function) {
+        breakpoints
+            .iter()
+            .filter(|it| it.line_number == position.line_number)
+            .filter(|it| SuspensionPositionInLine::from(it.kind) == position.position_in_line)
+            .filter(|it| it.kind.can_resume())
+            .next()
+            .is_some()
+    } else {
+        false
+    }
 }
 
-pub fn events_between<'l>(
+pub fn is_temporary(kind: BreakpointKind) -> bool {
+    matches!(
+        kind,
+        BreakpointKind::Continue { .. } | BreakpointKind::Step { .. }
+    )
+}
+
+pub(crate) fn events_between<'l>(
     events: impl Stream<Item = LogEvent> + 'l,
     start: &'l str,
     stop: &'l str,
@@ -164,7 +185,6 @@ pub fn events_between<'l>(
         .skip(1) // Skip start tag
         .take_while(move |event| !is_summon_output(event, stop))
 }
-
 fn is_summon_output(event: &LogEvent, name: &str) -> bool {
     event.executor == LISTENER_NAME
         && event
@@ -175,34 +195,158 @@ fn is_summon_output(event: &LogEvent, name: &str) -> bool {
             .is_some()
 }
 
-pub fn parse_stopped_tag(tag: &str) -> Option<McfunctionLineNumber<String>> {
-    let breakpoint_tag = tag.strip_prefix("stopped_at_breakpoint.")?;
-    McfunctionLineNumber::parse(breakpoint_tag, "+")
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SuspensionPositionInLine {
+    Breakpoint,
+    AfterFunction,
 }
-
-#[derive(Clone, Debug)]
-pub struct McfunctionLineNumber<S: AsRef<str>> {
-    pub function: ResourceLocationRef<S>,
-    pub line_number: usize,
-}
-
-impl<S: AsRef<str>> McfunctionLineNumber<S> {
-    pub fn get_name(&self) -> String {
-        format!("{}:{}", self.function, self.line_number)
+impl From<BreakpointKind> for SuspensionPositionInLine {
+    fn from(value: BreakpointKind) -> Self {
+        match value {
+            BreakpointKind::Normal => SuspensionPositionInLine::Breakpoint,
+            BreakpointKind::Invalid => SuspensionPositionInLine::Breakpoint,
+            BreakpointKind::Continue { after_function }
+            | BreakpointKind::Step { after_function } => {
+                if after_function {
+                    SuspensionPositionInLine::AfterFunction
+                } else {
+                    SuspensionPositionInLine::Breakpoint
+                }
+            }
+        }
     }
+}
+impl FromStr for SuspensionPositionInLine {
+    type Err = ();
 
-    pub fn get_tag(&self) -> String {
-        format!(
-            "{}+{}+{}",
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "breakpoint" => Ok(SuspensionPositionInLine::Breakpoint),
+            "after_function" => Ok(SuspensionPositionInLine::AfterFunction),
+            _ => Err(()),
+        }
+    }
+}
+impl Display for SuspensionPositionInLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SuspensionPositionInLine::Breakpoint => write!(f, "breakpoint"),
+            SuspensionPositionInLine::AfterFunction => write!(f, "after_function"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Position {
+    pub(crate) function: ResourceLocation,
+    pub(crate) line_number: usize,
+    pub(crate) position_in_line: SuspensionPositionInLine,
+}
+impl FromStr for Position {
+    type Err = ();
+
+    fn from_str(string: &str) -> Result<Self, Self::Err> {
+        fn from_str_inner(string: &str) -> Option<Position> {
+            let last_delimiter = string.rfind('+')?;
+            let function = &string[..last_delimiter];
+            let position = &string[last_delimiter + 1..];
+
+            let (line_number, position_in_line) = position.split_once('_')?;
+
+            let line_number = line_number.parse().ok()?;
+            let position_in_line = position_in_line.parse().ok()?;
+
+            if let [orig_ns, orig_fn @ ..] = function.split('+').collect::<Vec<_>>().as_slice() {
+                let function = ResourceLocation::new(orig_ns, &orig_fn.join("/"));
+                Some(Position {
+                    function,
+                    line_number,
+                    position_in_line,
+                })
+            } else {
+                None
+            }
+        }
+        from_str_inner(string).ok_or(())
+    }
+}
+impl Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}+{}+{}_{}",
             self.function.namespace(),
             self.function.path().replace("/", "+"),
-            self.line_number
+            self.line_number,
+            self.position_in_line,
         )
     }
 }
 
+pub(crate) struct StoppedEvent {
+    pub(crate) reason: StoppedReason,
+    pub(crate) position: Position,
+}
+impl FromStr for StoppedEvent {
+    type Err = ();
+
+    fn from_str(string: &str) -> Result<Self, Self::Err> {
+        fn from_str_inner(string: &str) -> Option<StoppedEvent> {
+            let string = string.strip_prefix("stopped+")?;
+            let (reason, position) = string.split_once('+')?;
+            let reason = reason.parse().ok()?;
+            let position = position.parse().ok()?;
+            Some(StoppedEvent { reason, position })
+        }
+        from_str_inner(string).ok_or(())
+    }
+}
+pub(crate) fn to_stopped_event_reason(reason: StoppedReason) -> StoppedEventReason {
+    match reason {
+        StoppedReason::Breakpoint => StoppedEventReason::Breakpoint,
+        StoppedReason::Step => StoppedEventReason::Step,
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StackFrameLocation {
+    pub(crate) function: ResourceLocation,
+    pub(crate) line_number: usize,
+    pub(crate) column_number: usize,
+}
+impl StackFrameLocation {
+    pub(crate) fn parse(executor: &str) -> Option<StackFrameLocation> {
+        let has_column = 3 == executor.bytes().filter(|b| *b == b':').count();
+        let (function_line, column_number) = if has_column {
+            let last_delimiter = executor.rfind(':')?;
+            (
+                &executor[..last_delimiter],
+                executor[last_delimiter + 1..].parse().ok()?,
+            )
+        } else {
+            (executor, 0)
+        };
+        let function_line = McfunctionLineNumber::parse(function_line, ":")?;
+        Some(StackFrameLocation {
+            function: function_line.function,
+            line_number: function_line.line_number,
+            column_number,
+        })
+    }
+
+    pub(crate) fn get_name(&self) -> String {
+        format!("{}:{}", self.function, self.line_number)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct McfunctionLineNumber<S: AsRef<str>> {
+    pub function: ResourceLocationRef<S>,
+    pub line_number: usize,
+}
+
 impl McfunctionLineNumber<String> {
-    pub fn parse(string: &str, seperator: &str) -> Option<Self> {
+    pub(crate) fn parse(string: &str, seperator: &str) -> Option<Self> {
         if let [orig_ns, orig_fn @ .., line_number] =
             string.split(seperator).collect::<Vec<_>>().as_slice()
         {
