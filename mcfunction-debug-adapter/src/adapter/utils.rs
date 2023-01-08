@@ -92,12 +92,12 @@ pub fn get_function_name(
 pub(super) async fn generate_datapack(
     minecraft_session: &MinecraftSession,
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    generated_breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+    temporary_breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
 ) -> Result<(), PartialErrorResponse> {
     let mut breakpoints = breakpoints.clone();
 
     // Add all generated breakpoints that are not at the same position as user breakpoints
-    for (key, values) in generated_breakpoints.iter_all() {
+    for (key, values) in temporary_breakpoints.iter_all() {
         for value in values {
             if !contains_breakpoint(&breakpoints, &Position::from_breakpoint(key.clone(), value)) {
                 breakpoints.insert(key.clone(), value.clone());
@@ -154,13 +154,6 @@ pub(crate) fn get_breakpoint_kind<'l>(
     } else {
         None
     }
-}
-
-pub fn is_temporary(kind: &BreakpointKind) -> bool {
-    matches!(
-        kind,
-        BreakpointKind::Continue { .. } | BreakpointKind::Step { .. }
-    )
 }
 
 pub(crate) fn events_between<'l>(

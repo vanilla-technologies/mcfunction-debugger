@@ -20,8 +20,8 @@ pub mod utils;
 
 use crate::{
     adapter::utils::{
-        events_between, generate_datapack, is_temporary, parse_function_path,
-        to_stopped_event_reason, StackFrameLocation, StoppedEvent,
+        events_between, generate_datapack, parse_function_path, to_stopped_event_reason,
+        StackFrameLocation, StoppedEvent,
     },
     error::{PartialErrorResponse, RequestError},
     installer::establish_connection,
@@ -83,7 +83,7 @@ struct ClientSession {
     path_format: PathFormat,
     minecraft_session: Option<MinecraftSession>,
     breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
-    generated_breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
+    temporary_breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
     stopped_event: Option<StoppedEvent>,
     parser: CommandParser,
 }
@@ -349,25 +349,20 @@ impl McfunctionDebugAdapter {
         if let Some(stopped_event) = client_session.stopped_event.as_ref() {
             let mut dirty = false;
 
-            // Remove all temporary generated breakpoints
-            for (_key, values) in client_session.generated_breakpoints.iter_all_mut() {
-                values.retain(|it| {
-                    let should_remove = is_temporary(&it.kind);
-                    if should_remove {
-                        dirty = true;
-                    }
-                    !should_remove
-                });
+            if !client_session.temporary_breakpoints.is_empty() {
+                client_session.temporary_breakpoints.clear();
+                dirty = true;
             }
 
             for (function, breakpoint) in temporary_breakpoints {
                 client_session
-                    .generated_breakpoints
+                    .temporary_breakpoints
                     .insert(function, breakpoint);
                 dirty = true;
             }
 
-            client_session.generated_breakpoints.insert(
+            // Always insert continue point to avoid a race condition where the user removes the breakpoint right before Minecraft continues
+            client_session.temporary_breakpoints.insert(
                 stopped_event.position.function.clone(),
                 LocalBreakpoint {
                     line_number: stopped_event.position.line_number,
@@ -390,7 +385,7 @@ impl McfunctionDebugAdapter {
                 generate_datapack(
                     mc_session,
                     &client_session.breakpoints,
-                    &client_session.generated_breakpoints,
+                    &client_session.temporary_breakpoints,
                 )
                 .await?;
                 commands.push(Command::new("reload"));
@@ -473,7 +468,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
             path_format: args.path_format,
             minecraft_session: None,
             breakpoints: MultiMap::new(),
-            generated_breakpoints: MultiMap::new(),
+            temporary_breakpoints: MultiMap::new(),
             stopped_event: None,
             parser,
         });
@@ -530,7 +525,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         generate_datapack(
             &minecraft_session,
             &client_session.breakpoints,
-            &client_session.generated_breakpoints,
+            &client_session.temporary_breakpoints,
         )
         .await?;
 
@@ -650,7 +645,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
             generate_datapack(
                 minecraft_session,
                 &client_session.breakpoints,
-                &client_session.generated_breakpoints,
+                &client_session.temporary_breakpoints,
             )
             .await?;
             let mut commands = vec![Command::new("reload")];
