@@ -24,8 +24,9 @@ use debug_adapter_protocol::{
     events::{Event, StoppedEventReason},
     requests::{
         ContinueRequestArguments, DisconnectRequestArguments, InitializeRequestArguments,
-        LaunchRequestArguments, Request, ScopesRequestArguments, SetBreakpointsRequestArguments,
-        StackTraceRequestArguments, StepOutRequestArguments, VariablesRequestArguments,
+        LaunchRequestArguments, NextRequestArguments, Request, ScopesRequestArguments,
+        SetBreakpointsRequestArguments, StackTraceRequestArguments, StepOutRequestArguments,
+        VariablesRequestArguments,
     },
     responses::{ErrorResponse, Response, SetBreakpointsResponseBody, SuccessResponse},
     types::{Scope, Source, SourceBreakpoint, StackFrame, Thread, Variable},
@@ -177,6 +178,14 @@ where
             ]))
             .build();
         self.input.send_ok(args).await
+    }
+
+    pub async fn next(&mut self, thread_id: i32) {
+        let args = NextRequestArguments::builder().thread_id(thread_id).build();
+        let request_seq = self.input.send_ok(args).await;
+
+        let response = self.output.next().await.unwrap();
+        assert!(let SuccessResponse::Next = assert_success_response(response, request_seq));
     }
 
     pub async fn scopes(&mut self, frame_id: i32) -> Vec<Scope> {
