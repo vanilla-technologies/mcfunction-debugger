@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use mcfunction_debugger::{generate_debug_datapack, Config};
+use mcfunction_debugger::{config::Config, generate_debug_datapack};
 use minect::{log::named_logged_command, Command, MinecraftConnection};
 use serial_test::serial;
 use std::{

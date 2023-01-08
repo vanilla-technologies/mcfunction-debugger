@@ -20,8 +20,8 @@ pub mod utils;
 
 use crate::{
     adapter::utils::{
-        events_between, generate_datapack, parse_function_path, to_stopped_event_reason,
-        StackFrameLocation, StoppedEvent,
+        can_resume_from, events_between, generate_datapack, parse_function_path,
+        to_stopped_event_reason, BreakpointPosition, SourceLocation, StoppedEvent,
     },
     error::{PartialErrorResponse, RequestError},
     installer::establish_connection,
@@ -46,11 +46,13 @@ use debug_adapter_protocol::{
 use futures::future::Either;
 use log::trace;
 use mcfunction_debugger::{
+    config::adapter::{
+        BreakpointKind, BreakpointPositionInLine, LocalBreakpoint, LocalBreakpointPosition,
+    },
     parser::{
         command::{resource_location::ResourceLocation, CommandParser},
         parse_line, Line,
     },
-    BreakpointKind, LocalBreakpoint,
 };
 use minect::{
     log::{
@@ -72,8 +74,6 @@ use tokio::{
     sync::mpsc::UnboundedSender,
 };
 use tokio_stream::{wrappers::LinesStream, StreamExt};
-
-use self::utils::{can_resume_from, Position, SuspensionPositionInLine};
 
 const LISTENER_NAME: &'static str = "mcfunction_debugger";
 
@@ -188,7 +188,7 @@ impl MinecraftSession {
         let mut stack_trace = Vec::new();
         let mut events = events_between(events, START, END);
         while let Some(event) = events.next().await {
-            if let Some(location) = StackFrameLocation::parse(&event.executor) {
+            if let Ok(location) = event.executor.parse() {
                 let id = if let Some(output) = event
                     .output
                     .parse::<QueryScoreboardOutput>()
@@ -365,12 +365,10 @@ impl McfunctionDebugAdapter {
             client_session.temporary_breakpoints.insert(
                 stopped_event.position.function.clone(),
                 LocalBreakpoint {
-                    line_number: stopped_event.position.line_number,
-                    kind: BreakpointKind::Continue {
-                        after_function: match stopped_event.position.position_in_line {
-                            SuspensionPositionInLine::Breakpoint => false,
-                            SuspensionPositionInLine::AfterFunction => true,
-                        },
+                    kind: BreakpointKind::Continue,
+                    position: LocalBreakpointPosition {
+                        line_number: stopped_event.position.line_number,
+                        position_in_line: stopped_event.position.position_in_line,
                     },
                 },
             );
@@ -619,11 +617,14 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     ))
                 })?;
             new_breakpoints.push(LocalBreakpoint {
-                line_number,
                 kind: if verified {
                     BreakpointKind::Normal
                 } else {
                     BreakpointKind::Invalid
+                },
+                position: LocalBreakpointPosition {
+                    line_number,
+                    position_in_line: BreakpointPositionInLine::Breakpoint,
                 },
             });
             response.push(
@@ -651,15 +652,11 @@ impl DebugAdapter for McfunctionDebugAdapter {
             let mut commands = vec![Command::new("reload")];
             if args.source_modified && old_breakpoints.len() == new_breakpoints.len() {
                 commands.extend(get_move_breakpoint_commands(
-                    old_breakpoints.iter().map(|it| Position {
-                        function: function.clone(),
-                        line_number: it.line_number,
-                        position_in_line: (&it.kind).into(),
+                    old_breakpoints.iter().map(|it| {
+                        BreakpointPosition::from_breakpoint(function.clone(), &it.position)
                     }),
-                    new_breakpoints.iter().map(|it| Position {
-                        function: function.clone(),
-                        line_number: it.line_number,
-                        position_in_line: (&it.kind).into(),
+                    new_breakpoints.iter().map(|it| {
+                        BreakpointPosition::from_breakpoint(function.clone(), &it.position)
                     }),
                     &minecraft_session.namespace,
                 ));
@@ -736,13 +733,19 @@ impl DebugAdapter for McfunctionDebugAdapter {
             temporary_breakpoints.push((
                 caller.location.function.clone(),
                 LocalBreakpoint {
-                    line_number,
                     kind: BreakpointKind::Step {
-                        after_function: line_number == caller.location.line_number,
                         condition: mc_session.replace_ns(&format!(
                             "if score current -ns-_depth matches {}",
                             stack_trace.len() - 2
                         )),
+                    },
+                    position: LocalBreakpointPosition {
+                        line_number,
+                        position_in_line: if line_number == caller.location.line_number {
+                            BreakpointPositionInLine::AfterFunction
+                        } else {
+                            BreakpointPositionInLine::Breakpoint
+                        },
                     },
                 },
             ));
@@ -973,8 +976,8 @@ async fn verify_breakpoint(
     }
 }
 fn get_move_breakpoint_commands(
-    old_positions: impl ExactSizeIterator<Item = Position>,
-    new_positions: impl ExactSizeIterator<Item = Position>,
+    old_positions: impl ExactSizeIterator<Item = BreakpointPosition>,
+    new_positions: impl ExactSizeIterator<Item = BreakpointPosition>,
     namespace: &str,
 ) -> Vec<Command> {
     let tmp_tag = format!("{}_tmp", namespace);
@@ -1011,7 +1014,7 @@ fn is_command(line: Line) -> bool {
 
 struct McfunctionStackFrame {
     id: i32,
-    location: StackFrameLocation,
+    location: SourceLocation,
 }
 impl McfunctionStackFrame {
     fn to_stack_frame(

@@ -18,7 +18,7 @@
 
 use clap::{crate_authors, crate_version, App, Arg};
 use log::LevelFilter;
-use mcfunction_debugger::{generate_debug_datapack, Config};
+use mcfunction_debugger::{config::Config, generate_debug_datapack};
 use simple_logger::SimpleLogger;
 use std::{io, path::Path};
 

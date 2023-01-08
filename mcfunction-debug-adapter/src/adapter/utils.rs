@@ -23,9 +23,16 @@ use crate::{
 use debug_adapter_protocol::events::StoppedEventReason;
 use futures::Stream;
 use mcfunction_debugger::{
+    config::{
+        adapter::{
+            AdapterConfig, BreakpointKind, BreakpointPositionInLine, LocalBreakpoint,
+            LocalBreakpointPosition,
+        },
+        Config,
+    },
     generate_debug_datapack,
-    parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
-    AdapterConfig, BreakpointKind, Config, LocalBreakpoint, StoppedReason,
+    parser::command::resource_location::ResourceLocation,
+    StoppedReason,
 };
 use minect::log::{LogEvent, SummonNamedEntityOutput};
 use multimap::MultiMap;
@@ -99,7 +106,10 @@ pub(super) async fn generate_datapack(
     // Add all generated breakpoints that are not at the same position as user breakpoints
     for (key, values) in temporary_breakpoints.iter_all() {
         for value in values {
-            if !contains_breakpoint(&breakpoints, &Position::from_breakpoint(key.clone(), value)) {
+            if !contains_breakpoint(
+                &breakpoints,
+                &BreakpointPosition::from_breakpoint(key.clone(), &value.position),
+            ) {
                 breakpoints.insert(key.clone(), value.clone());
             }
         }
@@ -126,7 +136,7 @@ pub(super) async fn generate_datapack(
 
 pub(crate) fn can_resume_from(
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    position: &Position,
+    position: &BreakpointPosition,
 ) -> bool {
     get_breakpoint_kind(breakpoints, position)
         .map(|it| it.can_resume())
@@ -135,20 +145,20 @@ pub(crate) fn can_resume_from(
 
 pub(crate) fn contains_breakpoint(
     breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    position: &Position,
+    position: &BreakpointPosition,
 ) -> bool {
     get_breakpoint_kind(breakpoints, position).is_some()
 }
 
 pub(crate) fn get_breakpoint_kind<'l>(
     breakpoints: &'l MultiMap<ResourceLocation, LocalBreakpoint>,
-    position: &Position,
+    position: &BreakpointPosition,
 ) -> Option<&'l BreakpointKind> {
     if let Some(breakpoints) = breakpoints.get_vec(&position.function) {
         breakpoints
             .iter()
-            .filter(|it| it.line_number == position.line_number)
-            .filter(|it| SuspensionPositionInLine::from(&it.kind) == position.position_in_line)
+            .filter(|it| it.position.line_number == position.line_number)
+            .filter(|it| it.position.position_in_line == position.position_in_line)
             .map(|it| &it.kind)
             .next()
     } else {
@@ -176,91 +186,46 @@ fn is_summon_output(event: &LogEvent, name: &str) -> bool {
             .is_some()
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SuspensionPositionInLine {
-    Breakpoint,
-    AfterFunction,
-}
-impl From<&BreakpointKind> for SuspensionPositionInLine {
-    fn from(value: &BreakpointKind) -> Self {
-        match value {
-            BreakpointKind::Normal => SuspensionPositionInLine::Breakpoint,
-            BreakpointKind::Invalid => SuspensionPositionInLine::Breakpoint,
-            BreakpointKind::Continue { after_function }
-            | BreakpointKind::Step { after_function, .. } => {
-                if *after_function {
-                    SuspensionPositionInLine::AfterFunction
-                } else {
-                    SuspensionPositionInLine::Breakpoint
-                }
-            }
-        }
-    }
-}
-impl FromStr for SuspensionPositionInLine {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "breakpoint" => Ok(SuspensionPositionInLine::Breakpoint),
-            "after_function" => Ok(SuspensionPositionInLine::AfterFunction),
-            _ => Err(()),
-        }
-    }
-}
-impl Display for SuspensionPositionInLine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SuspensionPositionInLine::Breakpoint => write!(f, "breakpoint"),
-            SuspensionPositionInLine::AfterFunction => write!(f, "after_function"),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Position {
+pub(crate) struct BreakpointPosition {
     pub(crate) function: ResourceLocation,
     pub(crate) line_number: usize,
-    pub(crate) position_in_line: SuspensionPositionInLine,
+    pub(crate) position_in_line: BreakpointPositionInLine,
 }
-impl Position {
-    fn from_breakpoint(function: ResourceLocation, breakpoint: &LocalBreakpoint) -> Position {
-        Position {
+impl BreakpointPosition {
+    pub(crate) fn from_breakpoint(
+        function: ResourceLocation,
+        position: &LocalBreakpointPosition,
+    ) -> BreakpointPosition {
+        BreakpointPosition {
             function,
-            line_number: breakpoint.line_number,
-            position_in_line: (&breakpoint.kind).into(),
+            line_number: position.line_number,
+            position_in_line: position.position_in_line,
         }
     }
 }
-impl FromStr for Position {
+impl FromStr for BreakpointPosition {
     type Err = ();
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
-        fn from_str_inner(string: &str) -> Option<Position> {
-            let last_delimiter = string.rfind('+')?;
-            let function = &string[..last_delimiter];
-            let position = &string[last_delimiter + 1..];
-
+        fn from_str_inner(string: &str) -> Option<BreakpointPosition> {
+            let (function, position) = string.rsplit_once('+')?;
             let (line_number, position_in_line) = position.split_once('_')?;
 
+            let function = parse_resource_location(function, '+')?;
             let line_number = line_number.parse().ok()?;
             let position_in_line = position_in_line.parse().ok()?;
 
-            if let [orig_ns, orig_fn @ ..] = function.split('+').collect::<Vec<_>>().as_slice() {
-                let function = ResourceLocation::new(orig_ns, &orig_fn.join("/"));
-                Some(Position {
-                    function,
-                    line_number,
-                    position_in_line,
-                })
-            } else {
-                None
-            }
+            Some(BreakpointPosition {
+                function,
+                line_number,
+                position_in_line,
+            })
         }
         from_str_inner(string).ok_or(())
     }
 }
-impl Display for Position {
+impl Display for BreakpointPosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -275,7 +240,7 @@ impl Display for Position {
 
 pub(crate) struct StoppedEvent {
     pub(crate) reason: StoppedReason,
-    pub(crate) position: Position,
+    pub(crate) position: BreakpointPosition,
 }
 impl FromStr for StoppedEvent {
     type Err = ();
@@ -299,55 +264,48 @@ pub(crate) fn to_stopped_event_reason(reason: StoppedReason) -> StoppedEventReas
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct StackFrameLocation {
+pub(crate) struct SourceLocation {
     pub(crate) function: ResourceLocation,
     pub(crate) line_number: usize,
     pub(crate) column_number: usize,
 }
-impl StackFrameLocation {
-    pub(crate) fn parse(executor: &str) -> Option<StackFrameLocation> {
-        let has_column = 3 == executor.bytes().filter(|b| *b == b':').count();
-        let (function_line, column_number) = if has_column {
-            let last_delimiter = executor.rfind(':')?;
-            (
-                &executor[..last_delimiter],
-                executor[last_delimiter + 1..].parse().ok()?,
-            )
-        } else {
-            (executor, 1)
-        };
-        let function_line = McfunctionLineNumber::parse(function_line, ":")?;
-        Some(StackFrameLocation {
-            function: function_line.function,
-            line_number: function_line.line_number,
-            column_number,
-        })
-    }
+impl FromStr for SourceLocation {
+    type Err = ();
 
+    fn from_str(string: &str) -> Result<Self, Self::Err> {
+        fn from_str_inner(string: &str) -> Option<SourceLocation> {
+            let has_column = 3 == string.bytes().filter(|b| *b == b':').count();
+            let (function_line_number, column_number) = if has_column {
+                let (function_line_number, column_number) = string.rsplit_once(':')?;
+                let column_number = column_number.parse().ok()?;
+                (function_line_number, column_number)
+            } else {
+                (string, 1)
+            };
+
+            let (function, line_number) = function_line_number.rsplit_once(':')?;
+            let function = parse_resource_location(function, ':')?;
+            let line_number = line_number.parse().ok()?;
+
+            Some(SourceLocation {
+                function,
+                line_number,
+                column_number,
+            })
+        }
+        from_str_inner(string).ok_or(())
+    }
+}
+impl SourceLocation {
     pub(crate) fn get_name(&self) -> String {
         format!("{}:{}", self.function, self.line_number)
     }
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct McfunctionLineNumber<S: AsRef<str>> {
-    pub function: ResourceLocationRef<S>,
-    pub line_number: usize,
-}
-
-impl McfunctionLineNumber<String> {
-    pub(crate) fn parse(string: &str, seperator: &str) -> Option<Self> {
-        if let [orig_ns, orig_fn @ .., line_number] =
-            string.split(seperator).collect::<Vec<_>>().as_slice()
-        {
-            let function = ResourceLocation::new(orig_ns, &orig_fn.join("/"));
-            let line_number = line_number.parse::<usize>().ok()?;
-            Some(McfunctionLineNumber {
-                function,
-                line_number,
-            })
-        } else {
-            None
-        }
+fn parse_resource_location(function: &str, seperator: char) -> Option<ResourceLocation> {
+    if let [orig_ns, orig_fn @ ..] = function.split(seperator).collect::<Vec<_>>().as_slice() {
+        Some(ResourceLocation::new(orig_ns, &orig_fn.join("/")))
+    } else {
+        None
     }
 }
