@@ -1169,7 +1169,7 @@ async fn test_step_out_of_inner_function_that_recursively_calls_outer_function()
     let stack_trace = adapter.stack_trace(threads[0].id).await;
     assert!(stack_trace.len() == 1);
     assert!(get_source_path(&stack_trace[0]) == &outer_path.display().to_string());
-    assert!(stack_trace[0].line == 2);
+    assert!(stack_trace[0].line == 3);
     assert!(stack_trace[0].column == 1);
 
     adapter.continue_().await;

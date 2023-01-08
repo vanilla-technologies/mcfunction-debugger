@@ -140,23 +140,23 @@ pub(crate) fn contains_breakpoint(
     get_breakpoint_kind(breakpoints, position).is_some()
 }
 
-pub(crate) fn get_breakpoint_kind(
-    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
+pub(crate) fn get_breakpoint_kind<'l>(
+    breakpoints: &'l MultiMap<ResourceLocation, LocalBreakpoint>,
     position: &Position,
-) -> Option<BreakpointKind> {
+) -> Option<&'l BreakpointKind> {
     if let Some(breakpoints) = breakpoints.get_vec(&position.function) {
         breakpoints
             .iter()
             .filter(|it| it.line_number == position.line_number)
-            .filter(|it| SuspensionPositionInLine::from(it.kind) == position.position_in_line)
-            .map(|it| it.kind)
+            .filter(|it| SuspensionPositionInLine::from(&it.kind) == position.position_in_line)
+            .map(|it| &it.kind)
             .next()
     } else {
         None
     }
 }
 
-pub fn is_temporary(kind: BreakpointKind) -> bool {
+pub fn is_temporary(kind: &BreakpointKind) -> bool {
     matches!(
         kind,
         BreakpointKind::Continue { .. } | BreakpointKind::Step { .. }
@@ -188,14 +188,14 @@ pub(crate) enum SuspensionPositionInLine {
     Breakpoint,
     AfterFunction,
 }
-impl From<BreakpointKind> for SuspensionPositionInLine {
-    fn from(value: BreakpointKind) -> Self {
+impl From<&BreakpointKind> for SuspensionPositionInLine {
+    fn from(value: &BreakpointKind) -> Self {
         match value {
             BreakpointKind::Normal => SuspensionPositionInLine::Breakpoint,
             BreakpointKind::Invalid => SuspensionPositionInLine::Breakpoint,
             BreakpointKind::Continue { after_function }
-            | BreakpointKind::Step { after_function } => {
-                if after_function {
+            | BreakpointKind::Step { after_function, .. } => {
+                if *after_function {
                     SuspensionPositionInLine::AfterFunction
                 } else {
                     SuspensionPositionInLine::Breakpoint
@@ -235,7 +235,7 @@ impl Position {
         Position {
             function,
             line_number: breakpoint.line_number,
-            position_in_line: breakpoint.kind.into(),
+            position_in_line: (&breakpoint.kind).into(),
         }
     }
 }

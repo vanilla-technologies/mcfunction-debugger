@@ -58,7 +58,7 @@ impl Config<'_> {
         function: &ResourceLocation,
         line_number: usize,
         after_function: bool,
-    ) -> Option<BreakpointKind> {
+    ) -> Option<&BreakpointKind> {
         if let Some(config) = self.adapter.as_ref() {
             if let Some(vec) = config.breakpoints.get_vec(function) {
                 return vec
@@ -66,7 +66,7 @@ impl Config<'_> {
                     .filter(|breakpoint| breakpoint.line_number == line_number)
                     .filter(|breakpoint| breakpoint.kind.is_after_function() == after_function)
                     .next()
-                    .map(|it| it.kind);
+                    .map(|it| &it.kind);
             }
         }
         None
@@ -95,12 +95,17 @@ impl LocalBreakpoint {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BreakpointKind {
     Normal,
     Invalid,
-    Continue { after_function: bool },
-    Step { after_function: bool },
+    Continue {
+        after_function: bool,
+    },
+    Step {
+        after_function: bool,
+        condition: String,
+    },
 }
 impl BreakpointKind {
     pub fn can_resume(&self) -> bool {
@@ -117,7 +122,7 @@ impl BreakpointKind {
             BreakpointKind::Normal => false,
             BreakpointKind::Invalid => false,
             BreakpointKind::Continue { after_function }
-            | BreakpointKind::Step { after_function } => *after_function,
+            | BreakpointKind::Step { after_function, .. } => *after_function,
         }
     }
 
@@ -618,17 +623,43 @@ async fn expand_function_templates(
             .collect::<Vec<_>>()
             .join("\n");
 
-        let terminator = match partition.terminator {
+        let terminator = match &partition.terminator {
             Terminator::Breakpoint => {
-                expand_breakpoint_template(partition, &engine, StoppedReason::Breakpoint, 0)
+                expand_breakpoint_template(
+                    &engine,
+                    output_path,
+                    &partition.end,
+                    StoppedReason::Breakpoint,
+                    0,
+                    None,
+                )
+                .await?
             }
-            Terminator::StepBeforeFunction => {
-                expand_breakpoint_template(partition, &engine, StoppedReason::Step, 0)
+            Terminator::StepBeforeFunction { condition } => {
+                let next_partition = &partitions[partition_index + 1];
+                expand_breakpoint_template(
+                    &engine,
+                    output_path,
+                    &partition.end,
+                    StoppedReason::Step,
+                    0,
+                    Some((condition, next_partition)),
+                )
+                .await?
             }
-            Terminator::StepAfterFunction => {
+            Terminator::StepAfterFunction { condition } => {
+                let next_partition = &partitions[partition_index + 1];
                 let (_line_number, line, _parsed) = &lines[partition.end.line_number - 1];
                 let column = line.len() + 1;
-                expand_breakpoint_template(partition, &engine, StoppedReason::Step, column)
+                expand_breakpoint_template(
+                    &engine,
+                    output_path,
+                    &partition.end,
+                    StoppedReason::Step,
+                    column,
+                    Some((condition, next_partition)),
+                )
+                .await?
             }
             Terminator::ContinueBeforeFunction | Terminator::ContinueAfterFunction => {
                 let next_partition = &partitions[partition_index + 1];
@@ -785,14 +816,16 @@ impl Display for StoppedReason {
     }
 }
 
-fn expand_breakpoint_template(
-    partition: &Partition,
-    engine: &TemplateEngine,
+async fn expand_breakpoint_template(
+    engine: &TemplateEngine<'_>,
+    output_path: &Path,
+    position: &Position,
     reason: StoppedReason,
     column: usize,
-) -> String {
-    let line_number = partition.end.line_number.to_string();
-    let position = partition.end.to_string();
+    condition: Option<(&str, &Partition<'_>)>,
+) -> io::Result<String> {
+    let line_number = position.line_number.to_string();
+    let position = position.to_string();
     let reason = reason.to_string();
     let column_str = &format!(":{}", column);
     let optional_column = if column == 0 { "" } else { column_str };
@@ -802,8 +835,28 @@ fn expand_breakpoint_template(
         ("-reason-", &reason),
         ("-optional_column-", optional_column),
     ]);
-    let template = include_template!("data/template/functions/set_breakpoint.mcfunction");
-    engine.expand(&template)
+    expand_template!(
+        engine,
+        output_path,
+        "data/-ns-/functions/-orig_ns-/-orig/fn-/suspend_at_-position-.mcfunction"
+    )
+    .await?;
+
+    if let Some((condition, next_partition)) = condition {
+        let condition = format!("execute {} run", condition);
+        let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
+        let engine = engine.extend([
+            ("execute run", condition.as_str()),
+            ("-next_positions-", next_positions.as_str()),
+        ]);
+        Ok(engine.expand(include_template!(
+            "data/template/functions/breakpoint_conditional.mcfunction"
+        )))
+    } else {
+        Ok(engine.expand(include_template!(
+            "data/template/functions/breakpoint.mcfunction"
+        )))
+    }
 }
 
 struct Partition<'l> {
@@ -875,8 +928,12 @@ enum Terminator<'l> {
     Breakpoint,
     ContinueBeforeFunction,
     ContinueAfterFunction,
-    StepBeforeFunction,
-    StepAfterFunction,
+    StepBeforeFunction {
+        condition: &'l str,
+    },
+    StepAfterFunction {
+        condition: &'l str,
+    },
     FunctionCall {
         line: &'l str,
         name: &'l ResourceLocation,
@@ -891,8 +948,8 @@ impl Terminator<'_> {
             Terminator::Breakpoint => PositionInLine::Breakpoint,
             Terminator::ContinueBeforeFunction => PositionInLine::Breakpoint,
             Terminator::ContinueAfterFunction => PositionInLine::AfterFunction,
-            Terminator::StepBeforeFunction => PositionInLine::Breakpoint,
-            Terminator::StepAfterFunction => PositionInLine::AfterFunction,
+            Terminator::StepBeforeFunction { .. } => PositionInLine::Breakpoint,
+            Terminator::StepAfterFunction { .. } => PositionInLine::AfterFunction,
             Terminator::FunctionCall { .. } => PositionInLine::Function,
             Terminator::Return => PositionInLine::Return,
         }
@@ -902,7 +959,7 @@ impl Terminator<'_> {
 fn partition<'l>(
     fn_name: &ResourceLocation,
     lines: &'l [(usize, String, Line)],
-    config: &Config,
+    config: &'l Config,
 ) -> Vec<Partition<'l>> {
     let mut partitions = Vec::new();
     let mut start_line_index = 0;
@@ -943,11 +1000,13 @@ fn partition<'l>(
             }) => {} // Is added after function
             Some(BreakpointKind::Step {
                 after_function: false,
+                condition,
             }) => {
-                partitions.push(next_partition(Terminator::StepBeforeFunction));
+                partitions.push(next_partition(Terminator::StepBeforeFunction { condition }));
             }
             Some(BreakpointKind::Step {
                 after_function: true,
+                ..
             }) => {} // Is added after function
             None => {}
         }
@@ -977,9 +1036,10 @@ fn partition<'l>(
         }
         if let Some(BreakpointKind::Step {
             after_function: true,
+            condition,
         }) = config.get_breakpoint_kind(fn_name, line_number, true)
         {
-            partitions.push(next_partition(Terminator::StepAfterFunction));
+            partitions.push(next_partition(Terminator::StepAfterFunction { condition }));
         }
 
         if matches!(command, Line::Breakpoint | Line::FunctionCall { .. }) {

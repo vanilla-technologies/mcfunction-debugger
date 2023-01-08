@@ -16,7 +16,6 @@
 # You should have received a copy of the GNU General Public License along with mcfunction-debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players set breakpoint -ns-_global 1
 summon area_effect_cloud ~ ~ ~ {Age: -2147483648, Duration: -1, WaitTime: -2147483648, Tags: [-ns-, -ns-_breakpoint, -ns-+-orig_ns-+-orig+fn-+-position-], CustomName: '{"text":"-orig_ns-:-orig/fn-:-line_number--optional_column-"}'}
 teleport @e[type=area_effect_cloud,tag=-ns-_breakpoint] ~ ~ ~ ~ ~
 execute as @e[type=area_effect_cloud,tag=!-ns-_frozen] run function -ns-:freeze_aec

@@ -352,7 +352,7 @@ impl McfunctionDebugAdapter {
             // Remove all temporary generated breakpoints
             for (_key, values) in client_session.generated_breakpoints.iter_all_mut() {
                 values.retain(|it| {
-                    let should_remove = is_temporary(it.kind);
+                    let should_remove = is_temporary(&it.kind);
                     if should_remove {
                         dirty = true;
                     }
@@ -659,12 +659,12 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     old_breakpoints.iter().map(|it| Position {
                         function: function.clone(),
                         line_number: it.line_number,
-                        position_in_line: it.kind.into(),
+                        position_in_line: (&it.kind).into(),
                     }),
                     new_breakpoints.iter().map(|it| Position {
                         function: function.clone(),
                         line_number: it.line_number,
-                        position_in_line: it.kind.into(),
+                        position_in_line: (&it.kind).into(),
                     }),
                     &minecraft_session.namespace,
                 ));
@@ -744,6 +744,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     line_number,
                     kind: BreakpointKind::Step {
                         after_function: line_number == caller.location.line_number,
+                        condition: mc_session.replace_ns(&format!(
+                            "if score current -ns-_depth matches {}",
+                            stack_trace.len() - 2
+                        )),
                     },
                 },
             ));
