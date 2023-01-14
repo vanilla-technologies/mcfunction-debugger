@@ -1,19 +1,19 @@
-// mcfunction-debugger is a debugger for Minecraft's *.mcfunction files that does not require any
+// McFunction-Debugger is a debugger for Minecraft's *.mcfunction files that does not require any
 // Minecraft mods.
 //
 // © Copyright (C) 2021-2023 Adrodoc <adrodoc55@googlemail.com> & skess42 <skagaros@gmail.com>
 //
-// This file is part of mcfunction-debugger.
+// This file is part of McFunction-Debugger.
 //
-// mcfunction-debugger is free software: you can redistribute it and/or modify it under the terms of
+// McFunction-Debugger is free software: you can redistribute it and/or modify it under the terms of
 // the GNU General Public License as published by the Free Software Foundation, either version 3 of
 // the License, or (at your option) any later version.
 //
-// mcfunction-debugger is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+// McFunction-Debugger is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 // without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with mcfunction-debugger.
+// You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
 pub mod timeout;
@@ -365,7 +365,7 @@ pub fn create_datapack(functions: Vec<Mcfunction>) {
     create_dir_all(&datapack_dir()).unwrap();
     write(
         datapack_dir().join("pack.mcmeta"),
-        r#"{"pack":{"pack_format":7,"description":"mcfunction-debugger test tick"}}"#,
+        r#"{"pack":{"pack_format":7,"description":"McFunction-Debugger test tick"}}"#,
     )
     .unwrap();
     for function in functions {
