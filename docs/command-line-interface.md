@@ -1,5 +1,4 @@
-
-# Command line interface
+# Command Line Interface
 
 ## Usage
 

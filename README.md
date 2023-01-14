@@ -2,15 +2,13 @@
 ![Minecraft: Bedrock Edition unsupported](https://img.shields.io/badge/Minecraft%3A%20Bedrock%20Edition-unsupported-critical)\
 [![crates.io](https://img.shields.io/crates/v/mcfunction-debugger)](https://crates.io/crates/mcfunction-debugger)
 
-# mcfunction-debugger
+# McFunction-Debugger
 
-mcfunction-debugger is a debugger for Minecraft's *.mcfunction files that does not require any Minecraft mods.
+McFunction-Debugger is a debugger for Minecraft's *.mcfunction files that does not require any Minecraft mods.
 
-## Status
+This documentation covers using the debugger via command line. The corresponding [Visual Studio Code](https://code.visualstudio.com/) extension can be found here: https://github.com/vanilla-technologies/mcfunction-debugger-vscode
 
-This project has reached a minimum-viable product level of quality.
-It offers a command line interface but does not integrate with an editor.
-We already started implementing the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) to provide an extension for [Visual Studio Code](https://code.visualstudio.com/) which will also include additional features like stepping through the code and showing current scoreboard values, but this will take some time.
+McFunction-Debugger implements the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) to allow easy integration with different IDEs such as Eclipse or Vim (see the [list of supporting IDEs](https://microsoft.github.io/debug-adapter-protocol/implementors/tools/)). If you would like to implement such an integration, you can find documentation in the [mcfunction-debug-adapter](mcfunction-debug-adapter/README.md) directory.
 
 ## Usage
 
@@ -34,7 +32,7 @@ On Windows this is located at `%APPDATA%\.minecraft\saves`.
 
 ### Installing from source
 
-mcfunction-debugger is written in Rust so to build it from source you need to [install Rust](https://www.rust-lang.org/tools/install).
+McFunction-Debugger is written in Rust so to build it from source you need to [install Rust](https://www.rust-lang.org/tools/install).
 
 You can then install it from [crates.io](https://crates.io/crates/mcfunction-debugger) by running:
 ```
@@ -67,7 +65,7 @@ These features are planned, but not yet implemented:
 ## Caveats
 
 Unfortunately a program can always behave slightly differently when being debugged.
-Here are some problems you might encounter with mcfunction-debugger.
+Here are some problems you might encounter with McFunction-Debugger.
 
 ### Operating on Dead Entities
 
