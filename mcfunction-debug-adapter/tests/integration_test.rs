@@ -1283,8 +1283,8 @@ async fn test_next_steps_over_command() -> io::Result<()> {
         lines: vec![
             /* 1 */ logged_command(enable_logging_command()),
             /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -1305,12 +1305,13 @@ async fn test_next_steps_over_command() -> io::Result<()> {
     let threads = adapter.threads().await;
     assert!(threads.len() == 1);
     adapter.next(threads[0].id).await;
+    adapter.assert_stopped_after_step().await;
     assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed
-    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Seconds line NOT executed
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second line NOT executed
 
     adapter.continue_().await;
     adapter.assert_terminated().await;
-    assert!(listener.next().await.unwrap().output == added_tag_output("tag2")); // Seconds line executed
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2")); // Second line executed
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
     Ok(())
 }
@@ -1627,6 +1628,6 @@ async fn test_next_steps_into_next_executor() -> io::Result<()> {
     assert!(listener.next().await.unwrap().output == added_tag_output("tag1")); // First line executed by second sheep
     assert!(listener.next().await.unwrap().output == added_tag_output("tag2")); // Second line executed by second sheep
     assert!(listener.next().await.unwrap().output == added_tag_output("tag3")); // Third line executed
-    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Third line NOT executed
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
     Ok(())
 }
