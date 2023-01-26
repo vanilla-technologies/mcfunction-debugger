@@ -25,8 +25,8 @@ use debug_adapter_protocol::{
     requests::{
         ContinueRequestArguments, DisconnectRequestArguments, InitializeRequestArguments,
         LaunchRequestArguments, NextRequestArguments, Request, ScopesRequestArguments,
-        SetBreakpointsRequestArguments, StackTraceRequestArguments, StepOutRequestArguments,
-        VariablesRequestArguments,
+        SetBreakpointsRequestArguments, StackTraceRequestArguments, StepInRequestArguments,
+        StepOutRequestArguments, VariablesRequestArguments,
     },
     responses::{ErrorResponse, Response, SetBreakpointsResponseBody, SuccessResponse},
     types::{Scope, Source, SourceBreakpoint, StackFrame, Thread, Variable},
@@ -247,6 +247,16 @@ where
             SuccessResponse::StackTrace(body) = assert_success_response(response, request_seq)
         );
         body.stack_frames
+    }
+
+    pub async fn step_in(&mut self, thread_id: i32) {
+        let args = StepInRequestArguments::builder()
+            .thread_id(thread_id)
+            .build();
+        let request_seq = self.input.send_ok(args).await;
+
+        let response = self.output.next().await.unwrap();
+        assert!(let SuccessResponse::StepIn = assert_success_response(response, request_seq));
     }
 
     pub async fn step_out(&mut self, thread_id: i32) {

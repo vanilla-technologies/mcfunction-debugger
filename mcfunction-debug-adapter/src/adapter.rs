@@ -34,7 +34,8 @@ use debug_adapter_protocol::{
         ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
         LaunchRequestArguments, NextRequestArguments, PathFormat, PauseRequestArguments,
         ScopesRequestArguments, SetBreakpointsRequestArguments, StackTraceRequestArguments,
-        StepOutRequestArguments, TerminateRequestArguments, VariablesRequestArguments,
+        StepInRequestArguments, StepOutRequestArguments, TerminateRequestArguments,
+        VariablesRequestArguments,
     },
     responses::{
         ContinueResponseBody, EvaluateResponseBody, ScopesResponseBody, SetBreakpointsResponseBody,
@@ -133,7 +134,52 @@ impl MinecraftSession {
         (function, LocalBreakpoint { kind, position })
     }
 
-    async fn new_step_out_breakpoint(
+    async fn create_step_over_breakpoints(
+        &self,
+        stack_trace: &[McfunctionStackFrame],
+        parser: &CommandParser,
+    ) -> Result<Vec<(ResourceLocation, LocalBreakpoint)>, RequestError<io::Error>> {
+        let mut temporary_breakpoints = Vec::new();
+        let current = &stack_trace[0];
+        let current_depth = stack_trace.len() - 1;
+        let current_path = self.get_function_path(&current.location.function);
+
+        let next_line_number = find_step_target_line_number(
+            &current_path,
+            current.location.line_number,
+            &parser,
+            false,
+        )
+        .await?;
+        if let Some(next_line_number) = next_line_number {
+            temporary_breakpoints.push(self.new_step_breakpoint(
+                current.location.function.clone(),
+                next_line_number,
+                BreakpointPositionInLine::Breakpoint,
+                current_depth,
+            ));
+        } else {
+            let step_out_breakpoint = self
+                .create_step_out_breakpoint(&stack_trace, &parser)
+                .await?;
+            if let Some(step_out_breakpoint) = step_out_breakpoint {
+                temporary_breakpoints.push(step_out_breakpoint)
+            }
+
+            // Reentry for next executor
+            let first_line_number = find_first_target_line_number(&current_path, &parser).await?;
+            temporary_breakpoints.push(self.new_step_breakpoint(
+                current.location.function.clone(),
+                first_line_number,
+                BreakpointPositionInLine::Breakpoint,
+                current_depth,
+            ));
+        }
+
+        Ok(temporary_breakpoints)
+    }
+
+    async fn create_step_out_breakpoint(
         &self,
         stack_trace: &[McfunctionStackFrame],
         parser: &CommandParser,
@@ -610,45 +656,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         let stack_trace = mc_session.get_stack_trace().await?;
         if !stack_trace.is_empty() {
-            let current = &stack_trace[0];
-            let current_depth = stack_trace.len() - 1;
-            let current_path = mc_session.get_function_path(&current.location.function);
-
-            let next_line_number = find_step_target_line_number(
-                &current_path,
-                current.location.line_number,
-                &client_session.parser,
-                false,
-            )
-            .await?;
-            if let Some(next_line_number) = next_line_number {
-                temporary_breakpoints.push(mc_session.new_step_breakpoint(
-                    current.location.function.clone(),
-                    next_line_number,
-                    BreakpointPositionInLine::Breakpoint,
-                    current_depth,
-                ));
-            } else {
-                let step_out_breakpoint = mc_session
-                    .new_step_out_breakpoint(&stack_trace, &client_session.parser)
-                    .await?;
-                if let Some(step_out_breakpoint) = step_out_breakpoint {
-                    temporary_breakpoints.push(step_out_breakpoint)
-                }
-
-                // Reentry for next executor
-                let first_line_number =
-                    find_step_target_line_number(&current_path, 0, &client_session.parser, false)
-                        .await?;
-                if let Some(first_line_number) = first_line_number {
-                    temporary_breakpoints.push(mc_session.new_step_breakpoint(
-                        current.location.function.clone(),
-                        first_line_number,
-                        BreakpointPositionInLine::Breakpoint,
-                        current_depth,
-                    ));
-                }
-            }
+            let step_over_breakpoints = mc_session
+                .create_step_over_breakpoints(&stack_trace, &client_session.parser)
+                .await?;
+            temporary_breakpoints.extend(step_over_breakpoints);
         }
 
         self.continue_internal(temporary_breakpoints).await?;
@@ -819,6 +830,51 @@ impl DebugAdapter for McfunctionDebugAdapter {
         Ok(())
     }
 
+    async fn step_in(
+        &mut self,
+        _args: StepInRequestArguments,
+        _context: impl DebugAdapterContext + Send,
+    ) -> Result<(), RequestError<Self::CustomError>> {
+        let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
+
+        let mut temporary_breakpoints = Vec::new();
+
+        let stack_trace = mc_session.get_stack_trace().await?;
+        if !stack_trace.is_empty() {
+            let current = &stack_trace[0];
+            let current_depth = stack_trace.len() - 1;
+            let current_path = mc_session.get_function_path(&current.location.function);
+
+            let parser = &client_session.parser;
+
+            let callee =
+                get_function_command(current_path, current.location.line_number, &parser).await?;
+
+            if let Some(callee) = callee {
+                let callee_path = mc_session.get_function_path(&callee);
+                let callee_line_number =
+                    find_first_target_line_number(&callee_path, &parser).await?;
+
+                temporary_breakpoints.push(mc_session.new_step_breakpoint(
+                    callee,
+                    callee_line_number,
+                    BreakpointPositionInLine::Breakpoint,
+                    current_depth + 1,
+                ));
+            } else {
+                let step_over_breakpoints = mc_session
+                    .create_step_over_breakpoints(&stack_trace, &parser)
+                    .await?;
+                temporary_breakpoints.extend(step_over_breakpoints);
+            }
+        }
+
+        self.continue_internal(temporary_breakpoints).await?;
+
+        Ok(())
+    }
+
     async fn step_out(
         &mut self,
         _args: StepOutRequestArguments,
@@ -831,7 +887,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         let stack_trace = mc_session.get_stack_trace().await?;
         let step_out_breakpoint = mc_session
-            .new_step_out_breakpoint(&stack_trace, &client_session.parser)
+            .create_step_out_breakpoint(&stack_trace, &client_session.parser)
             .await?;
         if let Some(step_out_breakpoint) = step_out_breakpoint {
             temporary_breakpoints.push(step_out_breakpoint)
@@ -941,10 +997,19 @@ impl DebugAdapter for McfunctionDebugAdapter {
     }
 }
 
+async fn find_first_target_line_number(
+    path: impl AsRef<Path>,
+    parser: &CommandParser,
+) -> Result<usize, RequestError<io::Error>> {
+    Ok(find_step_target_line_number(&path, 0, parser, false)
+        .await?
+        .unwrap_or(1))
+}
+
 // TODO: replace allow_empty_lines with custom enum return type
 async fn find_step_target_line_number(
     path: impl AsRef<Path>,
-    after_line_index: usize,
+    after_line_number: usize,
     parser: &CommandParser,
     allow_empty_lines: bool,
 ) -> Result<Option<usize>, RequestError<io::Error>> {
@@ -956,10 +1021,10 @@ async fn find_step_target_line_number(
         ))
     })?;
     let lines = BufReader::new(file).lines();
-    let mut lines = LinesStream::new(lines).skip(after_line_index);
-    let mut line_index = after_line_index;
+    let mut lines = LinesStream::new(lines).skip(after_line_number);
+    let mut line_number = after_line_number;
     while let Some(line) = lines.next().await {
-        line_index += 1;
+        line_number += 1;
         let line = line.map_err(|e| {
             PartialErrorResponse::new(format!(
                 "Failed to read file {}: {}",
@@ -969,18 +1034,49 @@ async fn find_step_target_line_number(
         })?;
         let line = parse_line(parser, &line, false);
         if is_command(line) {
-            return Ok(Some(line_index));
+            return Ok(Some(line_number));
         }
     }
-    if line_index == after_line_index {
+    if line_number == after_line_number {
         Ok(None) // This is then the last line of the file
     } else {
         if allow_empty_lines {
-            Ok(Some(after_line_index + 1)) // This line is empty or a comment
+            Ok(Some(after_line_number + 1)) // This line is empty or a comment
         } else {
             Ok(None)
         }
     }
+}
+
+async fn get_function_command(
+    path: impl AsRef<Path>,
+    line_number: usize,
+    parser: &CommandParser,
+) -> Result<Option<ResourceLocation>, RequestError<io::Error>> {
+    let file = File::open(&path).await.map_err(|e| {
+        PartialErrorResponse::new(format!(
+            "Failed to open file {}: {}",
+            path.as_ref().display(),
+            e
+        ))
+    })?;
+    let lines = BufReader::new(file).lines();
+    let mut lines = LinesStream::new(lines).skip(line_number - 1);
+    if let Some(line) = lines.next().await {
+        let line = line.map_err(|e| {
+            PartialErrorResponse::new(format!(
+                "Failed to read file {}: {}",
+                path.as_ref().display(),
+                e
+            ))
+        })?;
+
+        let line = parse_line(parser, &line, false);
+        if let Line::FunctionCall { name, .. } = line {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
 }
 
 struct Config<'l> {

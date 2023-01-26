@@ -142,19 +142,25 @@ async fn parse_functions<'l>(
     functions
         .iter()
         .map(|(name, path)| {
-            //TODO async
+            // TODO async
             let file = File::open(path)?;
             let lines = io::BufReader::new(file)
                 .lines()
                 .enumerate()
-                .map(|(line_number, line)| {
+                .map(|(line_index, line)| {
                     line.map(|line| {
                         let command = parse_line(&parser, &line, config.adapter.is_none());
-                        (line_number + 1, line, command)
+                        (line_index + 1, line, command)
                     })
                 })
                 .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
-            Ok((name, lines))
+
+            if lines.is_empty() {
+                // An empty file still has one line
+                Ok((name, vec![(1, String::new(), Line::Empty)]))
+            } else {
+                Ok((name, lines))
+            }
         })
         .collect()
 }
