@@ -1945,6 +1945,62 @@ async fn test_step_in_empty_function() -> io::Result<()> {
 
 #[tokio::test]
 #[serial]
+async fn test_step_in_steps_over_invalid_function() -> io::Result<()> {
+    before_each_test();
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![
+            "this is an invalid command".to_string(),
+            named_logged_command(add_tag_command("@s", "tag1")),
+        ],
+    };
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            /* 1 */ logged_command(enable_logging_command()),
+            /* 2 */ format!("function {}", inner.name),
+            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_command(reset_logging_command()),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_and_enable_datapack(vec![outer, inner]);
+
+    let mut log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(2).build()];
+    adapter.set_breakpoints_verified(&outer_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    adapter.step_in(threads[0].id).await;
+    adapter.assert_stopped_after_step().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let threads = adapter.threads().await;
+    assert!(threads.len() == 1);
+    let stack_trace = adapter.stack_trace(threads[0].id).await;
+    assert!(stack_trace.len() == 1);
+    assert!(get_source_path(&stack_trace[0]) == &outer_path.display().to_string());
+    assert!(stack_trace[0].line == 3);
+    assert!(stack_trace[0].column == 1);
+
+    adapter.continue_().await;
+    adapter.assert_terminated().await;
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag2")); // tag1 is skipped
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
 async fn test_step_in_steps_out_of_function() -> io::Result<()> {
     before_each_test();
     let inner = Mcfunction {

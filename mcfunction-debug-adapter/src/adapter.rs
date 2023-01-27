@@ -862,12 +862,12 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     BreakpointPositionInLine::Breakpoint,
                     current_depth + 1,
                 ));
-            } else {
-                let step_over_breakpoints = mc_session
-                    .create_step_over_breakpoints(&stack_trace, &parser)
-                    .await?;
-                temporary_breakpoints.extend(step_over_breakpoints);
             }
+
+            let step_over_breakpoints = mc_session
+                .create_step_over_breakpoints(&stack_trace, &parser)
+                .await?;
+            temporary_breakpoints.extend(step_over_breakpoints);
         }
 
         self.continue_internal(temporary_breakpoints).await?;
