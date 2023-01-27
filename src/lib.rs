@@ -584,15 +584,15 @@ async fn expand_function_templates(
                 ))
             }
             Terminator::FunctionCall {
+                column_index,
                 line,
                 name,
                 anchor,
                 selectors,
             } => {
                 let line_number = (partition.end.line_number).to_string();
-                let line = exclude_internal_entites_from_selectors(line, selectors);
-                let function_call = format!("function {}", name);
-                let execute = line.strip_suffix(&function_call).unwrap(); // TODO panic!
+                let execute = &line[..*column_index];
+                let execute = exclude_internal_entites_from_selectors(execute, selectors);
                 let debug_anchor = anchor.map_or("".to_string(), |anchor| {
                     let mut anchor_score = 0;
                     if anchor == MinecraftEntityAnchor::EYES {
@@ -608,7 +608,7 @@ async fn expand_function_templates(
                     ("-line_number-", line_number.as_str()),
                     ("-call_ns-", name.namespace()),
                     ("-call/fn-", name.path()),
-                    ("execute run ", execute),
+                    ("execute run ", &execute),
                     ("# -debug_anchor-", &debug_anchor),
                 ]);
                 let template =

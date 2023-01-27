@@ -203,6 +203,7 @@ fn test_execute() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 12,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -229,6 +230,7 @@ fn test_execute_align() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 22,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -255,6 +257,7 @@ fn test_execute_anchored() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 26,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -281,6 +284,7 @@ fn test_execute_multiple_anchored() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 40,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -307,6 +311,7 @@ fn test_multiple_execute_anchored() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 52,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -333,6 +338,7 @@ fn test_multiple_execute_some_anchored() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 44,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -359,6 +365,7 @@ fn test_execute_as() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 42,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -385,6 +392,7 @@ fn test_execute_at() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 42,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -411,6 +419,7 @@ fn test_execute_facing_pos() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 27,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -437,6 +446,7 @@ fn test_execute_facing_entity() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 58,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -463,6 +473,7 @@ fn test_execute_in() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 26,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -489,6 +500,7 @@ fn test_execute_in_qualified() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 33,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -515,6 +527,7 @@ fn test_execute_positioned_absolute() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 30,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -541,6 +554,7 @@ fn test_execute_positioned_local() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 37,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -567,6 +581,7 @@ fn test_execute_positioned_relative() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 37,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -593,6 +608,7 @@ fn test_execute_positioned_as() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 53,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -619,6 +635,7 @@ fn test_execute_rotated_absolute() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 25,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -645,6 +662,7 @@ fn test_execute_rotated_relative() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 27,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -671,6 +689,7 @@ fn test_execute_rotated_as() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 50,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -697,6 +716,7 @@ fn test_execute_if_block() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 104,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -724,6 +744,7 @@ fn test_execute_if_block_tag() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 66,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -751,6 +772,7 @@ fn test_execute_if_blocks() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 65,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -777,6 +799,7 @@ fn test_execute_if_data_block() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 50,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -803,6 +826,7 @@ fn test_execute_if_data_entity() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 70,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -829,6 +853,7 @@ fn test_execute_if_data_storage() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 51,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -855,6 +880,7 @@ fn test_execute_if_entity() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 49,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -881,6 +907,7 @@ fn test_execute_if_predicate() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 40,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -907,6 +934,7 @@ fn test_execute_if_score() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 57,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -933,6 +961,7 @@ fn test_execute_if_score_matches() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 47,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -959,6 +988,7 @@ fn test_execute_store_block() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 61,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -985,6 +1015,7 @@ fn test_execute_store_bossbar() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 44,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -1011,6 +1042,7 @@ fn test_execute_store_entity() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 132,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -1037,6 +1069,7 @@ fn test_execute_store_score() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 47,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),
@@ -1063,6 +1096,7 @@ fn test_execute_store_storage() {
         actual,
         (
             Line::FunctionCall {
+                column_index: 58,
                 name: ResourceLocationRef::try_from("test:func")
                     .unwrap()
                     .to_owned(),

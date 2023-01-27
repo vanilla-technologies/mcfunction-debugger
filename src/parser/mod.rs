@@ -34,6 +34,7 @@ pub enum Line {
     Comment,
     Breakpoint,
     FunctionCall {
+        column_index: usize,
         name: ResourceLocation,
         anchor: Option<MinecraftEntityAnchor>,
         selectors: BTreeSet<usize>,
@@ -181,9 +182,10 @@ fn parse_command<'l>(
     }
 
     if error.is_none() {
-        if let Some(name) = as_function_call(&parsed_nodes) {
+        if let Some((column_index, name)) = as_function_call(&parsed_nodes) {
             return (
                 Line::FunctionCall {
+                    column_index,
                     name,
                     anchor: maybe_anchor,
                     selectors,
@@ -227,16 +229,17 @@ fn parse_command<'l>(
     )
 }
 
-fn as_function_call(nodes: &[ParsedNode]) -> Option<ResourceLocation> {
+fn as_function_call(nodes: &[ParsedNode]) -> Option<(usize, ResourceLocation)> {
     if let [.., ParsedNode::Literal {
         literal: "function",
+        index,
         ..
     }, ParsedNode::Argument {
         argument: Argument::MinecraftFunction(function),
         ..
     }] = nodes
     {
-        Some(function.to_owned())
+        Some((*index, function.to_owned()))
     } else {
         None
     }

@@ -45,6 +45,7 @@ pub(crate) enum Terminator<'l> {
         position_in_line: BreakpointPositionInLine,
     },
     FunctionCall {
+        column_index: usize,
         line: &'l str,
         name: &'l ResourceLocation,
         anchor: &'l Option<MinecraftEntityAnchor>,
@@ -117,6 +118,7 @@ pub(crate) fn partition<'l>(
             partitions.push(next_partition(Terminator::Breakpoint));
         }
         if let Line::FunctionCall {
+            column_index,
             name,
             anchor,
             selectors,
@@ -124,6 +126,7 @@ pub(crate) fn partition<'l>(
         } = command
         {
             partitions.push(next_partition(Terminator::FunctionCall {
+                column_index: *column_index,
                 line,
                 name,
                 anchor,
