@@ -42,8 +42,8 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     ffi::OsStr,
     fmt::Display,
-    fs::File,
-    io::{self, BufRead},
+    fs::read_to_string,
+    io::{self},
     iter::{repeat, FromIterator},
     path::{Path, PathBuf},
     str::FromStr,
@@ -143,24 +143,16 @@ async fn parse_functions<'l>(
         .iter()
         .map(|(name, path)| {
             // TODO async
-            let file = File::open(path)?;
-            let lines = io::BufReader::new(file)
-                .lines()
+            let lines = read_to_string(path)?
+                .split('\n')
                 .enumerate()
                 .map(|(line_index, line)| {
-                    line.map(|line| {
-                        let command = parse_line(&parser, &line, config.adapter.is_none());
-                        (line_index + 1, line, command)
-                    })
+                    let line = line.strip_suffix('\r').unwrap_or(line); // Remove trailing carriage return on Windows
+                    let command = parse_line(&parser, line, config.adapter.is_none());
+                    (line_index + 1, line.to_string(), command)
                 })
-                .collect::<io::Result<Vec<(usize, String, Line)>>>()?;
-
-            if lines.is_empty() {
-                // An empty file still has one line
-                Ok((name, vec![(1, String::new(), Line::Empty)]))
-            } else {
-                Ok((name, lines))
-            }
+                .collect::<Vec<(usize, String, Line)>>();
+            Ok((name, lines))
         })
         .collect()
 }

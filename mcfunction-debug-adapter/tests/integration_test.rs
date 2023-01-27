@@ -36,7 +36,11 @@ use minect::log::{
 };
 use serial_test::serial;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
-use std::{io, sync::Once, time::Duration};
+use std::{
+    io::{self},
+    sync::Once,
+    time::Duration,
+};
 use tokio::time::sleep;
 
 fn before_all_tests() {

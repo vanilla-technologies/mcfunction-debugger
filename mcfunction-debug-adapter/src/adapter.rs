@@ -70,7 +70,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tokio::{
-    fs::{remove_dir_all, File},
+    fs::{read_to_string, remove_dir_all, File},
     io::{AsyncBufReadExt, BufReader},
     sync::mpsc::UnboundedSender,
 };
@@ -1013,32 +1013,28 @@ async fn find_step_target_line_number(
     parser: &CommandParser,
     allow_empty_lines: bool,
 ) -> Result<Option<usize>, RequestError<io::Error>> {
-    let file = File::open(&path).await.map_err(|e| {
+    let content = read_to_string(&path).await.map_err(|e| {
         PartialErrorResponse::new(format!(
-            "Failed to open file {}: {}",
+            "Failed to read file {}: {}",
             path.as_ref().display(),
             e
         ))
     })?;
-    let lines = BufReader::new(file).lines();
-    let mut lines = LinesStream::new(lines).skip(after_line_number);
-    let mut line_number = after_line_number;
-    while let Some(line) = lines.next().await {
-        line_number += 1;
-        let line = line.map_err(|e| {
-            PartialErrorResponse::new(format!(
-                "Failed to read file {}: {}",
-                path.as_ref().display(),
-                e
-            ))
-        })?;
+
+    let lines = content.split('\n').enumerate().skip(after_line_number);
+    let mut last_line_of_file = true;
+    for (line_index, line) in lines {
+        last_line_of_file = false;
+        let line = line.strip_suffix('\r').unwrap_or(line); // Remove trailing carriage return on Windows
         let line = parse_line(parser, &line, false);
         if is_command(line) {
+            let line_number = line_index + 1;
             return Ok(Some(line_number));
         }
     }
-    if line_number == after_line_number {
-        Ok(None) // This is then the last line of the file
+
+    if last_line_of_file {
+        Ok(None)
     } else {
         if allow_empty_lines {
             Ok(Some(after_line_number + 1)) // This line is empty or a comment
