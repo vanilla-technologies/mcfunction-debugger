@@ -20,7 +20,10 @@ use crate::{
     adapter::{MinecraftSession, LISTENER_NAME},
     error::PartialErrorResponse,
 };
-use debug_adapter_protocol::events::StoppedEventReason;
+use debug_adapter_protocol::{
+    events::StoppedEventReason,
+    types::{Source, StackFrame},
+};
 use futures::Stream;
 use mcfunction_debugger::{
     config::{
@@ -238,6 +241,11 @@ impl Display for BreakpointPosition {
     }
 }
 
+pub(crate) struct StoppedData {
+    pub(crate) position: BreakpointPosition,
+    pub(crate) stack_trace: Vec<McfunctionStackFrame>,
+}
+
 pub(crate) struct StoppedEvent {
     pub(crate) reason: StoppedReason,
     pub(crate) position: BreakpointPosition,
@@ -260,6 +268,33 @@ pub(crate) fn to_stopped_event_reason(reason: StoppedReason) -> StoppedEventReas
     match reason {
         StoppedReason::Breakpoint => StoppedEventReason::Breakpoint,
         StoppedReason::Step => StoppedEventReason::Step,
+    }
+}
+
+pub(crate) struct McfunctionStackFrame {
+    pub(crate) id: i32,
+    pub(crate) location: SourceLocation,
+}
+impl McfunctionStackFrame {
+    pub(crate) fn to_stack_frame(
+        &self,
+        datapack: impl AsRef<Path>,
+        line_offset: usize,
+        column_offset: usize,
+    ) -> StackFrame {
+        let path = datapack
+            .as_ref()
+            .join("data")
+            .join(self.location.function.mcfunction_path())
+            .display()
+            .to_string();
+        StackFrame::builder()
+            .id(self.id)
+            .name(self.location.get_name())
+            .source(Some(Source::builder().path(Some(path)).build()))
+            .line((self.location.line_number - line_offset) as i32)
+            .column((self.location.column_number - column_offset) as i32)
+            .build()
     }
 }
 

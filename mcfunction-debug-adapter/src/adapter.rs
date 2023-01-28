@@ -21,7 +21,8 @@ pub mod utils;
 use crate::{
     adapter::utils::{
         can_resume_from, events_between, generate_datapack, parse_function_path,
-        to_stopped_event_reason, BreakpointPosition, SourceLocation, StoppedEvent,
+        to_stopped_event_reason, BreakpointPosition, McfunctionStackFrame, StoppedData,
+        StoppedEvent,
     },
     error::{PartialErrorResponse, RequestError},
     installer::establish_connection,
@@ -41,7 +42,7 @@ use debug_adapter_protocol::{
         ContinueResponseBody, EvaluateResponseBody, ScopesResponseBody, SetBreakpointsResponseBody,
         StackTraceResponseBody, ThreadsResponseBody, VariablesResponseBody,
     },
-    types::{Breakpoint, Capabilities, Scope, Source, StackFrame, Thread, Variable},
+    types::{Breakpoint, Capabilities, Scope, Thread, Variable},
     ProtocolMessage,
 };
 use futures::future::Either;
@@ -85,7 +86,6 @@ struct ClientSession {
     minecraft_session: Option<MinecraftSession>,
     breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
     temporary_breakpoints: MultiMap<ResourceLocation, LocalBreakpoint>,
-    stopped_event: Option<StoppedEvent>,
     parser: CommandParser,
 }
 impl ClientSession {
@@ -112,6 +112,7 @@ struct MinecraftSession {
     namespace: String,
     output_path: PathBuf,
     scopes: Vec<ScopeReference>,
+    stopped_data: Option<StoppedData>,
 }
 impl MinecraftSession {
     fn get_function_path(&self, function: &ResourceLocation) -> PathBuf {
@@ -134,12 +135,52 @@ impl MinecraftSession {
         (function, LocalBreakpoint { kind, position })
     }
 
+    async fn create_step_in_breakpoints(
+        &self,
+        stack_trace: &[McfunctionStackFrame],
+        parser: &CommandParser,
+    ) -> Result<Vec<(ResourceLocation, LocalBreakpoint)>, RequestError<io::Error>> {
+        let mut breakpoints = Vec::new();
+
+        if stack_trace.is_empty() {
+            return Ok(breakpoints); // should not happen
+        }
+        let current = &stack_trace[0];
+        let current_depth = stack_trace.len() - 1;
+        let current_path = self.get_function_path(&current.location.function);
+
+        let callee =
+            get_function_command(current_path, current.location.line_number, &parser).await?;
+        if let Some(callee) = callee {
+            let callee_path = self.get_function_path(&callee);
+            let callee_line_number = find_first_target_line_number(&callee_path, &parser).await?;
+
+            breakpoints.push(self.new_step_breakpoint(
+                callee,
+                callee_line_number,
+                BreakpointPositionInLine::Breakpoint,
+                current_depth + 1,
+            ));
+        }
+
+        breakpoints.extend(
+            self.create_step_over_breakpoints(&stack_trace, &parser)
+                .await?,
+        );
+
+        Ok(breakpoints)
+    }
+
     async fn create_step_over_breakpoints(
         &self,
         stack_trace: &[McfunctionStackFrame],
         parser: &CommandParser,
     ) -> Result<Vec<(ResourceLocation, LocalBreakpoint)>, RequestError<io::Error>> {
-        let mut temporary_breakpoints = Vec::new();
+        let mut breakpoints = Vec::new();
+
+        if stack_trace.is_empty() {
+            return Ok(breakpoints); // should not happen
+        }
         let current = &stack_trace[0];
         let current_depth = stack_trace.len() - 1;
         let current_path = self.get_function_path(&current.location.function);
@@ -152,23 +193,21 @@ impl MinecraftSession {
         )
         .await?;
         if let Some(next_line_number) = next_line_number {
-            temporary_breakpoints.push(self.new_step_breakpoint(
+            breakpoints.push(self.new_step_breakpoint(
                 current.location.function.clone(),
                 next_line_number,
                 BreakpointPositionInLine::Breakpoint,
                 current_depth,
             ));
         } else {
-            let step_out_breakpoint = self
-                .create_step_out_breakpoint(&stack_trace, &parser)
-                .await?;
-            if let Some(step_out_breakpoint) = step_out_breakpoint {
-                temporary_breakpoints.push(step_out_breakpoint)
-            }
+            breakpoints.extend(
+                self.create_step_out_breakpoint(&stack_trace, &parser)
+                    .await?,
+            );
 
             // Reentry for next executor
             let first_line_number = find_first_target_line_number(&current_path, &parser).await?;
-            temporary_breakpoints.push(self.new_step_breakpoint(
+            breakpoints.push(self.new_step_breakpoint(
                 current.location.function.clone(),
                 first_line_number,
                 BreakpointPositionInLine::Breakpoint,
@@ -176,18 +215,19 @@ impl MinecraftSession {
             ));
         }
 
-        Ok(temporary_breakpoints)
+        Ok(breakpoints)
     }
 
     async fn create_step_out_breakpoint(
         &self,
         stack_trace: &[McfunctionStackFrame],
         parser: &CommandParser,
-    ) -> Result<Option<(ResourceLocation, LocalBreakpoint)>, RequestError<io::Error>> {
-        if stack_trace.len() <= 1 {
-            return Ok(None);
-        }
+    ) -> Result<Vec<(ResourceLocation, LocalBreakpoint)>, RequestError<io::Error>> {
+        let mut breakpoints = Vec::new();
 
+        if stack_trace.len() <= 1 {
+            return Ok(breakpoints);
+        }
         let caller = &stack_trace[1];
 
         let line_number = find_step_target_line_number(
@@ -206,13 +246,14 @@ impl MinecraftSession {
 
         let current_depth = stack_trace.len() - 1;
         let caller_depth = current_depth - 1;
-
-        Ok(Some(self.new_step_breakpoint(
+        breakpoints.push(self.new_step_breakpoint(
             caller.location.function.clone(),
             line_number.unwrap_or(caller.location.line_number),
             position_in_line,
             caller_depth,
-        )))
+        ));
+
+        Ok(breakpoints)
     }
 
     fn inject_commands(&mut self, commands: Vec<Command>) -> Result<(), PartialErrorResponse> {
@@ -260,7 +301,18 @@ impl MinecraftSession {
             .ok_or_else(|| PartialErrorResponse::new("Minecraft connection closed".to_string()))
     }
 
-    async fn get_stack_trace(&mut self) -> Result<Vec<McfunctionStackFrame>, PartialErrorResponse> {
+    fn get_cached_stack_trace(
+        &self,
+    ) -> Result<&Vec<McfunctionStackFrame>, RequestError<io::Error>> {
+        let stack_trace = &self
+            .stopped_data
+            .as_ref()
+            .ok_or(PartialErrorResponse::new("Not stopped".to_string()))?
+            .stack_trace;
+        Ok(stack_trace)
+    }
+
+    async fn get_stack_trace(&mut self) -> io::Result<Vec<McfunctionStackFrame>> {
         const START: &str = "stack_trace.start";
         const END: &str = "stack_trace.end";
         let stack_trace_tag = self.replace_ns("-ns-_stack_trace");
@@ -268,7 +320,7 @@ impl MinecraftSession {
 
         let events = self.connection.add_listener();
 
-        self.inject_commands(vec![
+        let commands = vec![
             Command::new(enable_logging_command()),
             Command::named(LISTENER_NAME, summon_named_entity_command(START)),
             Command::new(self.replace_ns(&format!(
@@ -285,7 +337,8 @@ impl MinecraftSession {
             ))),
             Command::named(LISTENER_NAME, summon_named_entity_command(END)),
             Command::new(reset_logging_command()),
-        ])?;
+        ];
+        inject_commands(&mut self.connection, commands)?;
 
         let mut stack_trace = Vec::new();
         let mut events = events_between(events, START, END);
@@ -393,17 +446,23 @@ impl McfunctionDebugAdapter {
         &mut self,
         event: StoppedEvent,
         context: &mut (impl DebugAdapterContext + Send),
-    ) {
-        let reason = event.reason;
+    ) -> io::Result<()> {
         if let Some(client_session) = &mut self.client_session {
-            client_session.stopped_event = Some(event);
+            if let Some(minecraft_session) = &mut client_session.minecraft_session {
+                minecraft_session.stopped_data = Some(StoppedData {
+                    position: event.position,
+                    stack_trace: minecraft_session.get_stack_trace().await?,
+                });
+
+                let event = StoppedEventBody::builder()
+                    .reason(to_stopped_event_reason(event.reason))
+                    .thread_id(Some(MAIN_THREAD_ID))
+                    .build();
+                context.fire_event(event);
+            }
         }
 
-        let event = StoppedEventBody::builder()
-            .reason(to_stopped_event_reason(reason))
-            .thread_id(Some(MAIN_THREAD_ID))
-            .build();
-        context.fire_event(event);
+        Ok(())
     }
 
     async fn on_exited(
@@ -413,10 +472,10 @@ impl McfunctionDebugAdapter {
         if let Some(client_session) = &mut self.client_session {
             if let Some(minecraft_session) = &mut client_session.minecraft_session {
                 minecraft_session.uninstall_datapack().await?;
+
+                context.fire_event(TerminatedEventBody::builder().build());
             }
         }
-
-        context.fire_event(TerminatedEventBody::builder().build());
 
         Ok(())
     }
@@ -448,7 +507,7 @@ impl McfunctionDebugAdapter {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        if let Some(stopped_event) = client_session.stopped_event.as_ref() {
+        if let Some(stopped_data) = mc_session.stopped_data.as_ref() {
             let mut dirty = false;
 
             if !client_session.temporary_breakpoints.is_empty() {
@@ -465,17 +524,17 @@ impl McfunctionDebugAdapter {
 
             // Always insert continue point to avoid a race condition where the user removes the breakpoint right before Minecraft continues
             client_session.temporary_breakpoints.insert(
-                stopped_event.position.function.clone(),
+                stopped_data.position.function.clone(),
                 LocalBreakpoint {
                     kind: BreakpointKind::Continue,
                     position: LocalBreakpointPosition {
-                        line_number: stopped_event.position.line_number,
-                        position_in_line: stopped_event.position.position_in_line,
+                        line_number: stopped_data.position.line_number,
+                        position_in_line: stopped_data.position.position_in_line,
                     },
                 },
             );
             // If there isn't already a breakpoint that can resume we need to load the continue point
-            if !can_resume_from(&client_session.breakpoints, &stopped_event.position) {
+            if !can_resume_from(&client_session.breakpoints, &stopped_data.position) {
                 dirty = true;
             }
 
@@ -493,7 +552,7 @@ impl McfunctionDebugAdapter {
 
             commands.push(Command::new("function debug:resume"));
             mc_session.inject_commands(commands)?;
-            client_session.stopped_event = None;
+            mc_session.stopped_data = None;
             mc_session.scopes.clear();
         }
 
@@ -519,7 +578,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         if let Ok(output) = msg.output.parse::<AddTagOutput>() {
             if output.entity == LISTENER_NAME {
                 if let Ok(event) = output.tag.parse() {
-                    self.on_stopped(event, &mut context).await;
+                    self.on_stopped(event, &mut context).await?;
                 }
                 if output.tag == "exited" {
                     self.on_exited(&mut context).await?;
@@ -569,7 +628,6 @@ impl DebugAdapter for McfunctionDebugAdapter {
             minecraft_session: None,
             breakpoints: MultiMap::new(),
             temporary_breakpoints: MultiMap::new(),
-            stopped_event: None,
             parser,
         });
 
@@ -620,6 +678,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
             namespace,
             output_path,
             scopes: Vec::new(),
+            stopped_data: None,
         };
 
         generate_datapack(
@@ -652,16 +711,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        let mut temporary_breakpoints = Vec::new();
-
-        let stack_trace = mc_session.get_stack_trace().await?;
-        if !stack_trace.is_empty() {
-            let step_over_breakpoints = mc_session
-                .create_step_over_breakpoints(&stack_trace, &client_session.parser)
-                .await?;
-            temporary_breakpoints.extend(step_over_breakpoints);
-        }
-
+        let stack_trace = mc_session.get_cached_stack_trace()?;
+        let temporary_breakpoints = mc_session
+            .create_step_over_breakpoints(stack_trace, &client_session.parser)
+            .await?;
         self.continue_internal(temporary_breakpoints).await?;
 
         Ok(())
@@ -805,8 +858,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
         let stack_trace = mc_session
-            .get_stack_trace()
-            .await?
+            .get_cached_stack_trace()?
             .into_iter()
             .map(|it| it.to_stack_frame(&mc_session.datapack, get_line_offset, get_column_offset))
             .collect::<Vec<_>>();
@@ -838,38 +890,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        let mut temporary_breakpoints = Vec::new();
-
-        let stack_trace = mc_session.get_stack_trace().await?;
-        if !stack_trace.is_empty() {
-            let current = &stack_trace[0];
-            let current_depth = stack_trace.len() - 1;
-            let current_path = mc_session.get_function_path(&current.location.function);
-
-            let parser = &client_session.parser;
-
-            let callee =
-                get_function_command(current_path, current.location.line_number, &parser).await?;
-
-            if let Some(callee) = callee {
-                let callee_path = mc_session.get_function_path(&callee);
-                let callee_line_number =
-                    find_first_target_line_number(&callee_path, &parser).await?;
-
-                temporary_breakpoints.push(mc_session.new_step_breakpoint(
-                    callee,
-                    callee_line_number,
-                    BreakpointPositionInLine::Breakpoint,
-                    current_depth + 1,
-                ));
-            }
-
-            let step_over_breakpoints = mc_session
-                .create_step_over_breakpoints(&stack_trace, &parser)
-                .await?;
-            temporary_breakpoints.extend(step_over_breakpoints);
-        }
-
+        let stack_trace = mc_session.get_cached_stack_trace()?;
+        let temporary_breakpoints = mc_session
+            .create_step_in_breakpoints(stack_trace, &client_session.parser)
+            .await?;
         self.continue_internal(temporary_breakpoints).await?;
 
         Ok(())
@@ -883,16 +907,10 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
-        let mut temporary_breakpoints = Vec::new();
-
-        let stack_trace = mc_session.get_stack_trace().await?;
-        let step_out_breakpoint = mc_session
+        let stack_trace = mc_session.get_cached_stack_trace()?;
+        let temporary_breakpoints = mc_session
             .create_step_out_breakpoint(&stack_trace, &client_session.parser)
             .await?;
-        if let Some(step_out_breakpoint) = step_out_breakpoint {
-            temporary_breakpoints.push(step_out_breakpoint)
-        }
-
         self.continue_internal(temporary_breakpoints).await?;
 
         Ok(())
@@ -1194,31 +1212,4 @@ fn get_move_breakpoint_commands(
 
 fn is_command(line: Line) -> bool {
     !matches!(line, Line::Empty | Line::Comment | Line::Breakpoint)
-}
-
-struct McfunctionStackFrame {
-    id: i32,
-    location: SourceLocation,
-}
-impl McfunctionStackFrame {
-    fn to_stack_frame(
-        &self,
-        datapack: impl AsRef<Path>,
-        line_offset: usize,
-        column_offset: usize,
-    ) -> StackFrame {
-        let path = datapack
-            .as_ref()
-            .join("data")
-            .join(self.location.function.mcfunction_path())
-            .display()
-            .to_string();
-        StackFrame::builder()
-            .id(self.id)
-            .name(self.location.get_name())
-            .source(Some(Source::builder().path(Some(path)).build()))
-            .line((self.location.line_number - line_offset) as i32)
-            .column((self.location.column_number - column_offset) as i32)
-            .build()
-    }
 }
