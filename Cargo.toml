@@ -33,7 +33,7 @@ tokio = { version = "1", features = [
 walkdir = "2"
 
 [dev-dependencies]
-serial_test = "0.10"
+serial_test = "1"
 
 [build-dependencies]
 vergen = "7"
