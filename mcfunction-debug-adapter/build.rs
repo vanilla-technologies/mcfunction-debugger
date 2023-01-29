@@ -2,11 +2,8 @@ use std::{
     fs::File,
     io::{BufRead, BufReader},
 };
-use vergen::{vergen, Config};
 
 fn main() {
-    vergen(Config::default()).unwrap();
-
     set_build_env();
 }
 

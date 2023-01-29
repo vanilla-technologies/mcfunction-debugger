@@ -47,12 +47,6 @@ async fn main() -> io::Result<()> {
 
     let matches = App::new("mcfunction-debug-adapter")
         .version(crate_version!())
-        .long_version(concat!(
-            crate_version!(),
-            " (Commit: ",
-            env!("VERGEN_GIT_SHA"),
-            ")"
-        ))
         .version_short("v")
         .author(&*format!(
             "
