@@ -189,7 +189,8 @@ dependencies = [
 [[package]]
 name = "debug-adapter-protocol"
 version = "0.1.0"
-source = "git+ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git#a90fec106b6d525816914cd5e48dd76046de215b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "965f309ee9629e4d96d50bf70f1d77e3ccc110a7abc9f1198b4db93d63bfa27a"
 dependencies = [
  "serde",
  "serde_json",
