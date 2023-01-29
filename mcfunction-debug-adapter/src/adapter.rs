@@ -273,7 +273,6 @@ impl MinecraftSession {
 
         let scoreboard = self.replace_ns("-ns-_id");
         self.inject_commands(vec![
-            Command::new(enable_logging_command()),
             Command::named(LISTENER_NAME, summon_named_entity_command(START)),
             Command::new(query_scoreboard_command(
                 self.replace_ns(&format!(
@@ -289,7 +288,6 @@ impl MinecraftSession {
                 &scoreboard,
             )),
             Command::named(LISTENER_NAME, summon_named_entity_command(END)),
-            Command::new(reset_logging_command()),
         ])?;
 
         events_between(events, START, END)
@@ -321,7 +319,6 @@ impl MinecraftSession {
         let events = self.connection.add_listener();
 
         let commands = vec![
-            Command::new(enable_logging_command()),
             Command::named(LISTENER_NAME, summon_named_entity_command(START)),
             Command::new(self.replace_ns(&format!(
                 "execute as @e[type=area_effect_cloud,tag=-ns-_function_call] run {}",
@@ -336,7 +333,6 @@ impl MinecraftSession {
                 stack_trace_tag
             ))),
             Command::named(LISTENER_NAME, summon_named_entity_command(END)),
-            Command::new(reset_logging_command()),
         ];
         inject_commands(&mut self.connection, commands)?;
 
@@ -376,9 +372,7 @@ impl MinecraftSession {
             &mut self.connection,
             vec![
                 Command::new("function debug:uninstall"),
-                Command::new(enable_logging_command()),
                 Command::new(summon_named_entity_command(&uninstalled)),
-                Command::new(reset_logging_command()),
             ],
         )?;
 
