@@ -11,7 +11,8 @@ repository = "https://github.com/vanilla-technologies/mcfunction-debugger"
 version = "1.0.2"
 
 [dependencies]
-mcfunction-debugger = { path = ".." }
+mcfunction-debugger = "1"
+# mcfunction-debugger = { path = ".." }
 
 async-trait = "0.1"
 bytes = "1"
