@@ -7,13 +7,10 @@ use std::{
     io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
 };
-use vergen::{vergen, Config};
 use walkdir::WalkDir;
 
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
-
-    vergen(Config::default()).unwrap();
 
     set_build_env();
 

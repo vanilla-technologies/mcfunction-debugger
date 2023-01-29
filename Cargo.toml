@@ -38,5 +38,4 @@ walkdir = "2"
 serial_test = "1"
 
 [build-dependencies]
-vergen = "7"
 walkdir = "2"

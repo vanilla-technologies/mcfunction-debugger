@@ -620,7 +620,6 @@ dependencies = [
  "serial_test",
  "simple_logger",
  "tokio",
- "vergen",
  "walkdir",
 ]
 
