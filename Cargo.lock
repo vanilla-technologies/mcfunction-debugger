@@ -580,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "mcfunction-debug-adapter"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "assert2",
  "async-trait",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "mcfunction-debugger"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "clap",
  "futures",
