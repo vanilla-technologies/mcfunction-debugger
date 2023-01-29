@@ -3,6 +3,7 @@ authors = ["Adrodoc <adrodoc55@googlemail.com>", "skess42 <skagaros@gmail.com>"]
 categories = ["development-tools::debugging"]
 description = "A debugger for Minecraft's *.mcfunction files that does not require any Minecraft mods"
 edition = "2021"
+exclude = ["tests"]
 keywords = ["datapack", "debugger", "mcfunction", "minecraft", "vanilla"]
 license = "GPL-3.0-or-later"
 name = "mcfunction-debug-adapter"
