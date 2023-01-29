@@ -21,7 +21,8 @@ debug-adapter-protocol = { git = "ssh://git@github.com/vanilla-technologies/debu
 futures = "0.3"
 log = "0.4"
 log-panics = "2"
-minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
+minect = "0.1"
+# minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 # minect = { path = "../../minect" }
 multimap = "0.8"
 serde_json = "1"

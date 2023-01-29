@@ -189,11 +189,11 @@ dependencies = [
 [[package]]
 name = "debug-adapter-protocol"
 version = "0.1.0"
-source = "git+ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git#1ca78da65e999effc954ba927c2f56c4960afc4e"
+source = "git+ssh://git@github.com/vanilla-technologies/debug-adapter-protocol.git#a90fec106b6d525816914cd5e48dd76046de215b"
 dependencies = [
  "serde",
  "serde_json",
- "typed-builder 0.10.0",
+ "typed-builder 0.12.0",
 ]
 
 [[package]]
@@ -632,7 +632,8 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 [[package]]
 name = "minect"
 version = "0.1.0"
-source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#e53f2b4821f339fde0d5584bb947eb1c221c85b7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7396d22449ba923d166deef33351cad14e165ba88621ace136ffabf59d3b18a"
 dependencies = [
  "encoding_rs",
  "fs3",
@@ -1197,9 +1198,9 @@ dependencies = [
 
 [[package]]
 name = "typed-builder"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89851716b67b937e393b3daa8423e67ddfc4bbbf1654bcf05488e95e0828db0c"
+checksum = "47a126a40dbff39e8320900cd61b8de053a2706e1f782cd27145792feb8fd41e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1208,9 +1209,9 @@ dependencies = [
 
 [[package]]
 name = "typed-builder"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47a126a40dbff39e8320900cd61b8de053a2706e1f782cd27145792feb8fd41e"
+checksum = "6179333b981641242a768f30f371c9baccbfcc03749627000c500ab88bf4528b"
 dependencies = [
  "proc-macro2",
  "quote",
