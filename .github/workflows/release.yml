@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            vscode_target: win32-x64
+            extension: .exe
+          - os: windows-latest
+            rust_target: i686-pc-windows-msvc
+            vscode_target: win32-ia32
+            extension: .exe
+          - os: windows-latest
+            rust_target: aarch64-pc-windows-msvc
+            vscode_target: win32-arm64
+            extension: .exe
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            vscode_target: linux-x64
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-musl
+            vscode_target: alpine-x64
+          - os: macos-latest
+            rust_target: x86_64-apple-darwin
+            vscode_target: darwin-x64
+          - os: macos-latest
+            rust_target: aarch64-apple-darwin
+            vscode_target: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.rust_target }}
+          profile: minimal
+          override: true
+      - name: Build
+        run: cargo build --workspace --release --target ${{ matrix.rust_target }}
+      - name: Rename Binaries
+        run: |
+          mv 'target/${{ matrix.rust_target }}/release/mcfunction-debugger${{ matrix.extension }}' 'target/${{ matrix.rust_target }}/release/mcfunction-debugger-${{ matrix.rust_target }}${{ matrix.extension }}'
+          mv 'target/${{ matrix.rust_target }}/release/mcfunction-debug-adapter${{ matrix.extension }}' 'target/${{ matrix.rust_target }}/release/mcfunction-debug-adapter-${{ matrix.rust_target }}${{ matrix.extension }}'
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/${{ matrix.rust_target }}/release/mcfunction-debugger-${{ matrix.rust_target }}${{ matrix.extension }}
+            target/${{ matrix.rust_target }}/release/mcfunction-debug-adapter-${{ matrix.rust_target }}${{ matrix.extension }}
