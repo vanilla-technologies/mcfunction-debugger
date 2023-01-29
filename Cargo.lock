@@ -632,7 +632,7 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 [[package]]
 name = "minect"
 version = "0.1.0"
-source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#fac54bcc9234f76d02115324d4e5eabc5d9235e8"
+source = "git+ssh://git@github.com/mcfunction-debugger/minect.git#f767a5d50ca788d3a9a94176927f76e4f13fbaca"
 dependencies = [
  "encoding_rs",
  "fs3",
