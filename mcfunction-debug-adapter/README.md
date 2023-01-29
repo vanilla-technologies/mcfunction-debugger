@@ -1,6 +1,6 @@
 # McFunction-Debug-Adapter
 
-This directory contains the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) implementation of McFunction-Debugger.
+The [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) implementation of McFunction-Debugger.
 
 McFunction-Debug-Adapter only supports the **single session mode** with communication via _stdin_ and _stdout_. To start executing an mcfunction file the development tool needs to send a `launch` request (the `attach` request is **not** supported).
 
