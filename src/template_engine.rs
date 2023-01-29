@@ -17,7 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::parser::{command::resource_location::ResourceLocationRef, Line, ScheduleOperation};
-use minect::log::named_logged_command;
+use minect::command::named_logged_command;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct TemplateEngine<'l> {

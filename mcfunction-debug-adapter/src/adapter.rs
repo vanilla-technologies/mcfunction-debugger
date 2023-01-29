@@ -57,11 +57,12 @@ use mcfunction_debugger::{
     },
 };
 use minect::{
-    log::{
+    command::{
         enable_logging_command, logged_command, named_logged_command, query_scoreboard_command,
-        reset_logging_command, summon_named_entity_command, AddTagOutput, LogEvent,
-        QueryScoreboardOutput, SummonNamedEntityOutput,
+        reset_logging_command, summon_named_entity_command, AddTagOutput, QueryScoreboardOutput,
+        SummonNamedEntityOutput,
     },
+    log::LogEvent,
     Command, MinecraftConnection,
 };
 use multimap::MultiMap;
@@ -400,7 +401,7 @@ pub(crate) fn inject_commands(
             .map(|it| it.get_command())
             .fold(String::new(), |joined, command| joined + "\n" + command)
     );
-    connection.inject_commands(commands)?;
+    connection.execute_commands(commands)?;
     Ok(())
 }
 

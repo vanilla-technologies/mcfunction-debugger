@@ -37,7 +37,7 @@ use mcfunction_debugger::{
     parser::command::resource_location::ResourceLocation,
     StoppedReason,
 };
-use minect::log::{LogEvent, SummonNamedEntityOutput};
+use minect::{command::SummonNamedEntityOutput, log::LogEvent};
 use multimap::MultiMap;
 use std::{fmt::Display, path::Path, str::FromStr};
 use tokio::fs::remove_dir_all;

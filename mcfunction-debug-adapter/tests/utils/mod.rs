@@ -363,7 +363,7 @@ impl Mcfunction {
 }
 
 pub fn named_logged_command(command: impl Into<String>) -> String {
-    minect::log::named_logged_command(LISTENER_NAME, command)
+    minect::command::named_logged_command(LISTENER_NAME, command)
 }
 
 pub fn create_and_enable_datapack(functions: Vec<Mcfunction>) {
@@ -396,7 +396,7 @@ fn enable_debug_datapack() {
         .log_file(TEST_LOG_FILE)
         .build();
     connection
-        .inject_commands(vec![
+        .execute_commands(vec![
             Command::new("function debug:uninstall"),
             Command::new(format!(
                 "datapack enable \"file/debug-{}\"",

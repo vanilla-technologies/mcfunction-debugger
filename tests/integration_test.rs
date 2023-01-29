@@ -1,6 +1,6 @@
 use futures::StreamExt;
 use mcfunction_debugger::{config::Config, generate_debug_datapack};
-use minect::{log::named_logged_command, Command, MinecraftConnection};
+use minect::{command::named_logged_command, Command, MinecraftConnection};
 use serial_test::serial;
 use std::{
     io,
@@ -186,7 +186,7 @@ async fn run_test(
         .map(Command::new);
 
     // when:
-    connection.inject_commands(commands)?;
+    connection.execute_commands(commands)?;
 
     // then:
     let event = timeout(TIMEOUT, events.next()).await?.unwrap();
