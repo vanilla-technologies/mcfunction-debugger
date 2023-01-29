@@ -4,6 +4,10 @@ This directory contains the [Debug Adapter Protocol](https://microsoft.github.io
 
 McFunction-Debug-Adapter only supports the **single session mode** with communication via _stdin_ and _stdout_. To start executing an mcfunction file the development tool needs to send a `launch` request (the `attach` request is **not** supported).
 
+## Execution Context
+
+The debugged function will be executed with a `schedule` command, so it runs without an `@s` entity at the world's origin position.
+
 ## Launch Arguments
 
 In order for the debug adapter to connect to Minecraft it needs a few arguments as part of the `launch` request:

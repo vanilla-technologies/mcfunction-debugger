@@ -686,6 +686,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
             Command::new("reload"),
             Command::new(format!("datapack enable \"file/{}\"", debug_datapack_name)),
             // After loading the datapack we must wait one tick for it to install itself
+            // By scheduling this function call we also have a defined execution position
             Command::new(format!(
                 "schedule function debug:{}/{} 1t",
                 config.function.namespace(),
