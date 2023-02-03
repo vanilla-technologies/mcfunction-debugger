@@ -472,7 +472,7 @@ dependencies = [
  "futures",
  "log",
  "log-panics",
- "mcfunction-debugger 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mcfunction-debugger",
  "minect",
  "multimap",
  "sender-sink",
@@ -499,25 +499,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "simple_logger",
- "tokio",
- "walkdir",
-]
-
-[[package]]
-name = "mcfunction-debugger"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4e73e03bd41bd9413a595e466915d269248346fb21c909380157db873c1c33d"
-dependencies = [
- "clap",
- "futures",
- "hematite-nbt",
- "log",
- "minect",
- "multimap",
- "serde",
- "serde_json",
  "simple_logger",
  "tokio",
  "walkdir",
