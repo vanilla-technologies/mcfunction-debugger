@@ -391,19 +391,22 @@ pub fn datapack_dir() -> std::path::PathBuf {
         .join(TEST_DATAPACK_NAME)
 }
 
-fn enable_debug_datapack() {
-    let mut connection = MinecraftConnection::builder("dap", TEST_WORLD_DIR)
+pub fn connection() -> MinecraftConnection {
+    MinecraftConnection::builder("mcfunction-debugger", TEST_WORLD_DIR)
         .log_file(TEST_LOG_FILE)
-        .build();
-    connection
-        .execute_commands(vec![
-            Command::new("function debug:uninstall"),
-            Command::new(format!(
-                "datapack enable \"file/debug-{}\"",
-                TEST_DATAPACK_NAME
-            )),
-        ])
-        .unwrap();
+        .build()
+}
+
+fn enable_debug_datapack() {
+    let mut connection = connection();
+    let commands = [
+        Command::new("function debug:uninstall"),
+        Command::new(format!(
+            "datapack enable \"file/debug-{}\"",
+            TEST_DATAPACK_NAME
+        )),
+    ];
+    connection.execute_commands(commands).unwrap();
 }
 
 pub fn assert_success_response(

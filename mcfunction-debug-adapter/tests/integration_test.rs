@@ -19,7 +19,7 @@
 mod utils;
 
 use crate::utils::{
-    added_tag_output, assert_all_breakpoints_verified, assert_error_response,
+    added_tag_output, assert_all_breakpoints_verified, assert_error_response, connection,
     create_and_enable_datapack, create_datapack, datapack_dir, get_source_path,
     named_logged_command, start_adapter,
     timeout::{TimeoutStream, TimeoutStreamError},
@@ -33,6 +33,7 @@ use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::{
     command::{add_tag_command, enable_logging_command, logged_command, reset_logging_command},
     log::LogObserver,
+    Command,
 };
 use serial_test::serial;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
@@ -51,6 +52,12 @@ fn before_all_tests() {
         ColorChoice::Auto,
     )
     .unwrap();
+
+    // If this is the first connection to Minecraft we need to reload to activate the minect datapack.
+    let mut connection = connection();
+    connection
+        .execute_commands([Command::new("reload")])
+        .unwrap();
 }
 
 static BEFORE_ALL_TESTS: Once = Once::new();

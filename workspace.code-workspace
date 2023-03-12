@@ -11,6 +11,9 @@
         },
         {
             "path": "tests/datapacks/mcfd_tick"
+        },
+        {
+            "path": ".github/workflows/setup-minecraft-for-ci"
         }
     ]
 }

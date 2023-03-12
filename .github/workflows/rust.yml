@@ -8,12 +8,14 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/cache@v3
+    - name: Checkout git repository
+      uses: actions/checkout@v3
+
+    - name: Setup rust cache
+      uses: actions/cache@v3
       with:
         path: |
           ~/.cargo/bin/
@@ -22,7 +24,57 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Check
-      run: cargo check
-    - name: Unit Tests
-      run: cargo test --bins --lib
+
+    - name: Run cargo check
+      run: cargo check --workspace
+
+    - name: Execute unit tests
+      run: cargo test --workspace --bins --lib
+
+    - name: Setup Minecraft
+      uses: mcenv/setup-minecraft@v2
+      with:
+        version: "1.19.3"
+
+    - name: Configure Minecraft
+      run: |
+        cd minecraft
+
+        echo "eula=true" > eula.txt
+
+        echo "\
+        enable-command-block=true
+        gamemode=creative
+        generate-structures=false
+        level-type=flat
+        " > server.properties
+
+        mkdir -p world/datapacks
+        cp -r ../.github/workflows/setup-minecraft-for-ci world/datapacks
+
+    - name: Setup Screen
+      run: |
+        mkdir screen
+        chmod 700 screen
+
+    - name: Start Minecraft
+      run: |
+        cd minecraft
+        SCREENDIR=screen screen -S minecraft -dm -- $JAVA_HOME_17_X64/bin/java -jar server.jar nogui
+
+    - name: Setup build.env
+      run: |
+        echo "\
+        TEST_WORLD_DIR=minecraft/world
+        TEST_LOG_FILE=minecraft/logs/latest.log
+        " > build.env
+        echo "\
+        TEST_WORLD_DIR=../minecraft/world
+        TEST_LOG_FILE=../minecraft/logs/latest.log
+        " > mcfunction-debug-adapter/build.env
+
+    - name: Execute Integration Tests
+      run: cargo test --workspace --test '*'
+
+    - name: Stop Minecraft
+      run: SCREENDIR=screen screen -S minecraft -X stuff 'stop\n'

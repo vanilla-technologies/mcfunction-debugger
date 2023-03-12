@@ -260,7 +260,7 @@ async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Resu
 }
 
 fn connection() -> MinecraftConnection {
-    MinecraftConnection::builder("test", TEST_WORLD_DIR)
+    MinecraftConnection::builder("mcfunction-debugger", TEST_WORLD_DIR)
         .log_file(TEST_LOG_FILE)
         .build()
 }
