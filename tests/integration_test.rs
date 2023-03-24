@@ -323,7 +323,10 @@ fn enable_appropriate_datapacks(
 
     if debug {
         if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::SeqCst) != TRUE {
-            commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
+            commands.extend([
+                "datapack list".to_string(), // Load available datapacks to ensure "enable" works
+                r#"datapack enable "file/mcfd_test_debug""#.to_string(),
+            ]);
         }
         if after_age_increment {
             if TICK_DATAPACK_INITIALIZED.swap(true, Ordering::SeqCst) != true {
