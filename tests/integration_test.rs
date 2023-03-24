@@ -5,7 +5,10 @@ use serial_test::serial;
 use std::{
     io,
     path::Path,
-    sync::atomic::{AtomicBool, AtomicI8, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicI8, Ordering},
+        Once,
+    },
     time::Duration,
 };
 use tokio::{
@@ -161,6 +164,20 @@ mod debugger {
     }
 }
 
+fn before_all_tests() {
+    // If this is the first connection to Minecraft we need to reload to activate the minect datapack.
+    let mut connection = connection();
+    connection
+        .execute_commands([Command::new("reload")])
+        .unwrap();
+}
+
+static BEFORE_ALL_TESTS: Once = Once::new();
+
+fn before_each_test() {
+    BEFORE_ALL_TESTS.call_once(before_all_tests);
+}
+
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 const TEST_LOG_FILE: &str = env!("TEST_LOG_FILE");
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -171,6 +188,7 @@ async fn run_test(
     after_age_increment: bool,
     debug: bool,
 ) -> io::Result<()> {
+    before_each_test();
     // given:
     let test_fn = if debug {
         format!("debug:{}/{}/test", namespace, name)
