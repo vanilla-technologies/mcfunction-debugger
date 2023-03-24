@@ -47,6 +47,7 @@ jobs:
         gamemode=creative
         generate-structures=false
         level-type=flat
+        online-mode=false
         " > server.properties
 
         mkdir -p world/datapacks
