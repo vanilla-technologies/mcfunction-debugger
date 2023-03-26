@@ -290,7 +290,7 @@ fn get_commands(test_fn: &str, after_age_increment: bool, debug: bool) -> Vec<St
     ];
 
     static SCOREBOARD_ADDED: AtomicBool = AtomicBool::new(false);
-    if SCOREBOARD_ADDED.swap(true, Ordering::SeqCst) != true {
+    if SCOREBOARD_ADDED.swap(true, Ordering::Relaxed) != true {
         commands.push("scoreboard objectives add test_global dummy".to_string());
     }
 
@@ -319,17 +319,16 @@ fn enable_appropriate_datapacks(
     const FALSE: i8 = 0;
     const TRUE: i8 = 1;
     static DEBUG_DATAPACK_ENABLED: AtomicI8 = AtomicI8::new(UNKNOWN);
+    static TEST_DATAPACK_ENABLED: AtomicBool = AtomicBool::new(false);
     static TICK_DATAPACK_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
     if debug {
-        if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::SeqCst) != TRUE {
-            commands.extend([
-                "datapack list".to_string(), // Load available datapacks to ensure "enable" works
-                r#"datapack enable "file/mcfd_test_debug""#.to_string(),
-            ]);
+        if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
+            commands.push("datapack list".to_string()); // Load available datapacks to ensure "enable" works
+            commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
         }
         if after_age_increment {
-            if TICK_DATAPACK_INITIALIZED.swap(true, Ordering::SeqCst) != true {
+            if TICK_DATAPACK_INITIALIZED.swap(true, Ordering::Relaxed) != true {
                 // Must run before debugger tick.json
                 commands.extend([
                     r#"datapack disable "file/mcfd_tick""#.to_string(),
@@ -338,7 +337,11 @@ fn enable_appropriate_datapacks(
             }
         }
     } else {
-        if DEBUG_DATAPACK_ENABLED.swap(FALSE, Ordering::SeqCst) != FALSE {
+        if TEST_DATAPACK_ENABLED.swap(true, Ordering::Relaxed) != true {
+            commands.push("datapack list".to_string()); // Load available datapacks to ensure "enable" works
+            commands.push(r#"datapack enable "file/mcfd_test""#.to_string());
+        }
+        if DEBUG_DATAPACK_ENABLED.swap(FALSE, Ordering::Relaxed) != FALSE {
             commands.push(r#"datapack disable "file/mcfd_test_debug""#.to_string());
         }
     }
