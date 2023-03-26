@@ -27,13 +27,17 @@ use crate::utils::{
 };
 use assert2::assert;
 use debug_adapter_protocol::types::SourceBreakpoint;
+use futures::executor::block_on;
 use log::LevelFilter;
 use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::{
-    command::{add_tag_command, enable_logging_command, logged_command, reset_logging_command},
+    command::{
+        add_tag_command, enable_logging_command, logged_command, reset_logging_command,
+        summon_named_entity_command, SummonNamedEntityOutput,
+    },
     log::LogObserver,
-    Command,
+    Command, MinecraftConnection,
 };
 use serial_test::serial;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
@@ -42,7 +46,8 @@ use std::{
     sync::Once,
     time::Duration,
 };
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
+use tokio_stream::StreamExt;
 
 fn before_all_tests() {
     TermLogger::init(
@@ -58,6 +63,26 @@ fn before_all_tests() {
     connection
         .execute_commands([Command::new("reload")])
         .unwrap();
+    wait_for_connection(connection);
+}
+
+fn wait_for_connection(mut connection: MinecraftConnection) {
+    const INITIAL_CONNECT_ENTITY_NAME: &str = "test_connected";
+    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+    let events = connection.add_listener();
+    connection
+        .execute_commands([Command::new(summon_named_entity_command(
+            INITIAL_CONNECT_ENTITY_NAME,
+        ))])
+        .unwrap();
+    block_on(timeout(
+        INITIAL_CONNECT_TIMEOUT,
+        events
+            .filter_map(|event| event.output.parse::<SummonNamedEntityOutput>().ok())
+            .filter(|output| output.name == INITIAL_CONNECT_ENTITY_NAME)
+            .next(),
+    ))
+    .unwrap();
 }
 
 static BEFORE_ALL_TESTS: Once = Once::new();
