@@ -1,4 +1,4 @@
-name: Rust
+name: Continuous Integration
 
 on:
   push
@@ -31,10 +31,38 @@ jobs:
     - name: Execute unit tests
       run: cargo test --workspace --bins --lib
 
+  integration_test:
+    strategy:
+      matrix:
+        include:
+          - minecraft_version: 1.19.4
+          - minecraft_version: 1.18.2
+          - minecraft_version: 1.17.1
+          - minecraft_version: 1.16.5
+          - minecraft_version: 1.15.2
+          - minecraft_version: 1.14.4
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - name: Checkout git repository
+      uses: actions/checkout@v3
+
+    - name: Setup rust cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
     - name: Setup Minecraft
       uses: mcenv/setup-minecraft@v2
       with:
-        version: "1.19.4"
+        version: ${{ matrix.minecraft_version }}
 
     - name: Configure Minecraft
       run: |
