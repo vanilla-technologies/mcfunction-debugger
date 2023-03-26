@@ -55,6 +55,7 @@ jobs:
 
     - name: Setup Screen
       run: |
+        cd minecraft
         mkdir screen
         chmod 700 screen
 
@@ -78,4 +79,6 @@ jobs:
       run: cargo test --workspace --test '*'
 
     - name: Stop Minecraft
-      run: SCREENDIR=screen screen -S minecraft -X stuff 'stop\n'
+      run: |
+        cd minecraft
+        SCREENDIR=screen screen -S minecraft -X stuff 'stop\n'
