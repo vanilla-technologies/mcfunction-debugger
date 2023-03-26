@@ -198,10 +198,10 @@ async fn run_test(
     create_datapacks(namespace, name, &test_fn, after_age_increment, debug).await?;
 
     let mut connection = connection();
+    connection.execute_commands(get_setup_commands(after_age_increment, debug))?;
+
     let mut events = connection.add_named_listener("test");
-    let commands = get_commands(&test_fn, after_age_increment, debug)
-        .into_iter()
-        .map(Command::new);
+    let commands = get_test_commands(&test_fn, after_age_increment);
 
     // when:
     connection.execute_commands(commands)?;
@@ -283,38 +283,25 @@ fn connection() -> MinecraftConnection {
         .build()
 }
 
-fn get_commands(test_fn: &str, after_age_increment: bool, debug: bool) -> Vec<String> {
-    let mut commands = vec![
-        running_test_cmd(&test_fn),
-        "function mcfd:clean_up".to_string(),
-    ];
+fn get_setup_commands(after_age_increment: bool, debug: bool) -> Vec<Command> {
+    let mut commands = Vec::new();
 
     static SCOREBOARD_ADDED: AtomicBool = AtomicBool::new(false);
     if SCOREBOARD_ADDED.swap(true, Ordering::Relaxed) != true {
-        commands.push("scoreboard objectives add test_global dummy".to_string());
+        commands.push(Command::new("scoreboard objectives add test_global dummy"));
     }
 
-    enable_appropriate_datapacks(&mut commands, after_age_increment, debug);
+    commands.extend(enable_appropriate_datapacks(after_age_increment, debug));
 
     if after_age_increment {
-        commands.push("reload".to_string());
-        commands.push("scoreboard players set tick test_global 1".to_string());
-    } else {
-        commands.push(format!("schedule function {} 1", test_fn));
+        // Reload changes to tick datapack
+        commands.push(Command::new("reload"));
     }
 
     commands
 }
 
-fn running_test_cmd(test_name: &str) -> String {
-    format!("tellraw @a {{\"text\": \"Running test {}\"}}", test_name)
-}
-
-fn enable_appropriate_datapacks(
-    commands: &mut Vec<String>,
-    after_age_increment: bool,
-    debug: bool,
-) {
+fn enable_appropriate_datapacks(after_age_increment: bool, debug: bool) -> Vec<Command> {
     const UNKNOWN: i8 = -1;
     const FALSE: i8 = 0;
     const TRUE: i8 = 1;
@@ -322,27 +309,50 @@ fn enable_appropriate_datapacks(
     static TEST_DATAPACK_ENABLED: AtomicBool = AtomicBool::new(false);
     static TICK_DATAPACK_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
+    let mut commands = Vec::new();
     if debug {
         if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
-            commands.push("datapack list".to_string()); // Load available datapacks to ensure "enable" works
-            commands.push(r#"datapack enable "file/mcfd_test_debug""#.to_string());
+            commands.push(Command::new("datapack list")); // Load available datapacks to ensure "enable" works
+            commands.push(Command::new(r#"datapack enable "file/mcfd_test_debug""#));
         }
         if after_age_increment {
             if TICK_DATAPACK_INITIALIZED.swap(true, Ordering::Relaxed) != true {
                 // Must run before debugger tick.json
                 commands.extend([
-                    r#"datapack disable "file/mcfd_tick""#.to_string(),
-                    r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#.to_string(),
+                    Command::new(r#"datapack disable "file/mcfd_tick""#),
+                    Command::new(
+                        r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#,
+                    ),
                 ]);
             }
         }
     } else {
         if TEST_DATAPACK_ENABLED.swap(true, Ordering::Relaxed) != true {
-            commands.push("datapack list".to_string()); // Load available datapacks to ensure "enable" works
-            commands.push(r#"datapack enable "file/mcfd_test""#.to_string());
+            commands.push(Command::new("datapack list")); // Load available datapacks to ensure "enable" works
+            commands.push(Command::new(r#"datapack enable "file/mcfd_test""#));
         }
         if DEBUG_DATAPACK_ENABLED.swap(FALSE, Ordering::Relaxed) != FALSE {
-            commands.push(r#"datapack disable "file/mcfd_test_debug""#.to_string());
+            commands.push(Command::new(r#"datapack disable "file/mcfd_test_debug""#));
         }
     }
+    commands
+}
+
+fn get_test_commands(test_fn: &str, after_age_increment: bool) -> Vec<Command> {
+    let mut commands = vec![
+        Command::new(running_test_cmd(&test_fn)),
+        Command::new("function mcfd:clean_up"),
+    ];
+
+    if after_age_increment {
+        commands.push(Command::new("scoreboard players set tick test_global 1"));
+    } else {
+        commands.push(Command::new(format!("schedule function {} 1", test_fn)));
+    }
+
+    commands
+}
+
+fn running_test_cmd(test_name: &str) -> String {
+    format!("tellraw @a {{\"text\": \"Running test {}\"}}", test_name)
 }
