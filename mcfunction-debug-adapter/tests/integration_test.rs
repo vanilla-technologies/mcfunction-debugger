@@ -63,10 +63,10 @@ fn before_all_tests() {
     connection
         .execute_commands([Command::new("reload")])
         .unwrap();
-    wait_for_connection(connection);
+    wait_for_connection(&mut connection);
 }
 
-fn wait_for_connection(mut connection: MinecraftConnection) {
+fn wait_for_connection(connection: &mut MinecraftConnection) {
     const INITIAL_CONNECT_ENTITY_NAME: &str = "test_connected";
     const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
     let events = connection.add_listener();
@@ -85,9 +85,8 @@ fn wait_for_connection(mut connection: MinecraftConnection) {
     .unwrap();
 }
 
-static BEFORE_ALL_TESTS: Once = Once::new();
-
 fn before_each_test() {
+    static BEFORE_ALL_TESTS: Once = Once::new();
     BEFORE_ALL_TESTS.call_once(before_all_tests);
 }
 

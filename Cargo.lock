@@ -501,6 +501,7 @@ dependencies = [
  "serial_test",
  "simple_logger",
  "tokio",
+ "tokio-stream",
  "walkdir",
 ]
 

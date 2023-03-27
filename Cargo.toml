@@ -32,6 +32,7 @@ tokio = { version = "1", features = [
     "rt-multi-thread",
     "time",
 ] }
+tokio-stream = "0.1"
 walkdir = "2"
 
 [dev-dependencies]

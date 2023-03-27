@@ -1,6 +1,9 @@
-use futures::StreamExt;
+use futures::executor::block_on;
 use mcfunction_debugger::{config::Config, generate_debug_datapack};
-use minect::{command::named_logged_command, Command, MinecraftConnection};
+use minect::{
+    command::{named_logged_command, summon_named_entity_command, SummonNamedEntityOutput},
+    Command, MinecraftConnection,
+};
 use serial_test::serial;
 use simple_logger::SimpleLogger;
 use std::{
@@ -18,6 +21,7 @@ use tokio::{
     time::timeout,
     try_join,
 };
+use tokio_stream::StreamExt;
 
 macro_rules! include_template {
     ( $path:expr) => {
@@ -173,11 +177,30 @@ fn before_all_tests() {
     connection
         .execute_commands([Command::new("reload")])
         .unwrap();
+    wait_for_connection(&mut connection);
 }
 
-static BEFORE_ALL_TESTS: Once = Once::new();
+fn wait_for_connection(connection: &mut MinecraftConnection) {
+    const INITIAL_CONNECT_ENTITY_NAME: &str = "test_connected";
+    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+    let events = connection.add_listener();
+    connection
+        .execute_commands([Command::new(summon_named_entity_command(
+            INITIAL_CONNECT_ENTITY_NAME,
+        ))])
+        .unwrap();
+    block_on(timeout(
+        INITIAL_CONNECT_TIMEOUT,
+        events
+            .filter_map(|event| event.output.parse::<SummonNamedEntityOutput>().ok())
+            .filter(|output| output.name == INITIAL_CONNECT_ENTITY_NAME)
+            .next(),
+    ))
+    .unwrap();
+}
 
 fn before_each_test() {
+    static BEFORE_ALL_TESTS: Once = Once::new();
     BEFORE_ALL_TESTS.call_once(before_all_tests);
 }
 
