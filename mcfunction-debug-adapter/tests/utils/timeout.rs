@@ -21,7 +21,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tokio_stream::StreamExt;
 
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct TimeoutStream<S, I>
 where
