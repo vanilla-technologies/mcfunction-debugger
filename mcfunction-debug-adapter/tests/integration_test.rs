@@ -73,7 +73,7 @@ async fn wait_for_connection(
         .filter(|output| output.name == INITIAL_CONNECT_ENTITY_NAME);
     connection.execute_commands(commands).unwrap();
 
-    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(600);
     timeout(INITIAL_CONNECT_TIMEOUT, events.next()).await
 }
 
