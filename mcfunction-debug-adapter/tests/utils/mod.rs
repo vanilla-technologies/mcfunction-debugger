@@ -37,7 +37,7 @@ use mcfunction_debug_adapter::{
     adapter::McfunctionDebugAdapter, error::DebugAdapterError, run_adapter,
 };
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
-use minect::{Command, MinecraftConnection};
+use minect::MinecraftConnection;
 use sender_sink::wrappers::UnboundedSenderSink;
 use serde_json::{json, Map};
 use std::{
@@ -366,16 +366,11 @@ pub fn named_logged_command(command: impl Into<String>) -> String {
     minect::command::named_logged_command(LISTENER_NAME, command)
 }
 
-pub fn create_and_enable_datapack(functions: Vec<Mcfunction>) {
-    create_datapack(functions);
-    enable_debug_datapack();
-}
-
 pub fn create_datapack(functions: Vec<Mcfunction>) {
     create_dir_all(&datapack_dir()).unwrap();
     write(
         datapack_dir().join("pack.mcmeta"),
-        r#"{"pack":{"pack_format":7,"description":"McFunction-Debugger test tick"}}"#,
+        r#"{"pack":{"pack_format":7,"description":"McFunction-Debugger adapter test"}}"#,
     )
     .unwrap();
     for function in functions {
@@ -395,18 +390,6 @@ pub fn connection() -> MinecraftConnection {
     MinecraftConnection::builder("mcfunction-debugger", TEST_WORLD_DIR)
         .log_file(TEST_LOG_FILE)
         .build()
-}
-
-fn enable_debug_datapack() {
-    let mut connection = connection();
-    let commands = [
-        Command::new("function debug:uninstall"),
-        Command::new(format!(
-            "datapack enable \"file/debug-{}\"",
-            TEST_DATAPACK_NAME
-        )),
-    ];
-    connection.execute_commands(commands).unwrap();
 }
 
 pub fn assert_success_response(

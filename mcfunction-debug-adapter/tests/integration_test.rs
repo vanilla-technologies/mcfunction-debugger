@@ -20,8 +20,7 @@ mod utils;
 
 use crate::utils::{
     added_tag_output, assert_all_breakpoints_verified, assert_error_response, connection,
-    create_and_enable_datapack, create_datapack, datapack_dir, get_source_path,
-    named_logged_command, start_adapter,
+    create_datapack, datapack_dir, get_source_path, named_logged_command, start_adapter,
     timeout::{TimeoutStream, TimeoutStreamError},
     Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
 };
@@ -95,7 +94,7 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -112,7 +111,7 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
 #[serial]
 async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
     before_each_test().await;
-    create_and_enable_datapack(Vec::new());
+    create_datapack(Vec::new());
     let test_path = datapack_dir().join("not-data").join("test.mcfunction");
 
     let mut adapter = start_adapter();
@@ -142,7 +141,7 @@ async fn test_breakpoint() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -181,7 +180,7 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -219,7 +218,7 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -254,7 +253,7 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -296,7 +295,7 @@ async fn test_breakpoint_removed() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -338,7 +337,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test.clone()]);
+    create_datapack(vec![test.clone()]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -378,7 +377,7 @@ async fn test_breakpoint_moved() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test.clone()]);
+    create_datapack(vec![test.clone()]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -421,7 +420,7 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -473,7 +472,7 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
     };
     let test_path = test.full_path();
     let inner_path = inner.full_path();
-    create_and_enable_datapack(vec![test, inner]);
+    create_datapack(vec![test, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -514,7 +513,7 @@ async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() 
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -571,7 +570,7 @@ async fn test_scope_selected_entity_score() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let mut adapter = start_adapter();
     adapter.initalize().await;
@@ -624,7 +623,7 @@ async fn test_scope_selected_entity_score_can_be_removed() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let mut adapter = start_adapter();
     adapter.initalize().await;
@@ -697,7 +696,7 @@ async fn test_scope_selected_entity_score_multiple_depths() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test, sheep, pig]);
+    create_datapack(vec![test, sheep, pig]);
 
     let mut adapter = start_adapter();
     adapter.initalize().await;
@@ -747,7 +746,7 @@ async fn test_scope_selected_entity_score_server_context() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let mut adapter = start_adapter();
     adapter.initalize().await;
@@ -782,7 +781,7 @@ async fn test_step_out_of_root_function() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -827,7 +826,7 @@ async fn test_step_out_of_inner_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -884,7 +883,7 @@ async fn test_step_out_of_inner_function_with_multiple_executors() -> io::Result
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -940,7 +939,7 @@ async fn test_step_out_of_inner_function_with_breakpoint() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -992,7 +991,7 @@ async fn test_step_out_into_end_of_function() -> io::Result<()> {
         lines: vec![outer_line],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1045,7 +1044,7 @@ async fn test_step_out_into_end_of_function_with_breakpoint() -> io::Result<()> 
         lines: vec![outer_line],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1109,7 +1108,7 @@ async fn test_step_out_into_start_of_function_with_breakpoint_via_recursion() ->
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1186,7 +1185,7 @@ async fn test_step_out_of_inner_function_that_recursively_calls_outer_function()
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1252,7 +1251,7 @@ async fn test_step_out_of_recursive_function_to_same_position() -> io::Result<()
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let mut adapter = start_adapter();
     adapter.initalize().await;
@@ -1315,7 +1314,7 @@ async fn test_next_steps_over_command() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1364,7 +1363,7 @@ async fn test_next_steps_over_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1422,7 +1421,7 @@ async fn test_next_steps_over_function_that_recursively_calls_current_function()
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1485,7 +1484,7 @@ async fn test_next_steps_into_function_with_breakpoint() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1549,7 +1548,7 @@ async fn test_next_steps_out_of_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1614,7 +1613,7 @@ async fn test_next_steps_into_next_executor() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1685,7 +1684,7 @@ async fn test_next_steps_into_next_empty_executor() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1770,7 +1769,7 @@ async fn test_next_steps_into_next_executor_skipping_non_commands() -> io::Resul
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1827,7 +1826,7 @@ async fn test_step_in_steps_over_command() -> io::Result<()> {
         ],
     };
     let test_path = test.full_path();
-    create_and_enable_datapack(vec![test]);
+    create_datapack(vec![test]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1874,7 +1873,7 @@ async fn test_step_in_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1932,7 +1931,7 @@ async fn test_step_in_empty_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -1991,7 +1990,7 @@ async fn test_step_in_steps_over_invalid_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -2047,7 +2046,7 @@ async fn test_step_in_steps_out_of_function() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -2112,7 +2111,7 @@ async fn test_step_in_next_executor() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -2183,7 +2182,7 @@ async fn test_step_in_next_empty_executor() -> io::Result<()> {
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
@@ -2268,7 +2267,7 @@ async fn test_step_in_steps_into_next_executor_skipping_non_commands() -> io::Re
         ],
     };
     let outer_path = outer.full_path();
-    create_and_enable_datapack(vec![outer, inner]);
+    create_datapack(vec![outer, inner]);
 
     let log_observer = LogObserver::new(TEST_LOG_FILE);
     let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
