@@ -37,9 +37,9 @@ jobs:
         include:
           - minecraft_version: 1.19.4
           - minecraft_version: 1.18.2
-          # - minecraft_version: 1.17.1
-          # - minecraft_version: 1.16.5
-          # - minecraft_version: 1.15.2
+          - minecraft_version: 1.17.1
+          - minecraft_version: 1.16.5
+          - minecraft_version: 1.15.2
           # - minecraft_version: 1.14.4
     runs-on: ubuntu-latest
     needs: build
