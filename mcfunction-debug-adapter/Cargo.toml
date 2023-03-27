@@ -45,3 +45,4 @@ uuid = { version = "1", features = ["v4"] }
 [dev-dependencies]
 assert2 = "0.3"
 serial_test = "1"
+simple_logger = "4"

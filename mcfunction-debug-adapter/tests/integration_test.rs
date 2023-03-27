@@ -28,7 +28,6 @@ use crate::utils::{
 use assert2::assert;
 use debug_adapter_protocol::types::SourceBreakpoint;
 use futures::executor::block_on;
-use log::LevelFilter;
 use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::{
@@ -40,7 +39,7 @@ use minect::{
     Command, MinecraftConnection,
 };
 use serial_test::serial;
-use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+use simple_logger::SimpleLogger;
 use std::{
     io::{self},
     sync::Once,
@@ -50,13 +49,7 @@ use tokio::time::{sleep, timeout};
 use tokio_stream::StreamExt;
 
 fn before_all_tests() {
-    TermLogger::init(
-        LevelFilter::Trace,
-        Config::default(),
-        TerminalMode::Mixed,
-        ColorChoice::Auto,
-    )
-    .unwrap();
+    SimpleLogger::new().init().unwrap();
 
     // If this is the first connection to Minecraft we need to reload to activate the minect datapack.
     let mut connection = connection();
