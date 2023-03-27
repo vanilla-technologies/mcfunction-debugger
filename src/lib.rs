@@ -62,7 +62,13 @@ pub async fn generate_debug_datapack<'l>(
     config: &Config<'l>,
 ) -> io::Result<()> {
     let functions = find_function_files(input_path).await?;
-    let function_contents = parse_functions(&functions, config).await?;
+    let fn_ids = functions
+        .keys()
+        .enumerate()
+        .map(|(index, it)| (it, index))
+        .collect::<HashMap<_, _>>();
+
+    let fn_contents = parse_functions(&functions, config).await?;
 
     let output_name = output_path
         .as_ref()
@@ -76,7 +82,11 @@ pub async fn generate_debug_datapack<'l>(
             .as_ref()
             .map(|config| config.adapter_listener_name),
     );
-    expand_templates(&engine, &function_contents, &output_path, config).await
+    expand_templates(&engine, &fn_ids, &fn_contents, &output_path, config).await?;
+
+    write_functions_txt(functions.keys(), &output_path).await?;
+
+    Ok(())
 }
 
 async fn find_function_files(
@@ -159,13 +169,14 @@ async fn parse_functions<'l>(
 
 async fn expand_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_ids: &HashMap<&ResourceLocation, usize>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
     try_join!(
-        expand_global_templates(engine, function_contents, &output_path, config),
-        expand_function_specific_templates(engine, function_contents, &output_path, config),
+        expand_global_templates(engine, fn_ids, fn_contents, &output_path, config),
+        expand_function_specific_templates(engine, fn_ids, fn_contents, &output_path, config),
     )?;
     Ok(())
 }
@@ -180,7 +191,8 @@ macro_rules! expand_template {
 
 async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_ids: &HashMap<&ResourceLocation, usize>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
@@ -213,21 +225,21 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/on_session_exit.mcfunction"),
         expand!("data/-ns-/functions/reset_skipped.mcfunction"),
         expand!("data/-ns-/functions/resume_immediately.mcfunction"),
-        expand_resume_self_template(&engine, function_contents, &output_path, config),
+        expand_resume_self_template(&engine, fn_contents, &output_path, config),
         expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
-        expand_schedule_template(&engine, function_contents, &output_path),
+        expand_schedule_template(&engine, fn_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
         expand!("data/-ns-/functions/skipped_functions_warning.mcfunction"),
         expand!("data/-ns-/functions/tick_start.mcfunction"),
         expand!("data/-ns-/functions/tick.mcfunction"),
         expand!("data/-ns-/functions/unfreeze_aec.mcfunction"),
         expand!("data/-ns-/functions/uninstall.mcfunction"),
-        expand_scores_templates(&engine, function_contents, &output_path),
-        expand_validate_all_functions_template(&engine, function_contents, &output_path),
+        expand_scores_templates(&engine, fn_contents, &output_path),
+        expand_validate_all_functions_template(&engine, fn_ids, fn_contents, &output_path),
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
         expand!("data/debug/functions/show_scores.mcfunction"),
-        expand_show_skipped_template(&engine, function_contents, &output_path),
+        expand_show_skipped_template(&engine, fn_ids, fn_contents, &output_path),
         expand!("data/debug/functions/stop.mcfunction"),
         expand!("data/debug/functions/uninstall.mcfunction"),
         expand!("data/minecraft/tags/functions/load.json"),
@@ -240,11 +252,11 @@ async fn expand_global_templates(
 
 async fn expand_resume_self_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
-    let mut breakpoints = function_contents
+    let mut breakpoints = fn_contents
         .iter()
         .flat_map(|(name, lines)| {
             repeat(*name).zip(
@@ -276,12 +288,12 @@ async fn expand_resume_self_template(
         .map(|(name, position)| {
             engine.expand(&format!(
                 "execute \
-                if entity @s[tag=-ns-+{original_namespace}+{original_function_tag}+{position}] \
-                run function -ns-:{original_namespace}/{original_function}/\
+                if entity @s[tag=-ns-+{orig_ns}+{orig_fn_tag}+{position}] \
+                run function -ns-:{orig_ns}/{orig_fn}/\
                 continue_current_iteration_at_{position}",
-                original_namespace = name.namespace(),
-                original_function = name.path(),
-                original_function_tag = name.path().replace("/", "+"),
+                orig_ns = name.namespace(),
+                orig_fn = name.path(),
+                orig_fn_tag = name.path().replace("/", "+"),
                 position = position,
             ))
         })
@@ -295,13 +307,13 @@ async fn expand_resume_self_template(
 
 async fn expand_schedule_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     #[rustfmt::skip]
     macro_rules! PATH { () => { "data/-ns-/functions/schedule.mcfunction" }; }
 
-    let content = function_contents
+    let content = fn_contents
         .keys()
         .map(|name| {
             let engine = engine.extend_orig_name(name);
@@ -316,10 +328,10 @@ async fn expand_schedule_template(
 
 async fn expand_scores_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
-    let objectives = function_contents
+    let objectives = fn_contents
         .values()
         .flat_map(|vec| vec)
         .filter_map(|(_, _, line)| line.objectives())
@@ -376,16 +388,20 @@ async fn expand_update_scores_template(
 
 async fn expand_validate_all_functions_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_ids: &HashMap<&ResourceLocation, usize>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     #[rustfmt::skip]
     macro_rules! PATH { () => { "data/-ns-/functions/validate_all_functions.mcfunction" }; }
 
-    let content = function_contents
+    let content = fn_contents
         .keys()
         .map(|name| {
-            let engine = engine.extend_orig_name(name);
+            let fn_score_holder = get_fn_score_holder(name, fn_ids);
+            let engine = engine
+                .extend_orig_name(name)
+                .extend([("-fn_score_holder-", fn_score_holder.as_str())]);
             engine.expand(include_template!(PATH!()))
         })
         .collect::<Vec<_>>()
@@ -397,11 +413,12 @@ async fn expand_validate_all_functions_template(
 
 async fn expand_show_skipped_template(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_ids: &HashMap<&ResourceLocation, usize>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
     // This may include calls to non-existent functions
-    let called_functions = function_contents
+    let called_functions = fn_contents
         .values()
         .flat_map(|vec| vec)
         .filter_map(|(_, _, line)| match line {
@@ -410,17 +427,21 @@ async fn expand_show_skipped_template(
         })
         .collect::<BTreeSet<_>>();
 
-    let execute_if_skipped = "execute if score -orig_ns-:-orig/fn- -ns-_skipped matches 1..";
-    let is_valid = "score -orig_ns-:-orig/fn- -ns-_valid matches 0";
+    let execute_if_skipped = "execute if score -fn_score_holder- -ns-_skipped matches 1..";
+    let is_valid = "score -fn_score_holder- -ns-_valid matches 0";
     let tellraw = r#"tellraw @s [{"text":" - -orig_ns-:-orig/fn- ("},{"score":{"name":"-orig_ns-:-orig/fn-","objective":"-ns-_skipped"}},{"text":"x)"}]"#;
 
     let missing_functions = called_functions
         .iter()
         .map(|orig_name| {
-            engine.extend_orig_name(orig_name).expand(&format!(
-                "{} {} {} run {}",
-                execute_if_skipped, "unless", is_valid, tellraw
-            ))
+            let fn_score_holder = get_fn_score_holder(orig_name, fn_ids);
+            engine
+                .extend_orig_name(orig_name)
+                .extend([("-fn_score_holder-", fn_score_holder.as_str())])
+                .expand(&format!(
+                    "{} {} {} run {}",
+                    execute_if_skipped, "unless", is_valid, tellraw
+                ))
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -428,10 +449,14 @@ async fn expand_show_skipped_template(
     let invalid_functions = called_functions
         .iter()
         .map(|orig_name| {
-            engine.extend_orig_name(orig_name).expand(&format!(
-                "{} {} {} run {}",
-                execute_if_skipped, "if", is_valid, tellraw
-            ))
+            let fn_score_holder = get_fn_score_holder(orig_name, fn_ids);
+            engine
+                .extend_orig_name(orig_name)
+                .extend([("-fn_score_holder-", fn_score_holder.as_str())])
+                .expand(&format!(
+                    "{} {} {} run {}",
+                    execute_if_skipped, "if", is_valid, tellraw
+                ))
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -452,14 +477,23 @@ async fn expand_show_skipped_template(
 
 async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
-    function_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_ids: &HashMap<&ResourceLocation, usize>,
+    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
-    let call_tree = create_call_tree(&function_contents);
+    let call_tree = create_call_tree(&fn_contents);
 
-    try_join_all(function_contents.iter().map(|(fn_name, lines)| {
-        expand_function_templates(&engine, fn_name, lines, &call_tree, &output_path, config)
+    try_join_all(fn_contents.iter().map(|(fn_name, lines)| {
+        expand_function_templates(
+            &engine,
+            fn_name,
+            lines,
+            fn_ids,
+            &call_tree,
+            &output_path,
+            config,
+        )
     }))
     .await?;
 
@@ -467,9 +501,9 @@ async fn expand_function_specific_templates(
 }
 
 fn create_call_tree<'l>(
-    function_contents: &'l HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
+    fn_contents: &'l HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
 ) -> MultiMap<&'l ResourceLocation, (&'l ResourceLocation, &'l usize)> {
-    function_contents
+    fn_contents
         .iter()
         .flat_map(|(&caller, lines)| {
             lines
@@ -489,11 +523,15 @@ async fn expand_function_templates(
     engine: &TemplateEngine<'_>,
     fn_name: &ResourceLocation,
     lines: &Vec<(usize, String, Line)>,
+    fn_ids: &HashMap<&ResourceLocation, usize>,
     call_tree: &MultiMap<&ResourceLocation, (&ResourceLocation, &usize)>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
-    let engine = engine.extend_orig_name(fn_name);
+    let fn_score_holder = get_fn_score_holder(fn_name, fn_ids);
+    let engine = engine
+        .extend_orig_name(fn_name)
+        .extend([("-fn_score_holder-", fn_score_holder.as_str())]);
 
     let output_path = output_path.as_ref();
     let fn_dir = output_path.join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
@@ -586,11 +624,12 @@ async fn expand_function_templates(
             Terminator::FunctionCall {
                 column_index,
                 line,
-                name,
+                name: called_fn,
                 anchor,
                 selectors,
             } => {
                 let line_number = (partition.end.line_number).to_string();
+                let fn_score_holder = get_fn_score_holder(called_fn, fn_ids);
                 let execute = &line[..*column_index];
                 let execute = exclude_internal_entites_from_selectors(execute, selectors);
                 let debug_anchor = anchor.map_or("".to_string(), |anchor| {
@@ -599,15 +638,16 @@ async fn expand_function_templates(
                         anchor_score = 1;
                     }
                     format!(
-                        "execute if score -orig_ns-:-orig/fn- -ns-_valid matches 1 run \
+                        "execute if score -fn_score_holder- -ns-_valid matches 1 run \
                             scoreboard players set current -ns-_anchor {anchor_score}",
                         anchor_score = anchor_score
                     )
                 });
                 let engine = engine.extend([
                     ("-line_number-", line_number.as_str()),
-                    ("-call_ns-", name.namespace()),
-                    ("-call/fn-", name.path()),
+                    ("-call_ns-", called_fn.namespace()),
+                    ("-call/fn-", called_fn.path()),
+                    ("-fn_score_holder-", fn_score_holder.as_str()),
                     ("execute run ", &execute),
                     ("# -debug_anchor-", &debug_anchor),
                 ]);
@@ -661,12 +701,12 @@ async fn expand_function_templates(
             .map(|(caller, line_number)| {
                 engine.expand(&format!(
                     "execute if entity \
-                    @s[tag=-ns-+{caller_namespace}+{caller_function_tag}+{line_number}] run \
-                    function -ns-:{caller_namespace}/{caller_function}/\
+                    @s[tag=-ns-+{caller_ns}+{caller_fn_tag}+{line_number}] run \
+                    function -ns-:{caller_ns}/{caller_fn}/\
                     continue_current_iteration_at_{line_number}_function",
-                    caller_namespace = caller.namespace(),
-                    caller_function = caller.path(),
-                    caller_function_tag = caller.path().replace("/", "+"),
+                    caller_ns = caller.namespace(),
+                    caller_fn = caller.path(),
+                    caller_fn_tag = caller.path().replace("/", "+"),
                     line_number = line_number
                 ))
             })
@@ -771,6 +811,38 @@ async fn expand_breakpoint_template(
             "data/template/functions/breakpoint.mcfunction"
         )))
     }
+}
+
+fn get_fn_score_holder(
+    fn_name: &ResourceLocation,
+    fn_ids: &HashMap<&ResourceLocation, usize>,
+) -> String {
+    let fn_name_string = fn_name.to_string();
+    // Before Minecraft 1.18 score holder names can't be longer than 40 characters
+    if fn_name_string.len() <= 40 {
+        fn_name_string
+    } else if let Some(id) = fn_ids.get(fn_name) {
+        format!("fn_{}", id)
+    } else {
+        // If this is a missing function, it is ok to use the whole name, even if it is to long.
+        // In this case the -ns-_valid score can not be set, but it is not set for missing functions anyways.
+        fn_name_string
+    }
+}
+
+async fn write_functions_txt(
+    fn_names: impl IntoIterator<Item = &ResourceLocation>,
+    output_path: impl AsRef<Path>,
+) -> io::Result<()> {
+    let path = output_path.as_ref().join("functions.txt");
+    let content = fn_names
+        .into_iter()
+        .map(|it| it.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    write(&path, content).await?;
+
+    Ok(())
 }
 
 async fn create_parent_dir(path: impl AsRef<Path>) -> io::Result<()> {

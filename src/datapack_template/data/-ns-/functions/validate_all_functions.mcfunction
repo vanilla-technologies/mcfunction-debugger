@@ -16,5 +16,5 @@
 # You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players set -orig_ns-:-orig/fn- -ns-_valid 0
+scoreboard players set -fn_score_holder- -ns-_valid 0
 function -ns-:-orig_ns-/-orig/fn-/validate

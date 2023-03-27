@@ -18,4 +18,4 @@
 
 # -commands-
 
-scoreboard players set -orig_ns-:-orig/fn- -ns-_valid 1
+scoreboard players set -fn_score_holder- -ns-_valid 1
