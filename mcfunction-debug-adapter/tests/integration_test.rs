@@ -27,7 +27,6 @@ use crate::utils::{
 };
 use assert2::assert;
 use debug_adapter_protocol::types::SourceBreakpoint;
-use futures::executor::block_on;
 use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::{
@@ -42,13 +41,15 @@ use serial_test::serial;
 use simple_logger::SimpleLogger;
 use std::{
     io::{self},
-    sync::Once,
     time::Duration,
 };
-use tokio::time::{sleep, timeout};
+use tokio::{
+    sync::OnceCell,
+    time::{error::Elapsed, sleep, timeout},
+};
 use tokio_stream::StreamExt;
 
-fn before_all_tests() {
+async fn before_all_tests() {
     SimpleLogger::new().init().unwrap();
 
     // If this is the first connection to Minecraft we need to reload to activate the minect datapack.
@@ -56,37 +57,35 @@ fn before_all_tests() {
     connection
         .execute_commands([Command::new("reload")])
         .unwrap();
-    wait_for_connection(&mut connection);
+    wait_for_connection(&mut connection).await.unwrap();
 }
 
-fn wait_for_connection(connection: &mut MinecraftConnection) {
+async fn wait_for_connection(
+    connection: &mut MinecraftConnection,
+) -> Result<Option<SummonNamedEntityOutput>, Elapsed> {
     const INITIAL_CONNECT_ENTITY_NAME: &str = "test_connected";
-    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+    let commands = [Command::new(summon_named_entity_command(
+        INITIAL_CONNECT_ENTITY_NAME,
+    ))];
     let events = connection.add_listener();
-    connection
-        .execute_commands([Command::new(summon_named_entity_command(
-            INITIAL_CONNECT_ENTITY_NAME,
-        ))])
-        .unwrap();
-    block_on(timeout(
-        INITIAL_CONNECT_TIMEOUT,
-        events
-            .filter_map(|event| event.output.parse::<SummonNamedEntityOutput>().ok())
-            .filter(|output| output.name == INITIAL_CONNECT_ENTITY_NAME)
-            .next(),
-    ))
-    .unwrap();
+    let mut events = events
+        .filter_map(|event| event.output.parse::<SummonNamedEntityOutput>().ok())
+        .filter(|output| output.name == INITIAL_CONNECT_ENTITY_NAME);
+    connection.execute_commands(commands).unwrap();
+
+    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+    timeout(INITIAL_CONNECT_TIMEOUT, events.next()).await
 }
 
-fn before_each_test() {
-    static BEFORE_ALL_TESTS: Once = Once::new();
-    BEFORE_ALL_TESTS.call_once(before_all_tests);
+async fn before_each_test() {
+    static BEFORE_ALL_TESTS: OnceCell<()> = OnceCell::const_new();
+    BEFORE_ALL_TESTS.get_or_init(before_all_tests).await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_program_without_breakpoint() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -112,7 +111,7 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     create_and_enable_datapack(Vec::new());
     let test_path = datapack_dir().join("not-data").join("test.mcfunction");
 
@@ -132,7 +131,7 @@ async fn test_program_not_in_data_directory_of_datapack() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -167,7 +166,7 @@ async fn test_breakpoint() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![named_logged_command(add_tag_command("@s", "some_tag"))],
@@ -205,7 +204,7 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_at_function_call() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![named_logged_command(add_tag_command("@s", "tag2"))],
@@ -244,7 +243,7 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_after_launch() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -286,7 +285,7 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_removed() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -329,7 +328,7 @@ async fn test_breakpoint_removed() -> io::Result<()> {
 #[serial]
 #[ignore = "https://github.com/vanilla-technologies/mcfunction-debugger/issues/70"]
 async fn test_hot_code_replacement() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -368,7 +367,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_breakpoint_moved() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -412,7 +411,7 @@ async fn test_breakpoint_moved() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_current_breakpoint_removed() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -451,7 +450,7 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -505,7 +504,7 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -547,7 +546,7 @@ async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() 
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let inner = Mcfunction {
@@ -599,7 +598,7 @@ async fn test_scope_selected_entity_score() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score_can_be_removed() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let inner = Mcfunction {
@@ -664,7 +663,7 @@ async fn test_scope_selected_entity_score_can_be_removed() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score_multiple_depths() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let pig = Mcfunction {
@@ -735,7 +734,7 @@ async fn test_scope_selected_entity_score_multiple_depths() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_scope_selected_entity_score_server_context() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     const SCOPE: &str = SELECTED_ENTITY_SCORES;
 
     let test = Mcfunction {
@@ -773,7 +772,7 @@ async fn test_scope_selected_entity_score_server_context() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_root_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -809,7 +808,7 @@ async fn test_step_out_of_root_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_inner_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -860,7 +859,7 @@ async fn test_step_out_of_inner_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_inner_function_with_multiple_executors() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -922,7 +921,7 @@ async fn test_step_out_of_inner_function_with_multiple_executors() -> io::Result
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_inner_function_with_breakpoint() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -976,7 +975,7 @@ async fn test_step_out_of_inner_function_with_breakpoint() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_into_end_of_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1029,7 +1028,7 @@ async fn test_step_out_into_end_of_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_out_into_end_of_function_with_breakpoint() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1085,7 +1084,7 @@ async fn test_step_out_into_end_of_function_with_breakpoint() -> io::Result<()> 
 #[tokio::test]
 #[serial]
 async fn test_step_out_into_start_of_function_with_breakpoint_via_recursion() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1162,7 +1161,7 @@ async fn test_step_out_into_start_of_function_with_breakpoint_via_recursion() ->
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_inner_function_that_recursively_calls_outer_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1228,7 +1227,7 @@ async fn test_step_out_of_inner_function_that_recursively_calls_outer_function()
 #[tokio::test]
 #[serial]
 async fn test_step_out_of_recursive_function_to_same_position() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner_name = ResourceLocation::new("adapter_test", "inner");
     let inner = Mcfunction {
         lines: vec![
@@ -1305,7 +1304,7 @@ async fn test_step_out_of_recursive_function_to_same_position() -> io::Result<()
 #[tokio::test]
 #[serial]
 async fn test_next_steps_over_command() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -1347,7 +1346,7 @@ async fn test_next_steps_over_command() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_next_steps_over_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1397,7 +1396,7 @@ async fn test_next_steps_over_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_next_steps_over_function_that_recursively_calls_current_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1467,7 +1466,7 @@ async fn test_next_steps_over_function_that_recursively_calls_current_function()
 #[tokio::test]
 #[serial]
 async fn test_next_steps_into_function_with_breakpoint() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1532,7 +1531,7 @@ async fn test_next_steps_into_function_with_breakpoint() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_next_steps_out_of_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1589,7 +1588,7 @@ async fn test_next_steps_out_of_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_next_steps_into_next_executor() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1663,7 +1662,7 @@ async fn test_next_steps_into_next_executor() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_next_steps_into_next_empty_executor() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![],
@@ -1744,7 +1743,7 @@ async fn test_next_steps_into_next_empty_executor() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_next_steps_into_next_executor_skipping_non_commands() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -1817,7 +1816,7 @@ async fn test_next_steps_into_next_executor_skipping_non_commands() -> io::Resul
 #[tokio::test]
 #[serial]
 async fn test_step_in_steps_over_command() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
@@ -1859,7 +1858,7 @@ async fn test_step_in_steps_over_command() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_in_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![named_logged_command(add_tag_command("@s", "tag1"))],
@@ -1917,7 +1916,7 @@ async fn test_step_in_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_in_empty_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![],
@@ -1974,7 +1973,7 @@ async fn test_step_in_empty_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_in_steps_over_invalid_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -2030,7 +2029,7 @@ async fn test_step_in_steps_over_invalid_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_in_steps_out_of_function() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -2087,7 +2086,7 @@ async fn test_step_in_steps_out_of_function() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_in_next_executor() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
@@ -2161,7 +2160,7 @@ async fn test_step_in_next_executor() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_in_next_empty_executor() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![],
@@ -2242,7 +2241,7 @@ async fn test_step_in_next_empty_executor() -> io::Result<()> {
 #[tokio::test]
 #[serial]
 async fn test_step_in_steps_into_next_executor_skipping_non_commands() -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![

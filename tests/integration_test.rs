@@ -1,4 +1,3 @@
-use futures::executor::block_on;
 use mcfunction_debugger::{config::Config, generate_debug_datapack};
 use minect::{
     command::{named_logged_command, summon_named_entity_command, SummonNamedEntityOutput},
@@ -9,16 +8,13 @@ use simple_logger::SimpleLogger;
 use std::{
     io,
     path::Path,
-    sync::{
-        atomic::{AtomicBool, AtomicI8, Ordering},
-        Once,
-    },
+    sync::atomic::{AtomicBool, AtomicI8, Ordering},
     time::Duration,
 };
 use tokio::{
     fs::{create_dir_all, write},
     sync::OnceCell,
-    time::timeout,
+    time::{error::Elapsed, timeout},
     try_join,
 };
 use tokio_stream::StreamExt;
@@ -169,7 +165,7 @@ mod debugger {
     }
 }
 
-fn before_all_tests() {
+async fn before_all_tests() {
     SimpleLogger::new().init().unwrap();
 
     // If this is the first connection to Minecraft we need to reload to activate the minect datapack.
@@ -177,31 +173,29 @@ fn before_all_tests() {
     connection
         .execute_commands([Command::new("reload")])
         .unwrap();
-    wait_for_connection(&mut connection);
+    wait_for_connection(&mut connection).await.unwrap();
 }
 
-fn wait_for_connection(connection: &mut MinecraftConnection) {
+async fn wait_for_connection(
+    connection: &mut MinecraftConnection,
+) -> Result<Option<SummonNamedEntityOutput>, Elapsed> {
     const INITIAL_CONNECT_ENTITY_NAME: &str = "test_connected";
-    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+    let commands = [Command::new(summon_named_entity_command(
+        INITIAL_CONNECT_ENTITY_NAME,
+    ))];
     let events = connection.add_listener();
-    connection
-        .execute_commands([Command::new(summon_named_entity_command(
-            INITIAL_CONNECT_ENTITY_NAME,
-        ))])
-        .unwrap();
-    block_on(timeout(
-        INITIAL_CONNECT_TIMEOUT,
-        events
-            .filter_map(|event| event.output.parse::<SummonNamedEntityOutput>().ok())
-            .filter(|output| output.name == INITIAL_CONNECT_ENTITY_NAME)
-            .next(),
-    ))
-    .unwrap();
+    let mut events = events
+        .filter_map(|event| event.output.parse::<SummonNamedEntityOutput>().ok())
+        .filter(|output| output.name == INITIAL_CONNECT_ENTITY_NAME);
+    connection.execute_commands(commands).unwrap();
+
+    const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+    timeout(INITIAL_CONNECT_TIMEOUT, events.next()).await
 }
 
-fn before_each_test() {
-    static BEFORE_ALL_TESTS: Once = Once::new();
-    BEFORE_ALL_TESTS.call_once(before_all_tests);
+async fn before_each_test() {
+    static BEFORE_ALL_TESTS: OnceCell<()> = OnceCell::const_new();
+    BEFORE_ALL_TESTS.get_or_init(before_all_tests).await;
 }
 
 const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
@@ -214,7 +208,7 @@ async fn run_test(
     after_age_increment: bool,
     debug: bool,
 ) -> io::Result<()> {
-    before_each_test();
+    before_each_test().await;
     // given:
     let test_fn = if debug {
         format!("debug:{}/{}/test", namespace, name)
