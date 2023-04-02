@@ -110,3 +110,9 @@ jobs:
       run: |
         cd minecraft
         SCREENDIR=screen screen -S minecraft -X stuff 'stop\n'
+
+    - uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: latest.log
+        path: minecraft/logs/latest.log
