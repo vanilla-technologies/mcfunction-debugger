@@ -105,7 +105,7 @@ jobs:
         " > mcfunction-debug-adapter/build.env
 
     - name: Execute Integration Tests
-      run: cargo test --workspace --test '*' -- ${{ matrix.additional_test_args }}
+      run: cargo test --workspace --test '*' -- --test-threads=1 ${{ matrix.additional_test_args }}
 
     - name: Stop Minecraft
       run: |
