@@ -1,0 +1,4 @@
+scoreboard players set test_score test_global 0
+schedule function test_1_15_plus:schedule_append_different_tick/increment 1t append
+schedule function test_1_15_plus:schedule_append_different_tick/increment 2t append
+schedule function test_1_15_plus:schedule_append_different_tick/assert 3t

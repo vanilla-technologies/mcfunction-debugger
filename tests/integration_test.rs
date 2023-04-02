@@ -108,6 +108,10 @@ mod minecraft {
         }
 
         include_test_category!("test");
+        mod minecraft_1_15_plus {
+            use super::*;
+            include_test_category!("test_1_15_plus");
+        }
         include_test_category!("test_before_age_increment");
     }
 
@@ -125,6 +129,10 @@ mod minecraft {
         }
 
         include_test_category!("test");
+        mod minecraft_1_15_plus {
+            use super::*;
+            include_test_category!("test_1_15_plus");
+        }
         include_test_category!("test_after_age_increment");
     }
 }
@@ -145,6 +153,10 @@ mod debugger {
             };
         }
         include_test_category!("test");
+        mod minecraft_1_15_plus {
+            use super::*;
+            include_test_category!("test_1_15_plus");
+        }
         include_test_category!("test_before_age_increment");
     }
 
@@ -161,6 +173,10 @@ mod debugger {
             };
         }
         include_test_category!("test");
+        mod minecraft_1_15_plus {
+            use super::*;
+            include_test_category!("test_1_15_plus");
+        }
         include_test_category!("test_after_age_increment");
     }
 }

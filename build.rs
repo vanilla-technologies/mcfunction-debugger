@@ -79,7 +79,7 @@ fn generate_tests(out_dir: impl AsRef<Path>) {
     create_dir_all(&out_dir).unwrap();
 
     for (namespace, tests) in find_tests(&datapack_path) {
-        let path = out_dir.join(namespace).with_extension("rs");
+        let path = out_dir.join(format!("{}.rs", namespace));
         let mut contents = tests
             .into_iter()
             .map(|test| test.to_string())
