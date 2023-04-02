@@ -7,7 +7,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  test:
+    name: Test
     runs-on: ubuntu-latest
 
     steps:
@@ -42,8 +43,9 @@ jobs:
           - minecraft_version: 1.15.2
           - minecraft_version: 1.14.4
             additional_test_args: --skip minecraft_1_15_plus
+    name: Integration Test (Minecraft ${{ matrix.minecraft_version }})
     runs-on: ubuntu-latest
-    needs: build
+    needs: test
 
     steps:
     - name: Checkout git repository
@@ -112,7 +114,8 @@ jobs:
         cd minecraft
         SCREENDIR=screen screen -S minecraft -X stuff 'stop\n'
 
-    - uses: actions/upload-artifact@v3
+    - name: Upload Minecraft Log if Failure
+      uses: actions/upload-artifact@v3
       if: failure()
       with:
         name: minecraft-${{ matrix.minecraft_version }}.log
