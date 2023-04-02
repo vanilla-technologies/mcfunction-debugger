@@ -575,9 +575,9 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 
 [[package]]
 name = "minect"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "069f79d0f85aa59c62a967f4907b14ae2620689b699f8d08b6a4be6098e45dfa"
+checksum = "92940f058d8fba13bbe9862ffd6f17d9520ff960362778fa53f297b475b366e0"
 dependencies = [
  "encoding_rs",
  "fs3",
