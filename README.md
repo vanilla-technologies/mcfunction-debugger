@@ -1,7 +1,7 @@
 [![Minecraft: Java Edition 1.14.1 - 1.19.4](https://img.shields.io/badge/Minecraft%3A%20Java%20Edition-1.14.1%20--%201.19.4-informational)](https://www.minecraft.net/store/minecraft-java-edition)
 ![Minecraft: Bedrock Edition unsupported](https://img.shields.io/badge/Minecraft%3A%20Bedrock%20Edition-unsupported-critical)\
 [![crates.io](https://img.shields.io/crates/v/mcfunction-debugger)](https://crates.io/crates/mcfunction-debugger)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/vanilla-technologies/mcfunction-debugger/rust.yml?branch=main)](https://github.com/vanilla-technologies/mcfunction-debugger/actions/workflows/rust.yml)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/vanilla-technologies/mcfunction-debugger/ci.yml?branch=main)](https://github.com/vanilla-technologies/mcfunction-debugger/actions/workflows/ci.yml)
 
 # McFunction-Debugger
 
