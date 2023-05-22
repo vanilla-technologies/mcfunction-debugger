@@ -362,8 +362,8 @@ impl Mcfunction {
     }
 }
 
-pub fn named_logged_command(command: impl Into<String>) -> String {
-    minect::command::named_logged_command(LISTENER_NAME, command)
+pub fn named_logged_cart_command(command: impl AsRef<str>) -> String {
+    minect::command::named_logged_cart_command(LISTENER_NAME, command)
 }
 
 pub fn create_datapack(functions: Vec<Mcfunction>) {

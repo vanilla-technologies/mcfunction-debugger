@@ -28,8 +28,4 @@ scoreboard players reset * -ns-_scores
 function -ns-:update_scores
 
 # -minect_log-
-function minect:enable_logging
-# -minect_log-
-tag @s add stopped+-reason-+-orig_ns-+-orig+fn-+-position-
-# -minect_log-
-function minect:reset_logging
+summon area_effect_cloud ~ ~ ~ {CustomName: '{"text":"stopped+-reason-+-orig_ns-+-orig+fn-+-position-"}'}

@@ -19,8 +19,4 @@
 scoreboard players reset * -ns-_scores
 
 # -minect_log-
-function minect:enable_logging
-# -minect_log-
-tag @s add exited
-# -minect_log-
-function minect:reset_logging
+summon area_effect_cloud ~ ~ ~ {CustomName: '{"text":"exited"}'}

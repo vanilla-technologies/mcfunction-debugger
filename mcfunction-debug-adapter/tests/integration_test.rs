@@ -20,7 +20,7 @@ mod utils;
 
 use crate::utils::{
     added_tag_output, assert_all_breakpoints_verified, assert_error_response, connection,
-    create_datapack, datapack_dir, get_source_path, named_logged_command, start_adapter,
+    create_datapack, datapack_dir, get_source_path, named_logged_cart_command, start_adapter,
     timeout::{TimeoutStream, TimeoutStreamError},
     Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
 };
@@ -30,7 +30,7 @@ use mcfunction_debug_adapter::adapter::SELECTED_ENTITY_SCORES;
 use mcfunction_debugger::parser::command::resource_location::ResourceLocation;
 use minect::{
     command::{
-        add_tag_command, enable_logging_command, logged_command, reset_logging_command,
+        add_tag_command, enable_logging_command, logged_cart_command, reset_logging_command,
         summon_named_entity_command, SummonNamedEntityOutput,
     },
     log::LogObserver,
@@ -88,9 +88,9 @@ async fn test_program_without_breakpoint() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            logged_command(enable_logging_command()),
-            named_logged_command(add_tag_command("@s", "some_tag")),
-            logged_command(reset_logging_command()),
+            logged_cart_command(enable_logging_command()),
+            named_logged_cart_command(add_tag_command("@s", "some_tag")),
+            logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -134,10 +134,10 @@ async fn test_breakpoint() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -168,15 +168,15 @@ async fn test_breakpoint_at_first_line_of_function() -> io::Result<()> {
     before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
-        lines: vec![named_logged_command(add_tag_command("@s", "some_tag"))],
+        lines: vec![named_logged_cart_command(add_tag_command("@s", "some_tag"))],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            logged_command(enable_logging_command()),
+            logged_cart_command(enable_logging_command()),
             format!("function {}", inner.name),
-            logged_command(reset_logging_command()),
+            logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -206,15 +206,15 @@ async fn test_breakpoint_at_function_call() -> io::Result<()> {
     before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
-        lines: vec![named_logged_command(add_tag_command("@s", "tag2"))],
+        lines: vec![named_logged_cart_command(add_tag_command("@s", "tag2"))],
     };
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
             /* 3 */ format!("function {}", inner.name),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -246,10 +246,10 @@ async fn test_breakpoint_after_launch() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -288,10 +288,10 @@ async fn test_breakpoint_removed() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -331,9 +331,9 @@ async fn test_hot_code_replacement() -> io::Result<()> {
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -353,7 +353,7 @@ async fn test_hot_code_replacement() -> io::Result<()> {
     assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout); // Second line NOT executed
 
     test.lines
-        .insert(2, named_logged_command(add_tag_command("@s", "tag2")));
+        .insert(2, named_logged_cart_command(add_tag_command("@s", "tag2")));
     create_datapack(vec![test]);
 
     adapter.continue_().await;
@@ -370,10 +370,10 @@ async fn test_breakpoint_moved() -> io::Result<()> {
     let mut test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -414,9 +414,9 @@ async fn test_current_breakpoint_removed() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "some_tag")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "some_tag")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -453,9 +453,9 @@ async fn test_current_breakpoint_removed_while_iterating() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "some_tag")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "some_tag")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test = Mcfunction {
@@ -507,9 +507,9 @@ async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() 
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "some_tag")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "some_tag")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -775,9 +775,9 @@ async fn test_step_out_of_root_function() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "some_tag")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "some_tag")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -811,18 +811,18 @@ async fn test_step_out_of_inner_function() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
         ],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            logged_command(enable_logging_command()),
+            logged_cart_command(enable_logging_command()),
             format!("function {}", inner.name),
-            named_logged_command(add_tag_command("@s", "tag3")),
-            logged_command(reset_logging_command()),
+            named_logged_cart_command(add_tag_command("@s", "tag3")),
+            logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -862,8 +862,8 @@ async fn test_step_out_of_inner_function_with_multiple_executors() -> io::Result
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
         ],
     };
     let inner_path = inner.full_path();
@@ -873,13 +873,13 @@ async fn test_step_out_of_inner_function_with_multiple_executors() -> io::Result
             "kill @e[type=sheep,tag=test]".to_string(),
             "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
             "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
-            logged_command(enable_logging_command()),
+            logged_cart_command(enable_logging_command()),
             format!(
                 "execute as @e[type=sheep,tag=test] run function {}",
                 inner.name
             ),
-            named_logged_command(add_tag_command("@s", "tag3")),
-            logged_command(reset_logging_command()),
+            named_logged_cart_command(add_tag_command("@s", "tag3")),
+            logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -924,18 +924,18 @@ async fn test_step_out_of_inner_function_with_breakpoint() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
         ],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            logged_command(enable_logging_command()),
+            logged_cart_command(enable_logging_command()),
             format!("function {}", inner.name),
-            named_logged_command(add_tag_command("@s", "tag3")),
-            logged_command(reset_logging_command()),
+            named_logged_cart_command(add_tag_command("@s", "tag3")),
+            logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -978,9 +978,9 @@ async fn test_step_out_into_end_of_function() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let inner_path = inner.full_path();
@@ -1031,9 +1031,9 @@ async fn test_step_out_into_end_of_function_with_breakpoint() -> io::Result<()> 
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let inner_path = inner.full_path();
@@ -1087,9 +1087,9 @@ async fn test_step_out_into_start_of_function_with_breakpoint_via_recursion() ->
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
             /* 4 */ "scoreboard players set test test_global 1".to_string(),
             /* 5 */ "function adapter_test:outer".to_string(),
         ],
@@ -1164,9 +1164,9 @@ async fn test_step_out_of_inner_function_that_recursively_calls_outer_function()
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
             /* 4 */ "scoreboard players set test test_global 1".to_string(),
             /* 5 */ "function adapter_test:outer".to_string(),
         ],
@@ -1307,10 +1307,10 @@ async fn test_next_steps_over_command() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -1349,17 +1349,17 @@ async fn test_next_steps_over_function() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            named_logged_command(add_tag_command("@s", "tag1")),
-            named_logged_command(add_tag_command("@s", "tag2")),
+            named_logged_cart_command(add_tag_command("@s", "tag1")),
+            named_logged_cart_command(add_tag_command("@s", "tag2")),
         ],
     };
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
             /* 2 */ format!("function {}", inner.name),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag3")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag3")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1399,8 +1399,8 @@ async fn test_next_steps_over_function_that_recursively_calls_current_function()
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
             /* 3 */ "scoreboard players set test test_global 1".to_string(),
             /* 4 */ "function adapter_test:outer".to_string(),
         ],
@@ -1409,14 +1409,14 @@ async fn test_next_steps_over_function_that_recursively_calls_current_function()
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
             /* 1 */ "scoreboard objectives add test_global dummy".to_string(),
-            /* 2 */ logged_command(enable_logging_command()),
+            /* 2 */ logged_cart_command(enable_logging_command()),
             /* 3 */
             format!(
                 "execute unless score test test_global matches 1 run function {}",
                 inner.name
             ),
-            /* 4 */ named_logged_command(add_tag_command("@s", "tag3")),
-            /* 5 */ logged_command(reset_logging_command()),
+            /* 4 */ named_logged_cart_command(add_tag_command("@s", "tag3")),
+            /* 5 */ logged_cart_command(reset_logging_command()),
             /* 6 */ "scoreboard objectives remove test_global".to_string(),
         ],
     };
@@ -1469,18 +1469,18 @@ async fn test_next_steps_into_function_with_breakpoint() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
         ],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
             /* 2 */ format!("function {}", inner.name),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag3")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag3")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1534,17 +1534,17 @@ async fn test_next_steps_out_of_function() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
         ],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
             /* 2 */ format!("function {}", inner.name),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1591,8 +1591,8 @@ async fn test_next_steps_into_next_executor() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
         ],
     };
     let inner_path = inner.full_path();
@@ -1602,14 +1602,14 @@ async fn test_next_steps_into_next_executor() -> io::Result<()> {
             /* 1 */ "kill @e[type=sheep,tag=test]".to_string(),
             /* 2 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
             /* 3 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
-            /* 4 */ logged_command(enable_logging_command()),
+            /* 4 */ logged_cart_command(enable_logging_command()),
             /* 5 */
             format!(
                 "execute as @e[type=sheep,tag=test] run function {}",
                 inner.name
             ),
-            /* 6 */ named_logged_command(add_tag_command("@s", "tag3")),
-            /* 7 */ logged_command(reset_logging_command()),
+            /* 6 */ named_logged_cart_command(add_tag_command("@s", "tag3")),
+            /* 7 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1673,14 +1673,14 @@ async fn test_next_steps_into_next_empty_executor() -> io::Result<()> {
             /* 1 */ "kill @e[type=sheep,tag=test]".to_string(),
             /* 2 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
             /* 3 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
-            /* 4 */ logged_command(enable_logging_command()),
+            /* 4 */ logged_cart_command(enable_logging_command()),
             /* 5 */
             format!(
                 "execute as @e[type=sheep,tag=test] run function {}",
                 inner.name
             ),
-            /* 6 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 7 */ logged_command(reset_logging_command()),
+            /* 6 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 7 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1748,7 +1748,7 @@ async fn test_next_steps_into_next_executor_skipping_non_commands() -> io::Resul
         lines: vec![
             /* 1 */ "".to_string(), // skipped
             /* 2 */ "# comment".to_string(), // skipped
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
         ],
     };
     let inner_path = inner.full_path();
@@ -1758,14 +1758,14 @@ async fn test_next_steps_into_next_executor_skipping_non_commands() -> io::Resul
             /* 1 */ "kill @e[type=sheep,tag=test]".to_string(),
             /* 2 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
             /* 3 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
-            /* 4 */ logged_command(enable_logging_command()),
+            /* 4 */ logged_cart_command(enable_logging_command()),
             /* 5 */
             format!(
                 "execute as @e[type=sheep,tag=test] run function {}",
                 inner.name
             ),
-            /* 6 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 7 */ logged_command(reset_logging_command()),
+            /* 6 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 7 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1819,10 +1819,10 @@ async fn test_step_in_steps_over_command() -> io::Result<()> {
     let test = Mcfunction {
         name: ResourceLocation::new("adapter_test", "test"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let test_path = test.full_path();
@@ -1860,16 +1860,16 @@ async fn test_step_in_function() -> io::Result<()> {
     before_each_test().await;
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
-        lines: vec![named_logged_command(add_tag_command("@s", "tag1"))],
+        lines: vec![named_logged_cart_command(add_tag_command("@s", "tag1"))],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
             /* 2 */ format!("function {}", inner.name),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1924,10 +1924,10 @@ async fn test_step_in_empty_function() -> io::Result<()> {
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
             /* 2 */ format!("function {}", inner.name),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -1977,16 +1977,16 @@ async fn test_step_in_steps_over_invalid_function() -> io::Result<()> {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
             "this is an invalid command".to_string(),
-            named_logged_command(add_tag_command("@s", "tag1")),
+            named_logged_cart_command(add_tag_command("@s", "tag1")),
         ],
     };
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
             /* 2 */ format!("function {}", inner.name),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -2032,17 +2032,17 @@ async fn test_step_in_steps_out_of_function() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
         ],
     };
     let inner_path = inner.full_path();
     let outer = Mcfunction {
         name: ResourceLocation::new("adapter_test", "outer"),
         lines: vec![
-            /* 1 */ logged_command(enable_logging_command()),
+            /* 1 */ logged_cart_command(enable_logging_command()),
             /* 2 */ format!("function {}", inner.name),
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 4 */ logged_command(reset_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -2089,8 +2089,8 @@ async fn test_step_in_next_executor() -> io::Result<()> {
     let inner = Mcfunction {
         name: ResourceLocation::new("adapter_test", "inner"),
         lines: vec![
-            /* 1 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 2 */ named_logged_command(add_tag_command("@s", "tag2")),
+            /* 1 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
         ],
     };
     let inner_path = inner.full_path();
@@ -2100,14 +2100,14 @@ async fn test_step_in_next_executor() -> io::Result<()> {
             /* 1 */ "kill @e[type=sheep,tag=test]".to_string(),
             /* 2 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
             /* 3 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
-            /* 4 */ logged_command(enable_logging_command()),
+            /* 4 */ logged_cart_command(enable_logging_command()),
             /* 5 */
             format!(
                 "execute as @e[type=sheep,tag=test] run function {}",
                 inner.name
             ),
-            /* 6 */ named_logged_command(add_tag_command("@s", "tag3")),
-            /* 7 */ logged_command(reset_logging_command()),
+            /* 6 */ named_logged_cart_command(add_tag_command("@s", "tag3")),
+            /* 7 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -2171,14 +2171,14 @@ async fn test_step_in_next_empty_executor() -> io::Result<()> {
             /* 1 */ "kill @e[type=sheep,tag=test]".to_string(),
             /* 2 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
             /* 3 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
-            /* 4 */ logged_command(enable_logging_command()),
+            /* 4 */ logged_cart_command(enable_logging_command()),
             /* 5 */
             format!(
                 "execute as @e[type=sheep,tag=test] run function {}",
                 inner.name
             ),
-            /* 6 */ named_logged_command(add_tag_command("@s", "tag1")),
-            /* 7 */ logged_command(reset_logging_command()),
+            /* 6 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 7 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();
@@ -2246,7 +2246,7 @@ async fn test_step_in_steps_into_next_executor_skipping_non_commands() -> io::Re
         lines: vec![
             /* 1 */ "".to_string(), // skipped
             /* 2 */ "# comment".to_string(), // skipped
-            /* 3 */ named_logged_command(add_tag_command("@s", "tag1")),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
         ],
     };
     let inner_path = inner.full_path();
@@ -2256,14 +2256,14 @@ async fn test_step_in_steps_into_next_executor_skipping_non_commands() -> io::Re
             /* 1 */ "kill @e[type=sheep,tag=test]".to_string(),
             /* 2 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
             /* 3 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
-            /* 4 */ logged_command(enable_logging_command()),
+            /* 4 */ logged_cart_command(enable_logging_command()),
             /* 5 */
             format!(
                 "execute as @e[type=sheep,tag=test] run function {}",
                 inner.name
             ),
-            /* 6 */ named_logged_command(add_tag_command("@s", "tag2")),
-            /* 7 */ logged_command(reset_logging_command()),
+            /* 6 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 7 */ logged_cart_command(reset_logging_command()),
         ],
     };
     let outer_path = outer.full_path();

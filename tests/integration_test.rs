@@ -1,6 +1,6 @@
 use mcfunction_debugger::{config::Config, generate_debug_datapack};
 use minect::{
-    command::{named_logged_command, summon_named_entity_command, SummonNamedEntityOutput},
+    command::{named_logged_block_commands, summon_named_entity_command, SummonNamedEntityOutput},
     Command, MinecraftConnection,
 };
 use serial_test::serial;
@@ -12,12 +12,13 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    fs::{create_dir_all, write},
+    fs::{copy, create_dir, create_dir_all, write},
     sync::OnceCell,
     time::{error::Elapsed, timeout},
     try_join,
 };
 use tokio_stream::StreamExt;
+use walkdir::WalkDir;
 
 macro_rules! include_template {
     ( $path:expr) => {
@@ -66,8 +67,13 @@ fn expand_logged_cmds(string: &str) -> String {
     let mut expanded = String::with_capacity(string.len());
     for line in string.lines() {
         if let Some((index, executor, command)) = find_special_say_command(line) {
-            expanded.push_str(&line[..index]);
-            expanded.push_str(&named_logged_command(executor, command));
+            let prefix = &line[..index];
+            let commands = named_logged_block_commands(executor, command);
+            for command in commands {
+                expanded.push_str(prefix);
+                expanded.push_str(&command);
+                expanded.push('\n');
+            }
         } else {
             expanded.push_str(&line);
         }
@@ -247,7 +253,7 @@ async fn run_test(
 
     // then:
     let event = timeout(TIMEOUT, events.next()).await?.unwrap();
-    assert_eq!(event.output, "Added tag 'success' to test");
+    assert_eq!(event.output, "Summoned new success");
 
     Ok(())
 }
@@ -277,6 +283,48 @@ async fn expand_test_templates() -> io::Result<()> {
 
 async fn do_expand_test_templates() -> io::Result<()> {
     include!(concat!(env!("OUT_DIR"), "/tests/expand_test_templates.rs"));
+
+    let test_datapack_dir = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
+    add_minect_functions(test_datapack_dir).await?;
+    Ok(())
+}
+
+async fn add_minect_functions(test_datapack_dir: std::path::PathBuf) -> Result<(), io::Error> {
+    let connection = connection();
+    let minect_datapack_dir = connection.get_datapack_dir();
+    if !minect_datapack_dir.is_dir() {
+        connection.create_datapack()?;
+    }
+
+    let minect_functions = "data/minect/functions";
+    let minect_internal_functions = "data/minect_internal/functions";
+    try_join!(
+        copy_dir(
+            minect_datapack_dir.join(minect_functions),
+            test_datapack_dir.join(minect_functions),
+        ),
+        copy_dir(
+            minect_datapack_dir.join(minect_internal_functions),
+            test_datapack_dir.join(minect_internal_functions),
+        ),
+    )?;
+
+    Ok(())
+}
+
+async fn copy_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    create_dir_all(&dst).await?;
+    for entry in WalkDir::new(&src) {
+        let entry = entry?;
+        let file_type = entry.file_type();
+        let relative_path = entry.path().strip_prefix(&src).unwrap();
+        let dst_path = dst.as_ref().join(relative_path);
+        if file_type.is_dir() && !dst_path.exists() {
+            create_dir(dst_path).await?;
+        } else if file_type.is_file() {
+            copy(entry.path(), dst_path).await?;
+        }
+    }
     Ok(())
 }
 

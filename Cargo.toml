@@ -18,7 +18,7 @@ clap = "2"
 futures = "0.3"
 hematite-nbt = { version = "0.5" }
 log = "0.4"
-minect = "0.1"
+minect = "0.2"
 # minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 # minect = { path = "../minect" }
 multimap = "0.8"

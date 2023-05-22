@@ -58,9 +58,8 @@ use mcfunction_debugger::{
 };
 use minect::{
     command::{
-        enable_logging_command, logged_command, named_logged_command, query_scoreboard_command,
-        reset_logging_command, summon_named_entity_command, AddTagOutput, QueryScoreboardOutput,
-        SummonNamedEntityOutput,
+        logged_block_commands, named_logged_block_commands, query_scoreboard_command,
+        summon_named_entity_command, AddTagOutput, QueryScoreboardOutput, SummonNamedEntityOutput,
     },
     log::LogEvent,
     Command, MinecraftConnection,
@@ -570,14 +569,12 @@ impl DebugAdapter for McfunctionDebugAdapter {
             msg.executor,
             msg.output
         );
-        if let Ok(output) = msg.output.parse::<AddTagOutput>() {
-            if output.entity == LISTENER_NAME {
-                if let Ok(event) = output.tag.parse() {
-                    self.on_stopped(event, &mut context).await?;
-                }
-                if output.tag == "exited" {
-                    self.on_exited(&mut context).await?;
-                }
+        if let Ok(output) = msg.output.parse::<SummonNamedEntityOutput>() {
+            if let Ok(event) = output.name.parse() {
+                self.on_stopped(event, &mut context).await?;
+            }
+            if output.name == "exited" {
+                self.on_exited(&mut context).await?;
             }
         }
         Ok(())
@@ -975,21 +972,20 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     "{} scoreboard players operation @e[tag=!-ns-_context] -ns-_id += @s -ns-_id",
                     execute_as_context
                 ));
-                mc_session.inject_commands(vec![
-                    Command::new(logged_command(enable_logging_command())),
-                    Command::new(named_logged_command(
-                        LISTENER_NAME,
-                        summon_named_entity_command(START),
-                    )),
-                    Command::new(logged_command(decrement_ids)),
-                    Command::new(mc_session.replace_ns("function -ns-:log_scores")),
-                    Command::new(logged_command(increment_ids)),
-                    Command::new(named_logged_command(
-                        LISTENER_NAME,
-                        summon_named_entity_command(END),
-                    )),
-                    Command::new(logged_command(reset_logging_command())),
-                ])?;
+                let mut commands = Vec::new();
+                commands.extend(named_logged_block_commands(
+                    LISTENER_NAME,
+                    &summon_named_entity_command(START),
+                ));
+                commands.extend(logged_block_commands(&decrement_ids));
+                commands.push(mc_session.replace_ns("function -ns-:log_scores"));
+                commands.extend(logged_block_commands(&increment_ids));
+                commands.extend(named_logged_block_commands(
+                    LISTENER_NAME,
+                    &summon_named_entity_command(END),
+                ));
+                let commands = commands.into_iter().map(Command::new).collect();
+                mc_session.inject_commands(commands)?;
 
                 let variables = events_between(events, START, END)
                     .filter_map(|event| event.output.parse::<QueryScoreboardOutput>().ok())

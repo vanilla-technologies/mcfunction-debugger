@@ -7,7 +7,5 @@ execute store result score sheep_y test_global run data get entity @s Pos[1] 100
 scoreboard players operation diff_y test_global = aec_y test_global
 scoreboard players operation diff_y test_global -= sheep_y test_global
 
-say [@: function minect:enable_logging]
-execute unless score diff_y test_global matches 0 run say [test: tag @s add success]
+execute unless score diff_y test_global matches 0 run say [test: summon area_effect_cloud ~ ~ ~ {CustomName: '{"text":"success"}'}]
 execute if score diff_y test_global matches 0 run say [test: scoreboard players add diff_y test_global 0]
-say [@: function minect:reset_logging]
