@@ -505,8 +505,15 @@ impl McfunctionDebugAdapter {
             let mut dirty = false;
 
             if !client_session.temporary_breakpoints.is_empty() {
+                let contains_suspending_breakpoint = client_session
+                    .temporary_breakpoints
+                    .iter()
+                    .find(|(_fn_name, breakpoint)| breakpoint.kind != BreakpointKind::Continue)
+                    .is_some();
+                // We don't have to regenerate the datapack just to remove breakpoints that don't suspend anyways.
+                // This is important because we always add a continue point, so we would always be dirty.
+                dirty |= contains_suspending_breakpoint;
                 client_session.temporary_breakpoints.clear();
-                dirty = true;
             }
 
             for (function, breakpoint) in temporary_breakpoints {
