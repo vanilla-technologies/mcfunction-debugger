@@ -48,7 +48,7 @@ pub enum BreakpointKind {
     Normal,
     Invalid,
     Continue,
-    Step { condition: String },
+    Step { depth: usize },
 }
 impl BreakpointKind {
     pub fn can_resume(&self) -> bool {

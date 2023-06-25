@@ -16,23 +16,7 @@
 # You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard objectives remove -ns-_Age
-scoreboard objectives remove -ns-_Duration
-scoreboard objectives remove -ns-_WaitTime
-scoreboard objectives remove -ns-_anchor
-scoreboard objectives remove -ns-_break
-scoreboard objectives remove -ns-_depth
-scoreboard objectives remove -ns-_global
-scoreboard objectives remove -ns-_scores
-scoreboard objectives remove -ns-_skipped
-scoreboard objectives remove -ns-_step
-scoreboard objectives remove -ns-_tmp
-scoreboard objectives remove -ns-_valid
-
-scoreboard objectives remove -ns-_constant
-
-function -ns-:id/uninstall
-kill @e[tag=-ns-]
-
-# -if_not_adapter-
-tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Datapack '-datapack-' was uninstalled."}]
+execute if score -score_holder- -ns-_break matches 1 run scoreboard players set breakpoint -ns-_global 1
+execute if score -score_holder- -ns-_step = current -ns-_depth run scoreboard players set breakpoint -ns-_global 1
+execute if score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/suspend_at_-position-
+execute unless score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/-next_positions-

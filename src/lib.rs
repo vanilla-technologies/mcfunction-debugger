@@ -591,8 +591,27 @@ async fn expand_function_templates(
                 )
                 .await?
             }
+            Terminator::ConfigurableBreakpoint { position_in_line } => {
+                let column = match position_in_line {
+                    BreakpointPositionInLine::Breakpoint => 1,
+                    BreakpointPositionInLine::AfterFunction => {
+                        let (_line_number, line, _parsed) = &lines[partition.end.line_number - 1];
+                        1 + line.len()
+                    }
+                };
+                let next_partition = &partitions[partition_index + 1];
+                expand_breakpoint_template2(
+                    &engine,
+                    output_path,
+                    &fn_score_holder,
+                    &partition.end,
+                    column,
+                    next_partition,
+                )
+                .await?
+            }
             Terminator::Step {
-                condition,
+                depth,
                 position_in_line,
             } => {
                 let column = match position_in_line {
@@ -602,6 +621,8 @@ async fn expand_function_templates(
                         1 + line.len()
                     }
                 };
+                let condition =
+                    engine.expand(&format!("if score current -ns-_depth matches {}", depth));
                 let next_partition = &partitions[partition_index + 1];
                 expand_breakpoint_template(
                     &engine,
@@ -609,7 +630,7 @@ async fn expand_function_templates(
                     &partition.end,
                     StoppedReason::Step,
                     column,
-                    Some((condition, next_partition)),
+                    Some((&condition, next_partition)),
                 )
                 .await?
             }
@@ -811,6 +832,43 @@ async fn expand_breakpoint_template(
             "data/template/functions/breakpoint.mcfunction"
         )))
     }
+}
+
+async fn expand_breakpoint_template2(
+    engine: &TemplateEngine<'_>,
+    output_path: &Path,
+    fn_score_holder: &str,
+    position: &Position,
+    column: usize,
+    next_partition: &Partition<'_>,
+) -> io::Result<String> {
+    let line_number = position.line_number.to_string();
+    let position = position.to_string();
+    let reason = "breakpoint";
+    let column_str = &format!(":{}", column);
+    let optional_column = if column == 0 { "" } else { column_str };
+    let engine = engine.extend([
+        ("-line_number-", line_number.as_str()),
+        ("-position-", &position),
+        ("-reason-", &reason),
+        ("-optional_column-", optional_column),
+    ]);
+    expand_template!(
+        engine,
+        output_path,
+        "data/-ns-/functions/-orig_ns-/-orig/fn-/suspend_at_-position-.mcfunction"
+    )
+    .await?;
+
+    let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
+    let score_holder = format!("{}_{}", fn_score_holder, position);
+    let engine = engine.extend([
+        ("-next_positions-", next_positions.as_str()),
+        ("-score_holder-", score_holder.as_str()),
+    ]);
+    Ok(engine.expand(include_template!(
+        "data/template/functions/breakpoint_configurable.mcfunction"
+    )))
 }
 
 fn get_fn_score_holder(

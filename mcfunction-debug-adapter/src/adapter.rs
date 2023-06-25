@@ -30,7 +30,10 @@ use crate::{
 };
 use async_trait::async_trait;
 use debug_adapter_protocol::{
-    events::{Event, OutputCategory, OutputEventBody, StoppedEventBody, TerminatedEventBody},
+    events::{
+        Event, OutputCategory, OutputEventBody, StoppedEventBody, StoppedEventReason,
+        TerminatedEventBody,
+    },
     requests::{
         ContinueRequestArguments, EvaluateRequestArguments, InitializeRequestArguments,
         LaunchRequestArguments, NextRequestArguments, PathFormat, PauseRequestArguments,
@@ -126,8 +129,7 @@ impl MinecraftSession {
         position_in_line: BreakpointPositionInLine,
         depth: usize,
     ) -> (ResourceLocation, LocalBreakpoint) {
-        let condition = self.replace_ns(&format!("if score current -ns-_depth matches {}", depth));
-        let kind = BreakpointKind::Step { condition };
+        let kind = BreakpointKind::Step { depth };
         let position = LocalBreakpointPosition {
             line_number,
             position_in_line,
@@ -442,6 +444,7 @@ impl McfunctionDebugAdapter {
         context: &mut (impl DebugAdapterContext + Send),
     ) -> io::Result<()> {
         if let Some(client_session) = &mut self.client_session {
+            let is_temporary_breakpoint = is_temporary_breakpoint(&client_session, &event);
             if let Some(minecraft_session) = &mut client_session.minecraft_session {
                 minecraft_session.stopped_data = Some(StoppedData {
                     position: event.position,
@@ -449,7 +452,12 @@ impl McfunctionDebugAdapter {
                 });
 
                 let event = StoppedEventBody::builder()
-                    .reason(to_stopped_event_reason(event.reason))
+                    .reason(if is_temporary_breakpoint {
+                        StoppedEventReason::Step
+                    } else {
+                        StoppedEventReason::Breakpoint
+                    })
+                    // .reason(to_stopped_event_reason(event.reason))
                     .thread_id(Some(MAIN_THREAD_ID))
                     .build();
                 context.fire_event(event);
@@ -499,59 +507,86 @@ impl McfunctionDebugAdapter {
         temporary_breakpoints: Vec<(ResourceLocation, LocalBreakpoint)>,
     ) -> Result<(), RequestError<io::Error>> {
         let client_session = Self::unwrap_client_session(&mut self.client_session)?;
+        let column_offset = client_session.get_column_offset();
         let mc_session = Self::unwrap_minecraft_session(&mut client_session.minecraft_session)?;
 
         if let Some(stopped_data) = mc_session.stopped_data.as_ref() {
-            let mut dirty = false;
+            let mut commands = Vec::new();
+
+            // let mut dirty = false;
 
             if !client_session.temporary_breakpoints.is_empty() {
-                let contains_suspending_breakpoint = client_session
-                    .temporary_breakpoints
-                    .iter()
-                    .find(|(_fn_name, breakpoint)| breakpoint.kind != BreakpointKind::Continue)
-                    .is_some();
-                // We don't have to regenerate the datapack just to remove breakpoints that don't suspend anyways.
-                // This is important because we always add a continue point, so we would always be dirty.
-                dirty |= contains_suspending_breakpoint;
+                for (fn_name, breakpoints) in &client_session.temporary_breakpoints {
+                    for breakpoint in breakpoints {
+                        commands.push(remove_breakpoint_command(fn_name, breakpoint));
+                    }
+                }
+                // let contains_suspending_breakpoint = client_session
+                //     .temporary_breakpoints
+                //     .iter()
+                //     .find(|(_fn_name, breakpoint)| breakpoint.kind != BreakpointKind::Continue)
+                //     .is_some();
+                // // We don't have to regenerate the datapack just to remove breakpoints that don't suspend anyways.
+                // // This is important because we always add a continue point, so we would always be dirty.
+                // dirty |= contains_suspending_breakpoint;
                 client_session.temporary_breakpoints.clear();
             }
 
-            for (function, breakpoint) in temporary_breakpoints {
+            for (fn_name, breakpoint) in temporary_breakpoints {
+                commands.push(set_breakpoint_command(&fn_name, &breakpoint));
                 client_session
                     .temporary_breakpoints
-                    .insert(function, breakpoint);
-                dirty = true;
+                    .insert(fn_name, breakpoint);
+                // dirty = true;
             }
 
-            // Always insert continue point to avoid a race condition where the user removes the breakpoint right before Minecraft continues
-            client_session.temporary_breakpoints.insert(
-                stopped_data.position.function.clone(),
-                LocalBreakpoint {
-                    kind: BreakpointKind::Continue,
-                    position: LocalBreakpointPosition {
-                        line_number: stopped_data.position.line_number,
-                        position_in_line: stopped_data.position.position_in_line,
+            // // Always insert continue point to avoid a race condition where the user removes the breakpoint right before Minecraft continues
+            // client_session.temporary_breakpoints.insert(
+            //     stopped_data.position.function.clone(),
+            //     LocalBreakpoint {
+            //         kind: BreakpointKind::Continue,
+            //         position: LocalBreakpointPosition {
+            //             line_number: stopped_data.position.line_number,
+            //             position_in_line: stopped_data.position.position_in_line,
+            //         },
+            //     },
+            // );
+            // // If there isn't already a breakpoint that can resume we need to load the continue point
+            // if !can_resume_from(&client_session.breakpoints, &stopped_data.position) {
+            //     dirty = true;
+            // }
+
+            // if dirty {
+            //     generate_datapack(
+            //         mc_session,
+            //         &client_session.breakpoints,
+            //         &client_session.temporary_breakpoints,
+            //     )
+            //     .await?;
+            //     commands.push(Command::new("reload"));
+            // };
+
+            // commands.push(Command::new("function debug:resume"));
+            if let Some(stack_frame) = stopped_data.stack_trace.first() {
+                commands.push(Command::new(
+                    "scoreboard players set breakpoint mcfd_global 0",
+                ));
+                commands.push(Command::new(
+                    "kill @e[type=area_effect_cloud,tag=mcfd_breakpoint]",
+                ));
+                commands.push(Command::new(format!(
+                    "schedule function mcfd:{}/{}/continue_current_iteration_at_{}_{} 1t",
+                    stack_frame.location.function.namespace(),
+                    stack_frame.location.function.path(),
+                    stack_frame.location.line_number,
+                    if stack_frame.location.column_number + column_offset == 1 {
+                        "breakpoint"
+                    } else {
+                        "after_function"
                     },
-                },
-            );
-            // If there isn't already a breakpoint that can resume we need to load the continue point
-            if !can_resume_from(&client_session.breakpoints, &stopped_data.position) {
-                dirty = true;
+                )));
             }
 
-            let mut commands = Vec::new();
-
-            if dirty {
-                generate_datapack(
-                    mc_session,
-                    &client_session.breakpoints,
-                    &client_session.temporary_breakpoints,
-                )
-                .await?;
-                commands.push(Command::new("reload"));
-            };
-
-            commands.push(Command::new("function debug:resume"));
             mc_session.inject_commands(commands)?;
             mc_session.stopped_data = None;
             mc_session.scopes.clear();
@@ -559,6 +594,24 @@ impl McfunctionDebugAdapter {
 
         Ok(())
     }
+}
+
+fn is_temporary_breakpoint(client_session: &ClientSession, event: &StoppedEvent) -> bool {
+    let breakpoints = client_session
+        .temporary_breakpoints
+        .get_vec(&event.position.function);
+    let breakpoints = if let Some(breakpoints) = breakpoints {
+        breakpoints
+    } else {
+        return false;
+    };
+    breakpoints
+        .iter()
+        .find(|breakpoint| {
+            breakpoint.position.line_number == event.position.line_number
+                && breakpoint.position.position_in_line == event.position.position_in_line
+        })
+        .is_some()
 }
 
 #[async_trait]
@@ -687,17 +740,25 @@ impl DebugAdapter for McfunctionDebugAdapter {
         )
         .await?;
 
-        minecraft_session.inject_commands(vec![
+        let commands = vec![
             Command::new("reload"),
             Command::new(format!("datapack enable \"file/{}\"", debug_datapack_name)),
-            // After loading the datapack we must wait one tick for it to install itself
-            // By scheduling this function call we also have a defined execution position
-            Command::new(format!(
-                "schedule function debug:{}/{} 1t",
-                config.function.namespace(),
-                config.function.path(),
-            )),
-        ])?;
+        ];
+        minecraft_session.inject_commands(commands)?;
+        // After loading the datapack we must wait one tick for it to install itself
+        let mut commands = Vec::new();
+        for (function, breakpoints) in client_session.breakpoints.iter_all() {
+            for breakpoint in breakpoints {
+                commands.push(set_breakpoint_command(function, breakpoint));
+            }
+        }
+        // By scheduling this function call we have a defined execution position
+        commands.push(Command::new(format!(
+            "schedule function debug:{}/{} 1t",
+            config.function.namespace(),
+            config.function.path(),
+        )));
+        minecraft_session.inject_commands(commands)?;
 
         client_session.minecraft_session = Some(minecraft_session);
         Ok(())
@@ -821,13 +882,20 @@ impl DebugAdapter for McfunctionDebugAdapter {
         let new_breakpoints = client_session.breakpoints.get_vec(&function).unwrap();
 
         if let Some(minecraft_session) = client_session.minecraft_session.as_mut() {
-            generate_datapack(
-                minecraft_session,
-                &client_session.breakpoints,
-                &client_session.temporary_breakpoints,
-            )
-            .await?;
-            let mut commands = vec![Command::new("reload")];
+            // generate_datapack(
+            //     minecraft_session,
+            //     &client_session.breakpoints,
+            //     &client_session.temporary_breakpoints,
+            // )
+            // .await?;
+            // let mut commands = vec![Command::new("reload")];
+            let mut commands = Vec::new();
+            for breakpoint in &old_breakpoints {
+                commands.push(remove_breakpoint_command(&function, breakpoint));
+            }
+            for breakpoint in new_breakpoints {
+                commands.push(set_breakpoint_command(&function, breakpoint));
+            }
             if args.source_modified && old_breakpoints.len() == new_breakpoints.len() {
                 commands.extend(get_move_breakpoint_commands(
                     old_breakpoints.iter().map(|it| {
@@ -838,6 +906,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     }),
                     &minecraft_session.namespace,
                 ));
+                commands.push(Command::new("reload"));
             }
             minecraft_session.inject_commands(commands)?;
         }
@@ -1011,6 +1080,32 @@ impl DebugAdapter for McfunctionDebugAdapter {
                     .build())
             }
         }
+    }
+}
+
+fn set_breakpoint_command(fn_name: &ResourceLocation, breakpoint: &LocalBreakpoint) -> Command {
+    match breakpoint.kind {
+        BreakpointKind::Step { depth } => Command::new(format!(
+            "scoreboard players set {}_{}_{} mcfd_step {}",
+            fn_name, breakpoint.position.line_number, breakpoint.position.position_in_line, depth
+        )),
+        _ => Command::new(format!(
+            "scoreboard players set {}_{}_{} mcfd_break 1",
+            fn_name, breakpoint.position.line_number, breakpoint.position.position_in_line
+        )),
+    }
+}
+
+fn remove_breakpoint_command(fn_name: &ResourceLocation, breakpoint: &LocalBreakpoint) -> Command {
+    match breakpoint.kind {
+        BreakpointKind::Step { depth } => Command::new(format!(
+            "scoreboard players reset {}_{}_{} mcfd_step",
+            fn_name, breakpoint.position.line_number, breakpoint.position.position_in_line
+        )),
+        _ => Command::new(format!(
+            "scoreboard players reset {}_{}_{} mcfd_break",
+            fn_name, breakpoint.position.line_number, breakpoint.position.position_in_line
+        )),
     }
 }
 
