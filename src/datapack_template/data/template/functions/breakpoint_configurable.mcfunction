@@ -17,6 +17,6 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 execute if score -score_holder- -ns-_break matches 1 run scoreboard players set breakpoint -ns-_global 1
-execute if score -score_holder- -ns-_step = current -ns-_depth run scoreboard players set breakpoint -ns-_global 1
+execute if score current -ns-_depth <= step_target -ns-_depth run scoreboard players set breakpoint -ns-_global 1
 execute if score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/suspend_at_-position-
 execute unless score breakpoint -ns-_global matches 1 run function -ns-:-orig_ns-/-orig/fn-/-next_positions-

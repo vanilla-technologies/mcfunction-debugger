@@ -16,63 +16,17 @@
 // You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-use crate::{
-    parser::command::resource_location::ResourceLocation,
-    partition::{Position, PositionInLine},
-};
-use multimap::MultiMap;
+use crate::partition::PositionInLine;
 use std::{fmt::Display, str::FromStr};
 
 pub struct AdapterConfig<'l> {
     pub adapter_listener_name: &'l str,
-    pub breakpoints: &'l MultiMap<ResourceLocation, LocalBreakpoint>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LocalBreakpoint {
-    pub kind: BreakpointKind,
-    pub position: LocalBreakpointPosition,
-}
-impl LocalBreakpoint {
-    pub(crate) fn can_resume(&self) -> bool {
-        self.kind.can_resume()
-    }
-
-    pub(crate) fn get_position(&self) -> Position {
-        self.position.get_position()
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum BreakpointKind {
-    Normal,
-    Invalid,
-    Continue,
-    Step { depth: usize },
-}
-impl BreakpointKind {
-    pub fn can_resume(&self) -> bool {
-        match self {
-            BreakpointKind::Normal => true,
-            BreakpointKind::Invalid => false,
-            BreakpointKind::Continue { .. } => true,
-            BreakpointKind::Step { .. } => true,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LocalBreakpointPosition {
     pub line_number: usize,
     pub position_in_line: BreakpointPositionInLine,
-}
-impl LocalBreakpointPosition {
-    fn get_position(&self) -> Position {
-        Position {
-            line_number: self.line_number,
-            position_in_line: self.position_in_line.into(),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

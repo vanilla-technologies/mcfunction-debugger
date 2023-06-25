@@ -20,25 +20,17 @@ use crate::{
     adapter::{MinecraftSession, LISTENER_NAME},
     error::PartialErrorResponse,
 };
-use debug_adapter_protocol::{
-    events::StoppedEventReason,
-    types::{Source, StackFrame},
-};
+use debug_adapter_protocol::types::{Source, StackFrame};
 use futures::Stream;
 use mcfunction_debugger::{
     config::{
-        adapter::{
-            AdapterConfig, BreakpointKind, BreakpointPositionInLine, LocalBreakpoint,
-            LocalBreakpointPosition,
-        },
+        adapter::{AdapterConfig, BreakpointPositionInLine, LocalBreakpointPosition},
         Config,
     },
     generate_debug_datapack,
     parser::command::resource_location::ResourceLocation,
-    StoppedReason,
 };
 use minect::{command::SummonNamedEntityOutput, log::LogEvent};
-use multimap::MultiMap;
 use std::{fmt::Display, path::Path, str::FromStr};
 use tokio::fs::remove_dir_all;
 use tokio_stream::StreamExt;
@@ -101,29 +93,12 @@ pub fn get_function_name(
 
 pub(super) async fn generate_datapack(
     minecraft_session: &MinecraftSession,
-    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    temporary_breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
 ) -> Result<(), PartialErrorResponse> {
-    let mut breakpoints = breakpoints.clone();
-
-    // Add all generated breakpoints that are not at the same position as user breakpoints
-    for (key, values) in temporary_breakpoints.iter_all() {
-        for value in values {
-            if !contains_breakpoint(
-                &breakpoints,
-                &BreakpointPosition::from_breakpoint(key.clone(), &value.position),
-            ) {
-                breakpoints.insert(key.clone(), value.clone());
-            }
-        }
-    }
-
     let config = Config {
         namespace: &minecraft_session.namespace,
         shadow: false,
         adapter: Some(AdapterConfig {
             adapter_listener_name: LISTENER_NAME,
-            breakpoints: &breakpoints,
         }),
     };
     let _ = remove_dir_all(&minecraft_session.output_path).await;
@@ -135,38 +110,6 @@ pub(super) async fn generate_datapack(
     .await
     .map_err(|e| PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e)))?;
     Ok(())
-}
-
-pub(crate) fn can_resume_from(
-    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    position: &BreakpointPosition,
-) -> bool {
-    get_breakpoint_kind(breakpoints, position)
-        .map(|it| it.can_resume())
-        .unwrap_or(false)
-}
-
-pub(crate) fn contains_breakpoint(
-    breakpoints: &MultiMap<ResourceLocation, LocalBreakpoint>,
-    position: &BreakpointPosition,
-) -> bool {
-    get_breakpoint_kind(breakpoints, position).is_some()
-}
-
-pub(crate) fn get_breakpoint_kind<'l>(
-    breakpoints: &'l MultiMap<ResourceLocation, LocalBreakpoint>,
-    position: &BreakpointPosition,
-) -> Option<&'l BreakpointKind> {
-    if let Some(breakpoints) = breakpoints.get_vec(&position.function) {
-        breakpoints
-            .iter()
-            .filter(|it| it.position.line_number == position.line_number)
-            .filter(|it| it.position.position_in_line == position.position_in_line)
-            .map(|it| &it.kind)
-            .next()
-    } else {
-        None
-    }
 }
 
 pub(crate) fn events_between<'l>(
@@ -247,7 +190,6 @@ pub(crate) struct StoppedData {
 }
 
 pub(crate) struct StoppedEvent {
-    pub(crate) reason: StoppedReason,
     pub(crate) position: BreakpointPosition,
 }
 impl FromStr for StoppedEvent {
@@ -255,19 +197,11 @@ impl FromStr for StoppedEvent {
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
         fn from_str_inner(string: &str) -> Option<StoppedEvent> {
-            let string = string.strip_prefix("stopped+")?;
-            let (reason, position) = string.split_once('+')?;
-            let reason = reason.parse().ok()?;
+            let position = string.strip_prefix("stopped+")?;
             let position = position.parse().ok()?;
-            Some(StoppedEvent { reason, position })
+            Some(StoppedEvent { position })
         }
         from_str_inner(string).ok_or(())
-    }
-}
-pub(crate) fn to_stopped_event_reason(reason: StoppedReason) -> StoppedEventReason {
-    match reason {
-        StoppedReason::Breakpoint => StoppedEventReason::Breakpoint,
-        StoppedReason::Step => StoppedEventReason::Step,
     }
 }
 

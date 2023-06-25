@@ -25,7 +25,6 @@ scoreboard objectives remove -ns-_depth
 scoreboard objectives remove -ns-_global
 scoreboard objectives remove -ns-_scores
 scoreboard objectives remove -ns-_skipped
-scoreboard objectives remove -ns-_step
 scoreboard objectives remove -ns-_tmp
 scoreboard objectives remove -ns-_valid
 

@@ -41,12 +41,10 @@ use multimap::MultiMap;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     ffi::OsStr,
-    fmt::Display,
     fs::read_to_string,
     io::{self},
     iter::{repeat, FromIterator},
     path::{Path, PathBuf},
-    str::FromStr,
 };
 use tokio::{
     fs::{create_dir_all, write},
@@ -175,7 +173,7 @@ async fn expand_templates(
     config: &Config<'_>,
 ) -> io::Result<()> {
     try_join!(
-        expand_global_templates(engine, fn_ids, fn_contents, &output_path, config),
+        expand_global_templates(engine, fn_ids, fn_contents, &output_path),
         expand_function_specific_templates(engine, fn_ids, fn_contents, &output_path, config),
     )?;
     Ok(())
@@ -194,7 +192,6 @@ async fn expand_global_templates(
     fn_ids: &HashMap<&ResourceLocation, usize>,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
-    config: &Config<'_>,
 ) -> io::Result<()> {
     let output_path = output_path.as_ref();
 
@@ -225,7 +222,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/on_session_exit.mcfunction"),
         expand!("data/-ns-/functions/reset_skipped.mcfunction"),
         expand!("data/-ns-/functions/resume_immediately.mcfunction"),
-        expand_resume_self_template(&engine, fn_contents, &output_path, config),
+        expand_resume_self_template(&engine, fn_contents, &output_path),
         expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
         expand_schedule_template(&engine, fn_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
@@ -254,9 +251,8 @@ async fn expand_resume_self_template(
     engine: &TemplateEngine<'_>,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
-    config: &Config<'_>,
 ) -> io::Result<()> {
-    let mut breakpoints = fn_contents
+    let breakpoints = fn_contents
         .iter()
         .flat_map(|(name, lines)| {
             repeat(*name).zip(
@@ -270,18 +266,6 @@ async fn expand_resume_self_template(
             )
         })
         .collect::<Vec<_>>();
-
-    if let Some(config) = config.adapter.as_ref() {
-        // See https://github.com/havarnov/multimap/pull/38
-        breakpoints.extend(config.breakpoints.iter_all().flat_map(
-            |(function, local_breakpoints)| {
-                local_breakpoints
-                    .iter()
-                    .filter(|breakpoint| breakpoint.can_resume())
-                    .map(move |breakpoint| (function, breakpoint.get_position()))
-            },
-        ));
-    }
 
     let resume_cases = breakpoints
         .into_iter()
@@ -537,7 +521,7 @@ async fn expand_function_templates(
     let fn_dir = output_path.join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
     create_dir_all(&fn_dir).await?;
 
-    let partitions = partition(fn_name, lines, config);
+    let partitions = partition(lines, config);
 
     let mut first = true;
     for (partition_index, partition) in partitions.iter().enumerate() {
@@ -581,15 +565,7 @@ async fn expand_function_templates(
 
         let terminator = match &partition.terminator {
             Terminator::Breakpoint => {
-                expand_breakpoint_template(
-                    &engine,
-                    output_path,
-                    &partition.end,
-                    StoppedReason::Breakpoint,
-                    0,
-                    None,
-                )
-                .await?
+                expand_breakpoint_template(&engine, output_path, &partition.end, 0).await?
             }
             Terminator::ConfigurableBreakpoint { position_in_line } => {
                 let column = match position_in_line {
@@ -609,38 +585,6 @@ async fn expand_function_templates(
                     next_partition,
                 )
                 .await?
-            }
-            Terminator::Step {
-                depth,
-                position_in_line,
-            } => {
-                let column = match position_in_line {
-                    BreakpointPositionInLine::Breakpoint => 1,
-                    BreakpointPositionInLine::AfterFunction => {
-                        let (_line_number, line, _parsed) = &lines[partition.end.line_number - 1];
-                        1 + line.len()
-                    }
-                };
-                let condition =
-                    engine.expand(&format!("if score current -ns-_depth matches {}", depth));
-                let next_partition = &partitions[partition_index + 1];
-                expand_breakpoint_template(
-                    &engine,
-                    output_path,
-                    &partition.end,
-                    StoppedReason::Step,
-                    column,
-                    Some((&condition, next_partition)),
-                )
-                .await?
-            }
-            Terminator::Continue { .. } => {
-                let next_partition = &partitions[partition_index + 1];
-                let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
-                let engine = engine.extend([("-next_positions-", next_positions.as_str())]);
-                engine.expand(&format!(
-                    "function -ns-:-orig_ns-/-orig/fn-/-next_positions-"
-                ))
             }
             Terminator::FunctionCall {
                 column_index,
@@ -766,48 +710,19 @@ async fn expand_function_templates(
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StoppedReason {
-    Breakpoint,
-    Step,
-}
-impl FromStr for StoppedReason {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "breakpoint" => Ok(StoppedReason::Breakpoint),
-            "step" => Ok(StoppedReason::Step),
-            _ => Err(()),
-        }
-    }
-}
-impl Display for StoppedReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StoppedReason::Breakpoint => write!(f, "breakpoint"),
-            StoppedReason::Step => write!(f, "step"),
-        }
-    }
-}
-
 async fn expand_breakpoint_template(
     engine: &TemplateEngine<'_>,
     output_path: &Path,
     position: &Position,
-    reason: StoppedReason,
     column: usize,
-    condition: Option<(&str, &Partition<'_>)>,
 ) -> io::Result<String> {
     let line_number = position.line_number.to_string();
     let position = position.to_string();
-    let reason = reason.to_string();
     let column_str = &format!(":{}", column);
     let optional_column = if column == 0 { "" } else { column_str };
     let engine = engine.extend([
         ("-line_number-", line_number.as_str()),
         ("-position-", &position),
-        ("-reason-", &reason),
         ("-optional_column-", optional_column),
     ]);
     expand_template!(
@@ -817,21 +732,9 @@ async fn expand_breakpoint_template(
     )
     .await?;
 
-    if let Some((condition, next_partition)) = condition {
-        let condition = format!("execute {} run", condition);
-        let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
-        let engine = engine.extend([
-            ("execute run", condition.as_str()),
-            ("-next_positions-", next_positions.as_str()),
-        ]);
-        Ok(engine.expand(include_template!(
-            "data/template/functions/breakpoint_conditional.mcfunction"
-        )))
-    } else {
-        Ok(engine.expand(include_template!(
-            "data/template/functions/breakpoint.mcfunction"
-        )))
-    }
+    Ok(engine.expand(include_template!(
+        "data/template/functions/breakpoint.mcfunction"
+    )))
 }
 
 async fn expand_breakpoint_template2(
@@ -844,13 +747,11 @@ async fn expand_breakpoint_template2(
 ) -> io::Result<String> {
     let line_number = position.line_number.to_string();
     let position = position.to_string();
-    let reason = "breakpoint";
     let column_str = &format!(":{}", column);
     let optional_column = if column == 0 { "" } else { column_str };
     let engine = engine.extend([
         ("-line_number-", line_number.as_str()),
         ("-position-", &position),
-        ("-reason-", &reason),
         ("-optional_column-", optional_column),
     ]);
     expand_template!(
@@ -861,6 +762,7 @@ async fn expand_breakpoint_template2(
     .await?;
 
     let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
+    // TODO: Use id if score_holder has more than 40 characters
     let score_holder = format!("{}_{}", fn_score_holder, position);
     let engine = engine.extend([
         ("-next_positions-", next_positions.as_str()),

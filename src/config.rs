@@ -18,33 +18,10 @@
 
 pub mod adapter;
 
-use crate::{
-    config::adapter::{AdapterConfig, BreakpointKind, BreakpointPositionInLine},
-    parser::command::resource_location::ResourceLocation,
-};
+use crate::config::adapter::AdapterConfig;
 
 pub struct Config<'l> {
     pub namespace: &'l str,
     pub shadow: bool,
     pub adapter: Option<AdapterConfig<'l>>,
-}
-impl Config<'_> {
-    pub(crate) fn get_breakpoint_kind(
-        &self,
-        function: &ResourceLocation,
-        line_number: usize,
-        position_in_line: BreakpointPositionInLine,
-    ) -> Option<&BreakpointKind> {
-        if let Some(config) = self.adapter.as_ref() {
-            if let Some(vec) = config.breakpoints.get_vec(function) {
-                return vec
-                    .iter()
-                    .filter(|breakpoint| breakpoint.position.line_number == line_number)
-                    .filter(|breakpoint| breakpoint.position.position_in_line == position_in_line)
-                    .next()
-                    .map(|it| &it.kind);
-            }
-        }
-        None
-    }
 }

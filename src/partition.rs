@@ -17,10 +17,7 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::{
-    config::{
-        adapter::{BreakpointKind, BreakpointPositionInLine},
-        Config,
-    },
+    config::{adapter::BreakpointPositionInLine, Config},
     parser::{
         command::{argument::MinecraftEntityAnchor, resource_location::ResourceLocation},
         Line,
@@ -40,13 +37,6 @@ pub(crate) enum Terminator<'l> {
     ConfigurableBreakpoint {
         position_in_line: BreakpointPositionInLine,
     },
-    Step {
-        depth: usize,
-        position_in_line: BreakpointPositionInLine,
-    },
-    Continue {
-        position_in_line: BreakpointPositionInLine,
-    },
     FunctionCall {
         column_index: usize,
         line: &'l str,
@@ -61,10 +51,6 @@ impl Terminator<'_> {
         match self {
             Terminator::Breakpoint => PositionInLine::Breakpoint,
             Terminator::ConfigurableBreakpoint { position_in_line } => (*position_in_line).into(),
-            Terminator::Step {
-                position_in_line, ..
-            } => (*position_in_line).into(),
-            Terminator::Continue { position_in_line } => (*position_in_line).into(),
             Terminator::FunctionCall { .. } => PositionInLine::Function,
             Terminator::Return => PositionInLine::Return,
         }
@@ -72,7 +58,6 @@ impl Terminator<'_> {
 }
 
 pub(crate) fn partition<'l>(
-    function: &ResourceLocation,
     lines: &'l [(usize, String, Line)],
     config: &'l Config,
 ) -> Vec<Partition<'l>> {
@@ -94,14 +79,10 @@ pub(crate) fn partition<'l>(
                 line_number,
                 position_in_line: PositionInLine::Breakpoint,
             };
-            let start_regular_line_index = start.line_number
-                - if start.position_in_line == PositionInLine::Entry
-                    || start.position_in_line == PositionInLine::Breakpoint
-                {
-                    1
-                } else {
-                    0
-                };
+            let include_start_line = start.position_in_line == PositionInLine::Entry
+                || start.position_in_line == PositionInLine::Breakpoint;
+            let start_regular_line_index =
+                start.line_number - if include_start_line { 1 } else { 0 };
             partitions.push(Partition {
                 start,
                 end,
@@ -219,24 +200,7 @@ pub(crate) fn partition<'l>(
             start_line_index = line_index;
             partition
         };
-        let get_breakpoint_terminator = |position_in_line| match config.get_breakpoint_kind(
-            function,
-            line_number,
-            position_in_line,
-        ) {
-            Some(BreakpointKind::Normal) => Some(Terminator::Breakpoint),
-            Some(BreakpointKind::Invalid) => None,
-            Some(BreakpointKind::Continue) => Some(Terminator::Continue { position_in_line }),
-            Some(BreakpointKind::Step { depth }) => Some(Terminator::Step {
-                depth: *depth,
-                position_in_line,
-            }),
-            None => None,
-        };
 
-        if let Some(terminator) = get_breakpoint_terminator(BreakpointPositionInLine::Breakpoint) {
-            partitions.push(next_partition(terminator));
-        }
         if matches!(command, Line::Breakpoint) {
             partitions.push(next_partition(Terminator::Breakpoint));
         }
@@ -255,10 +219,6 @@ pub(crate) fn partition<'l>(
                 anchor,
                 selectors,
             }));
-        }
-        if let Some(terminator) = get_breakpoint_terminator(BreakpointPositionInLine::AfterFunction)
-        {
-            partitions.push(next_partition(terminator));
         }
 
         if matches!(command, Line::Breakpoint | Line::FunctionCall { .. }) {
