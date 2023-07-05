@@ -42,14 +42,12 @@ jobs:
           profile: minimal
           override: true
       - name: Build
-        run: cargo build --workspace --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
       - name: Rename Binaries
         run: |
           mv 'target/${{ matrix.target }}/release/mcfunction-debugger${{ matrix.extension }}' 'target/${{ matrix.target }}/release/mcfunction-debugger-${{ matrix.target }}${{ matrix.extension }}'
-          mv 'target/${{ matrix.target }}/release/mcfunction-debug-adapter${{ matrix.extension }}' 'target/${{ matrix.target }}/release/mcfunction-debug-adapter-${{ matrix.target }}${{ matrix.extension }}'
       - name: GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             target/${{ matrix.target }}/release/mcfunction-debugger-${{ matrix.target }}${{ matrix.extension }}
-            target/${{ matrix.target }}/release/mcfunction-debug-adapter-${{ matrix.target }}${{ matrix.extension }}

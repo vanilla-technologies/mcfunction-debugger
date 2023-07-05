@@ -27,10 +27,10 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Run cargo check
-      run: cargo check --workspace
+      run: cargo check
 
     - name: Execute unit tests
-      run: cargo test --workspace --bins --lib
+      run: cargo test --bins --lib
 
   integration_test:
     strategy:
@@ -101,13 +101,9 @@ jobs:
         TEST_WORLD_DIR=minecraft/world
         TEST_LOG_FILE=minecraft/logs/latest.log
         " > build.env
-        echo "\
-        TEST_WORLD_DIR=../minecraft/world
-        TEST_LOG_FILE=../minecraft/logs/latest.log
-        " > mcfunction-debug-adapter/build.env
 
     - name: Execute Integration Tests
-      run: cargo test --workspace --test '*' -- --test-threads=1 ${{ matrix.additional_test_args }}
+      run: cargo test --test '*' -- --test-threads=1 ${{ matrix.additional_test_args }}
 
     - name: Stop Minecraft
       run: |

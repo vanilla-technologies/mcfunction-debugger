@@ -16,11 +16,30 @@
 // You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-#[macro_use]
-mod macros;
+use crate::dap::MessageWriter;
+use debug_adapter_protocol::{ProtocolMessage, ProtocolMessageContent};
+use futures::Sink;
+use log::trace;
+use tokio::sync::mpsc::UnboundedReceiver;
 
-pub mod adapter;
-pub mod dap;
-pub mod generator;
-mod installer;
-mod utils;
+pub(super) struct DebugAdapterSender<O>
+where
+    O: Sink<ProtocolMessage>,
+{
+    pub message_writer: MessageWriter<O>,
+    pub outbox_receiver: UnboundedReceiver<ProtocolMessageContent>,
+}
+
+impl<O> DebugAdapterSender<O>
+where
+    O: Sink<ProtocolMessage> + Unpin,
+{
+    pub async fn run(mut self) -> Result<(), O::Error> {
+        trace!("Starting sender");
+        while let Some(message) = self.outbox_receiver.recv().await {
+            self.message_writer.write_msg(message).await?;
+        }
+        trace!("Stopped sender");
+        Ok(())
+    }
+}

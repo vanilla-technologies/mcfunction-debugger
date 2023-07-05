@@ -7,21 +7,11 @@
 
 McFunction-Debugger is a debugger for Minecraft's *.mcfunction files that does not require any Minecraft mods.
 
-This documentation covers using the debugger via command line. The corresponding [Visual Studio Code](https://code.visualstudio.com/) extension can be found here: https://github.com/vanilla-technologies/mcfunction-debugger-vscode
+This documentation covers the command line. The corresponding [Visual Studio Code](https://code.visualstudio.com/) extension can be found here: https://github.com/vanilla-technologies/mcfunction-debugger-vscode
 
-McFunction-Debugger implements the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) to allow easy integration with different IDEs such as Eclipse or Vim (see the [list of supporting IDEs](https://microsoft.github.io/debug-adapter-protocol/implementors/tools/)). If you would like to implement such an integration, you can find documentation in the [mcfunction-debug-adapter](mcfunction-debug-adapter/README.md) directory.
+McFunction-Debugger implements the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) to allow easy integration with different IDEs such as Eclipse or Vim (see the [list of supporting IDEs](https://microsoft.github.io/debug-adapter-protocol/implementors/tools/)). The corresponding [Visual Studio Code](https://code.visualstudio.com/) extension can be found here: https://github.com/vanilla-technologies/mcfunction-debugger-vscode
 
-## Usage
-
-You can debug any datapack with the following five steps:
-
-1. Add `# breakpoint` lines in your *.mcfunction files
-2. Generate a debug datapack
-3. Load the debug datapack in Minecraft
-4. Start debugging any of your functions with: `/function debug:<your_namespace>/<your_function>`
-5. When finished, uninstall the debug datapack with: `/function debug:uninstall`
-
-A more detailed description can be found [here](docs/usage.md).
+If you would like to implement such an integration for another IDE, you can find documentation in the [Usage](#usage) chapter.
 
 ## Installation
 
@@ -120,3 +110,74 @@ You should stop the debug session with `/function debug:stop` and add more break
 If a chunk that contains an entity required for debugging is unloaded, while a function is suspended on a breakpoint, the debug session will crash, if you try to resume the execution.
 
 This can for example happen if you go far away or if the function operates in a chunk that is only loaded temporarily (for instance by a `teleport` command or by going through a portal).
+
+## Usage
+
+McFunction-Debugger only supports the **single session mode** with communication via _stdin_ and _stdout_. To start executing an mcfunction file the development tool needs to send a `launch` request (the `attach` request is **not** supported).
+
+### Execution Context
+
+The debugged function will be executed with a `schedule` command, so it runs without an `@s` entity at the world's origin position.
+
+### Launch Arguments
+
+In order for the debug adapter to connect to Minecraft it needs a few arguments as part of the `launch` request:
+
+#### program
+
+Path to the mcfunction file to debug. The mcfunction file must be contained in a datapack with a `pack.mcmeta` file.
+
+#### minecraftWorldDir
+
+The directory containing the Minecraft world the debug adapter should connect to.
+
+For single player this is typically a directory within the saves directory:
+* Windows: `%appdata%\.minecraft\saves\`
+* GNU/Linux: `~/.minecraft/saves/`
+* Mac: `~/Library/Application Support/minecraft/saves/`
+
+For servers it is specified in `server.properties`.
+
+#### minecraftLogFile
+
+The path to Minecraft's log file.
+
+For single player this is typically at these locations:
+* Windows: `%appdata%\.minecraft\logs\latest.log`
+* GNU/Linux: `~/.minecraft/logs/latest.log`
+* Mac: `~/Library/Application Support/minecraft/logs/latest.log`
+
+For servers it is at `logs/latest.log` in the server directory.
+
+#### Example
+```json
+{
+  "program": "C:/Users/Herobrine/my_datapack/data/my_namespace/functions/main.mcfunction",
+  "minecraftWorldDir": "C:/Users/Herobrine/AppData/Roaming/.minecraft/saves/New World",
+  "minecraftLogFile": "C:/Users/Herobrine/AppData/Roaming/.minecraft/logs/latest.log"
+}
+```
+
+### Command Line Interface
+
+`mcfunction-debugger [FLAGS] [OPTIONS] --input <DATAPACK> --output <DATAPACK>`
+
+#### Flags
+
+##### --help
+
+Prints help information.
+
+##### --version
+
+Prints version information.
+
+#### Options
+
+##### --log-file
+
+Path to a log file. If specified the debug adapter will create this file on startup and write log messages to it.
+
+##### --log-level
+
+The log level can also be configured via the environment variable `LOG_LEVEL`. Defaults to `INFO`.

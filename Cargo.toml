@@ -10,33 +10,42 @@ name = "mcfunction-debugger"
 repository = "https://github.com/vanilla-technologies/mcfunction-debugger"
 version = "1.0.3"
 
-[workspace]
-members = ["mcfunction-debug-adapter"]
-
 [dependencies]
+async-trait = "0.1"
+bytes = "1"
 clap = "2"
+debug-adapter-protocol = "0.1"
 futures = "0.3"
 hematite-nbt = { version = "0.5" }
 log = "0.4"
+log-panics = "2"
 minect = "0.2"
 # minect = { git = "ssh://git@github.com/mcfunction-debugger/minect.git" }
 # minect = { path = "../minect" }
 multimap = "0.8"
+sender-sink = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-simple_logger = "4"
+simplelog = "0.12"
 tokio = { version = "1", features = [
     "fs",
+    "io-std",
+    "io-util",
     "macros",
     "parking_lot",
     "rt-multi-thread",
     "time",
 ] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["io-util"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+typed-builder = "0.11"
+uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 
 [dev-dependencies]
+assert2 = "0.3"
 serial_test = "1"
+simple_logger = "4"
 
 [build-dependencies]
 walkdir = "2"
