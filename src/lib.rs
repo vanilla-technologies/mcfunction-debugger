@@ -220,6 +220,7 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/load.mcfunction"),
         expand!("data/-ns-/functions/on_session_exit_successful.mcfunction"),
         expand!("data/-ns-/functions/on_session_exit.mcfunction"),
+        expand!("data/-ns-/functions/prepare_resume.mcfunction"),
         expand!("data/-ns-/functions/reset_skipped.mcfunction"),
         expand!("data/-ns-/functions/resume_immediately.mcfunction"),
         expand_resume_self_template(&engine, fn_contents, &output_path),

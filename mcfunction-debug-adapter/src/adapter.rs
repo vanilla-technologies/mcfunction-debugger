@@ -411,12 +411,7 @@ impl McfunctionDebugAdapter {
 
         let commands = Vec::from_iter([
             mc_session.set_step_target_depth_command(step_target_depth),
-            // TODO: move to new function and include other preparations, such as clear_skipped, ...
-            Command::new(mc_session.replace_ns("scoreboard players set breakpoint -ns-_global 0")),
-            // TODO: remove breakpoint entity
-            Command::new(
-                mc_session.replace_ns("kill @e[type=area_effect_cloud,tag=-ns-_breakpoint]"),
-            ),
+            Command::new(mc_session.replace_ns("function -ns-:prepare_resume")),
             Command::new(mc_session.replace_ns(&format!(
                 "schedule function -ns-:{}/{}/continue_current_iteration_at_{}_{} 1t",
                 stopped_data.position.function.namespace(),
