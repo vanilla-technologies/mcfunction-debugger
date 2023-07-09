@@ -401,8 +401,8 @@ fn enable_appropriate_datapacks(after_age_increment: bool, debug: bool) -> Vec<C
         if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
             commands.push(Command::new(r#"datapack enable "file/mcfd_test_debug""#));
         }
-        if TEST_DATAPACK_ENABLED.swap(FALSE, Ordering::Relaxed) != FALSE {
-            commands.push(Command::new(r#"datapack disable "file/mcfd_test""#));
+        if TEST_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
+            commands.push(Command::new(r#"datapack enable "file/mcfd_test""#));
         }
         if TICK_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
             // Must run before debugger tick.json
