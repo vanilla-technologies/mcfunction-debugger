@@ -16,7 +16,7 @@
 // You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-pub(crate) mod adapter;
+pub mod adapter;
 
 use crate::generator::config::adapter::AdapterConfig;
 

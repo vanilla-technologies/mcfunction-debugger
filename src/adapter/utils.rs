@@ -133,10 +133,10 @@ fn is_summon_output(event: &LogEvent, name: &str) -> bool {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct BreakpointPosition {
-    pub(crate) function: ResourceLocation,
-    pub(crate) line_number: usize,
-    pub(crate) position_in_line: BreakpointPositionInLine,
+pub struct BreakpointPosition {
+    pub function: ResourceLocation,
+    pub line_number: usize,
+    pub position_in_line: BreakpointPositionInLine,
 }
 impl BreakpointPosition {
     pub(crate) fn from_breakpoint(
@@ -189,8 +189,8 @@ pub(crate) struct StoppedData {
     pub(crate) stack_trace: Vec<McfunctionStackFrame>,
 }
 
-pub(crate) struct StoppedEvent {
-    pub(crate) position: BreakpointPosition,
+pub struct StoppedEvent {
+    pub position: BreakpointPosition,
 }
 impl FromStr for StoppedEvent {
     type Err = ();

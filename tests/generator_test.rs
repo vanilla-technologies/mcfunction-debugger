@@ -1,23 +1,36 @@
-use mcfunction_debugger::generator::{config::Config, generate_debug_datapack};
+use futures::{
+    future::{select, Either},
+    pin_mut,
+};
+use mcfunction_debugger::{
+    adapter::utils::StoppedEvent,
+    generator::{
+        config::{adapter::AdapterConfig, Config},
+        generate_debug_datapack,
+    },
+};
 use minect::{
     command::{named_logged_block_commands, summon_named_entity_command, SummonNamedEntityOutput},
+    log::LogEvent,
     Command, MinecraftConnection,
 };
 use serial_test::serial;
 use simple_logger::SimpleLogger;
 use std::{
-    io,
+    collections::HashMap,
+    ffi::OsStr,
+    io::{self},
     path::Path,
     sync::atomic::{AtomicBool, AtomicI8, Ordering},
     time::Duration,
 };
 use tokio::{
-    fs::{copy, create_dir, create_dir_all, write},
+    fs::{copy, create_dir, create_dir_all, read_to_string, write},
     sync::OnceCell,
     time::{error::Elapsed, timeout},
     try_join,
 };
-use tokio_stream::StreamExt;
+use tokio_stream::{Stream, StreamExt};
 use walkdir::WalkDir;
 
 macro_rules! include_template {
@@ -224,6 +237,14 @@ const TEST_WORLD_DIR: &str = env!("TEST_WORLD_DIR");
 const TEST_LOG_FILE: &str = env!("TEST_LOG_FILE");
 const TIMEOUT: Duration = Duration::from_secs(10);
 
+const TEST_DATAPACK_NAME: &str = "mcfd_test";
+const DEBUG_DATAPACK_NAME: &str = "mcfd_test_debug";
+const TICK_DATAPACK_NAME: &str = "mcfd_tick";
+
+fn get_datapack_dir(name: impl AsRef<Path>) -> std::path::PathBuf {
+    Path::new(TEST_WORLD_DIR).join("datapacks").join(name)
+}
+
 async fn run_test(
     namespace: &str,
     name: &str,
@@ -237,7 +258,7 @@ async fn run_test(
     } else {
         format!("{}:{}/test", namespace, name)
     };
-    create_datapacks(namespace, name, &test_fn, after_age_increment, debug).await?;
+    create_datapacks(&test_fn, after_age_increment, debug).await?;
 
     let mut connection = connection();
     let setup_commands = get_setup_commands(after_age_increment, debug);
@@ -246,33 +267,41 @@ async fn run_test(
     }
 
     let mut events = connection.add_named_listener("test");
-    let test_commands = get_test_commands(&test_fn, after_age_increment);
+    let mut breakpoint_events = connection.add_named_listener(LISTENER_NAME);
+    let test_commands = get_test_commands(namespace, name, &test_fn, after_age_increment).await;
 
     // when:
     connection.execute_commands(test_commands)?;
 
     // then:
-    let event = timeout(TIMEOUT, events.next()).await?.unwrap();
+    let event = timeout(
+        TIMEOUT,
+        wait_for_test_output(
+            namespace,
+            name,
+            after_age_increment,
+            &mut connection,
+            &mut breakpoint_events,
+            &mut events,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(event.output, "Summoned new success");
 
     Ok(())
 }
 
-async fn create_datapacks(
-    namespace: &str,
-    name: &str,
-    test_fn: &str,
-    after_age_increment: bool,
-    debug: bool,
-) -> io::Result<()> {
+async fn create_datapacks(test_fn: &str, after_age_increment: bool, debug: bool) -> io::Result<()> {
     expand_test_templates().await?;
     if debug {
         create_debug_datapack().await?;
     }
-    Ok(if after_age_increment || debug {
-        let on_breakpoint_fn = format!("{}:{}/on_breakpoint", namespace, name);
-        create_tick_datapack(test_fn, &on_breakpoint_fn).await?;
-    })
+    if after_age_increment {
+        create_tick_datapack(&format!("function {}", test_fn)).await?;
+    }
+    Ok(())
 }
 
 async fn expand_test_templates() -> io::Result<()> {
@@ -284,7 +313,7 @@ async fn expand_test_templates() -> io::Result<()> {
 async fn do_expand_test_templates() -> io::Result<()> {
     include!(concat!(env!("OUT_DIR"), "/tests/expand_test_templates.rs"));
 
-    let test_datapack_dir = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
+    let test_datapack_dir = get_datapack_dir(TEST_DATAPACK_NAME);
     add_minect_functions(test_datapack_dir).await?;
     Ok(())
 }
@@ -334,32 +363,42 @@ async fn create_debug_datapack() -> io::Result<()> {
     Ok(())
 }
 
+const LISTENER_NAME: &str = "mcfd_test";
+const NAMESPACE: &str = "mcfd";
+
 async fn do_create_debug_datapack() -> io::Result<()> {
-    let input_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test");
-    let output_path = Path::new(TEST_WORLD_DIR).join("datapacks/mcfd_test_debug");
+    let input_path = get_datapack_dir(TEST_DATAPACK_NAME);
+    let output_path = get_datapack_dir(DEBUG_DATAPACK_NAME);
     let config = Config {
-        namespace: "mcfd",
+        namespace: NAMESPACE,
         shadow: false,
-        adapter: None,
+        adapter: Some(AdapterConfig {
+            adapter_listener_name: LISTENER_NAME,
+        }),
     };
     generate_debug_datapack(&input_path, &output_path, &config).await?;
     Ok(())
 }
 
-async fn create_tick_datapack(test_fn: &str, on_breakpoint_fn: &str) -> io::Result<()> {
+async fn create_tick_datapack(commands: &str) -> io::Result<()> {
     macro_rules! create_tick_template {
         ($path:expr) => {
-            expand_template!(concat!("mcfd_tick/", $path), |raw: &str| {
-                raw.replace("-test-", test_fn)
-                    .replace("-on_breakpoint-", on_breakpoint_fn)
-            })
+            create_file(
+                get_datapack_dir(TICK_DATAPACK_NAME).join($path),
+                include_template!(concat!("mcfd_tick/", $path)),
+            )
         };
     }
+
     try_join!(
         create_tick_template!("data/minecraft/tags/functions/tick.json"),
         create_tick_template!("data/test/functions/tick.mcfunction"),
-        create_tick_template!("data/test/functions/tick/on_breakpoint.mcfunction"),
         create_tick_template!("pack.mcmeta"),
+        create_file(
+            get_datapack_dir(TICK_DATAPACK_NAME)
+                .join("data/test/functions/tick/run_after_age_increment.mcfunction"),
+            commands,
+        )
     )?;
     Ok(())
 }
@@ -399,46 +438,64 @@ fn enable_appropriate_datapacks(after_age_increment: bool, debug: bool) -> Vec<C
     let mut commands = Vec::new();
     if debug {
         if DEBUG_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
-            commands.push(Command::new(r#"datapack enable "file/mcfd_test_debug""#));
+            commands.push(format!(r#"datapack enable "file/{}""#, DEBUG_DATAPACK_NAME));
         }
         if TEST_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
-            commands.push(Command::new(r#"datapack enable "file/mcfd_test""#));
-        }
-        if TICK_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
-            // Must run before debugger tick.json
-            commands.extend([
-                Command::new(r#"datapack disable "file/mcfd_tick""#),
-                Command::new(r#"datapack enable "file/mcfd_tick" before "file/mcfd_test_debug""#),
-            ]);
+            commands.push(format!(r#"datapack enable "file/{}""#, TEST_DATAPACK_NAME));
         }
     } else {
         if DEBUG_DATAPACK_ENABLED.swap(FALSE, Ordering::Relaxed) != FALSE {
-            commands.push(Command::new(r#"datapack disable "file/mcfd_test_debug""#));
+            commands.push(format!(
+                r#"datapack disable "file/{}""#,
+                DEBUG_DATAPACK_NAME
+            ));
         }
         if TEST_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
-            commands.push(Command::new(r#"datapack enable "file/mcfd_test""#));
-        }
-        if after_age_increment {
-            if TICK_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
-                commands.push(Command::new(r#"datapack enable "file/mcfd_tick""#));
-            }
-        } else {
-            if TICK_DATAPACK_ENABLED.swap(FALSE, Ordering::Relaxed) != FALSE {
-                commands.push(Command::new(r#"datapack disable "file/mcfd_tick""#));
-            }
+            commands.push(format!(r#"datapack enable "file/{}""#, TEST_DATAPACK_NAME));
         }
     }
-    commands
+    if after_age_increment {
+        if debug {
+            if TICK_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
+                // Must run before debugger tick.json
+                commands.extend([
+                    format!(r#"datapack disable "file/{}""#, TICK_DATAPACK_NAME),
+                    format!(
+                        r#"datapack enable "file/{}" before "file/{}""#,
+                        TICK_DATAPACK_NAME, DEBUG_DATAPACK_NAME
+                    ),
+                ]);
+            }
+        } else {
+            if TICK_DATAPACK_ENABLED.swap(TRUE, Ordering::Relaxed) != TRUE {
+                commands.push(format!(r#"datapack enable "file/{}""#, TICK_DATAPACK_NAME));
+            }
+        }
+    } else {
+        if TICK_DATAPACK_ENABLED.swap(FALSE, Ordering::Relaxed) != FALSE {
+            commands.push(format!(r#"datapack disable "file/{}""#, TICK_DATAPACK_NAME));
+        }
+    }
+    commands.into_iter().map(Command::new).collect()
 }
 
-fn get_test_commands(test_fn: &str, after_age_increment: bool) -> Vec<Command> {
+const TRIGGER_TICK_COMMAND: &str = "scoreboard players set tick test_global 1";
+
+async fn get_test_commands(
+    namespace: &str,
+    name: &str,
+    test_fn: &str,
+    after_age_increment: bool,
+) -> Vec<Command> {
     let mut commands = vec![
         Command::new(running_test_cmd(&test_fn)),
-        Command::new("function mcfd:clean_up"),
+        Command::new(format!("function {}:abort_session", NAMESPACE)),
     ];
 
+    commands.extend(get_breakpoint_commands(namespace, name).await);
+
     if after_age_increment {
-        commands.push(Command::new("scoreboard players set tick test_global 1"));
+        commands.push(Command::new(TRIGGER_TICK_COMMAND));
     } else {
         commands.push(Command::new(format!("schedule function {} 1", test_fn)));
     }
@@ -448,4 +505,160 @@ fn get_test_commands(test_fn: &str, after_age_increment: bool) -> Vec<Command> {
 
 fn running_test_cmd(test_name: &str) -> String {
     format!("tellraw @a {{\"text\": \"Running test {}\"}}", test_name)
+}
+
+async fn get_breakpoint_commands(namespace: &str, name: &str) -> Vec<Command> {
+    let mut commands = Vec::new();
+
+    let mut fn_ids = HashMap::new();
+    let functions = read_to_string(get_datapack_dir(DEBUG_DATAPACK_NAME).join("functions.txt"))
+        .await
+        .unwrap();
+    for (fn_id, fn_name) in functions.lines().enumerate() {
+        fn_ids.insert(fn_name, fn_id);
+    }
+
+    let test_fn_dir = get_datapack_dir(TEST_DATAPACK_NAME)
+        .join("data")
+        .join(namespace)
+        .join("functions")
+        .join(name);
+    for entry in WalkDir::new(&test_fn_dir) {
+        let entry = entry.unwrap();
+        let file_type = entry.file_type();
+        if file_type.is_file() && entry.path().extension() == Some(OsStr::new("mcfunction")) {
+            let contents = read_to_string(entry.path()).await.unwrap();
+            for (line_index, line) in contents.lines().enumerate() {
+                if line.trim() == "# breakpoint" {
+                    let fn_name = format!(
+                        "{}:{}/{}",
+                        namespace,
+                        name,
+                        entry
+                            .path()
+                            .with_extension("")
+                            .strip_prefix(&test_fn_dir)
+                            .unwrap()
+                            .display()
+                    );
+                    // FIXME: Use id if score_holder has more than 40 characters
+                    let fn_score_holder = get_fn_score_holder(&fn_name, &fn_ids);
+                    let line_number = line_index + 2;
+                    commands.push(Command::new(format!(
+                        "scoreboard players set {}_{}_breakpoint {}_break 1",
+                        fn_score_holder, line_number, NAMESPACE
+                    )));
+                }
+            }
+        }
+    }
+    commands
+}
+
+fn get_fn_score_holder(fn_name: &str, fn_ids: &HashMap<&str, usize>) -> String {
+    let fn_name_string = fn_name.to_string();
+    // Before Minecraft 1.18 score holder names can't be longer than 40 characters
+    if fn_name_string.len() <= 40 {
+        fn_name_string
+    } else if let Some(id) = fn_ids.get(fn_name) {
+        format!("fn_{}", id)
+    } else {
+        // If this is a missing function, it is ok to use the whole name, even if it is to long.
+        // In this case the -ns-_valid score can not be set, but it is not set for missing functions anyways.
+        fn_name_string
+    }
+}
+
+async fn wait_for_test_output(
+    namespace: &str,
+    name: &str,
+    after_age_increment: bool,
+    connection: &mut MinecraftConnection,
+    breakpoint_events: &mut (impl Stream<Item = LogEvent> + Unpin),
+    events: &mut (impl Stream<Item = LogEvent> + Unpin),
+) -> Option<LogEvent> {
+    let event = events.next();
+    pin_mut!(event);
+    let resume = automatically_resume_breakpoints(
+        namespace,
+        name,
+        after_age_increment,
+        connection,
+        breakpoint_events,
+    );
+    pin_mut!(resume);
+    match select(event, resume).await {
+        Either::Left((result, _)) => result,
+        Either::Right(((), _)) => None,
+    }
+}
+
+async fn automatically_resume_breakpoints(
+    namespace: &str,
+    name: &str,
+    after_age_increment: bool,
+    connection: &mut MinecraftConnection,
+    events: &mut (impl Stream<Item = LogEvent> + Unpin),
+) {
+    let mut stopped_events = events
+        .filter_map(|event| event.output.parse::<SummonNamedEntityOutput>().ok())
+        .filter_map(|output| output.name.parse::<StoppedEvent>().ok());
+    while let Some(stopped_event) = stopped_events.next().await {
+        on_breakpoint(
+            stopped_event,
+            namespace,
+            name,
+            after_age_increment,
+            connection,
+        )
+        .await;
+    }
+}
+
+async fn on_breakpoint(
+    stopped_event: StoppedEvent,
+    namespace: &str,
+    name: &str,
+    after_age_increment: bool,
+    connection: &mut MinecraftConnection,
+) {
+    let mut commands = Vec::from_iter([
+        format!("function {}:{}/on_breakpoint", namespace, name),
+        format!("function {}:prepare_resume", NAMESPACE),
+        format!(
+            "function {}:{}/{}/continue_current_iteration_at_{}_{}",
+            NAMESPACE,
+            stopped_event.position.function.namespace(),
+            stopped_event.position.function.path(),
+            stopped_event.position.line_number,
+            stopped_event.position.position_in_line,
+        ),
+    ]);
+    if !after_age_increment {
+        commands = commands
+            .into_iter()
+            .map(|fn_call| format!("schedule {} 1t", fn_call))
+            .collect();
+    }
+    execute_commands_at_tick_time(connection, commands, after_age_increment).await;
+}
+
+async fn execute_commands_at_tick_time(
+    connection: &mut MinecraftConnection,
+    commands: Vec<String>,
+    after_age_increment: bool,
+) {
+    if after_age_increment {
+        create_tick_datapack(&commands.join("\n")).await.unwrap();
+        connection
+            .execute_commands(Vec::from_iter([
+                Command::new("reload"),
+                Command::new(TRIGGER_TICK_COMMAND),
+            ]))
+            .unwrap();
+    } else {
+        connection
+            .execute_commands(commands.into_iter().map(Command::new))
+            .unwrap();
+    }
 }
