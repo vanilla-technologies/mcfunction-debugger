@@ -31,7 +31,10 @@ use crate::{
         config::GeneratorConfig,
         generate_debug_datapack,
         parser::{
-            command::{resource_location::ResourceLocation, CommandParser},
+            command::{
+                resource_location::{ResourceLocation, ResourceLocationRef},
+                CommandParser,
+            },
             parse_line, Line,
         },
         partition::{BreakpointPositionInLine, LocalBreakpointPosition},
@@ -74,6 +77,7 @@ use std::{
     convert::TryFrom,
     io,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 use tokio::{
     fs::{remove_dir_all, File},
@@ -337,6 +341,54 @@ struct ScopeReference {
     kind: ScopeKind,
 }
 
+enum DebuggerError {
+    ContextEntityKilled,
+    SelectedEntityKilled,
+    FunctionInvalid(ResourceLocation),
+    FunctionCallEntityKilled,
+    FunctionCallDeleted,
+}
+impl DebuggerError {
+    fn get_message(&self) -> String {
+        match self {
+            DebuggerError::ContextEntityKilled => {
+                "Error: Debugger context entity was killed!".to_string()
+            }
+            DebuggerError::SelectedEntityKilled => "Error: Selected entity was killed!".to_string(),
+            DebuggerError::FunctionInvalid(fn_name) => {
+                format!(
+                    "Error: Cannot debug {}, because it contains an invalid command!",
+                    fn_name
+                )
+            }
+            DebuggerError::FunctionCallEntityKilled => {
+                "Error: Debugger function call entity was killed!".to_string()
+            }
+            DebuggerError::FunctionCallDeleted => "Error: Function call was deleted!".to_string(),
+        }
+    }
+}
+impl FromStr for DebuggerError {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(fn_name) = s.strip_prefix("function_invalid+") {
+            let fn_name = ResourceLocationRef::try_from(fn_name)
+                .map_err(|_| ())?
+                .to_owned();
+            Ok(DebuggerError::FunctionInvalid(fn_name))
+        } else {
+            match s {
+                "context_entity_killed" => Ok(DebuggerError::ContextEntityKilled),
+                "selected_entity_killed" => Ok(DebuggerError::SelectedEntityKilled),
+                "function_call_entity_killed" => Ok(DebuggerError::FunctionCallEntityKilled),
+                "function_call_deleted" => Ok(DebuggerError::FunctionCallDeleted),
+                _ => Err(()),
+            }
+        }
+    }
+}
+
 pub struct McfunctionDebugAdapter {
     message_sender: UnboundedSender<Either<ProtocolMessage, LogEvent>>,
     client_session: Option<ClientSession>,
@@ -347,6 +399,20 @@ impl McfunctionDebugAdapter {
             message_sender,
             client_session: None,
         }
+    }
+
+    async fn on_debugger_error(
+        &mut self,
+        context: &mut (impl DebugAdapterContext + Send),
+        error: DebuggerError,
+    ) -> io::Result<()> {
+        context.fire_event(
+            OutputEventBody::builder()
+                .category(OutputCategory::Important)
+                .output(error.get_message())
+                .build(),
+        );
+        Ok(())
     }
 
     async fn on_stopped(
@@ -468,6 +534,11 @@ impl DebugAdapter for McfunctionDebugAdapter {
             msg.output
         );
         if let Ok(output) = msg.output.parse::<SummonNamedEntityOutput>() {
+            if let Some(error) = output.name.strip_prefix("error+") {
+                if let Ok(error) = error.parse::<DebuggerError>() {
+                    self.on_debugger_error(&mut context, error).await?;
+                }
+            }
             if let Ok(event) = output.name.parse() {
                 self.on_stopped(event, &mut context).await?;
             }

@@ -16,5 +16,8 @@
 # You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
+# -minect_log_conditional-
+execute unless score -fn_score_holder- -ns-_valid matches 1 run summon area_effect_cloud ~ ~ ~ {CustomName: '{"text":"error+function_invalid+-orig_ns-:-orig/fn-"}'}
 execute unless score -fn_score_holder- -ns-_valid matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Cannot debug -orig_ns-:-orig/fn-, because it contains an invalid command!"}]
+execute unless score -fn_score_holder- -ns-_valid matches 1 run function -ns-:abort_session
 execute if score -fn_score_holder- -ns-_valid matches 1 run function -ns-:-orig_ns-/-orig/fn-/start_valid

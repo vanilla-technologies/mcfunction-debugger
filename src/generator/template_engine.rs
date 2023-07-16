@@ -90,6 +90,28 @@ impl<'l> TemplateEngine<'l> {
                         }
                     }
                 }
+                "# -minect_log_conditional-" => {
+                    if let Some(command) = lines.next() {
+                        let command_trimmed = command.trim();
+                        if let Some(index) = command_trimmed.find(" run ") {
+                            let execute = &command_trimmed[..index + 5];
+                            let inner_command = &command_trimmed[index + 5..];
+                            let commands = named_logged_block_commands(
+                                self.adapter_listener_name,
+                                inner_command,
+                            );
+
+                            result.push_str(execute);
+                            result.push_str(&commands[0]);
+                            result.push('\n');
+                            result.push_str(execute);
+                            result.push_str(&commands[1]);
+                            if command.ends_with('\n') {
+                                result.push('\n');
+                            }
+                        }
+                    }
+                }
                 _ => {
                     result.push_str(line);
                 }

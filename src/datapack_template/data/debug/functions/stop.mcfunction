@@ -20,6 +20,6 @@ scoreboard players reset stop_success -ns-_global
 execute if score breakpoint -ns-_global matches 1 run scoreboard players set stop_success -ns-_global 1
 execute if entity @e[type=area_effect_cloud,tag=-ns-_schedule] run scoreboard players set stop_success -ns-_global 1
 
-execute unless score stop_success -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Cannot stop, there is no active debugging session!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
+execute unless score stop_success -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Cannot stop, there is no active debugging session!"}]
 execute if score stop_success -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Debugging session was stopped."}]
 execute if score stop_success -ns-_global matches 1 run function -ns-:abort_session

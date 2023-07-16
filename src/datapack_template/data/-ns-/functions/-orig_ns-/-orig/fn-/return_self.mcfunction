@@ -24,5 +24,7 @@ tag @s remove -ns-_active
 # -return_cases-
 
 execute if score found_continue_function -ns-_global matches 1 run kill @s
-execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Function call at "},{"selector":"@s"},{"text":" was deleted!\n Start a new debugging session with: "},{"text":"/function debug:<your_namespace>/<your_function>","clickEvent":{"action":"suggest_command","value":"/function debug:"},"hoverEvent":{"action":"show_text","contents":"Click for suggestions"},"color":"aqua"}]
+# -minect_log_conditional-
+execute unless score found_continue_function -ns-_global matches 1 run summon area_effect_cloud ~ ~ ~ {CustomName: '{"text":"error+function_call_deleted"}'}
+execute unless score found_continue_function -ns-_global matches 1 run tellraw @a [{"text":""},{"text":"[Error]","color":"red","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Function call at "},{"selector":"@s"},{"text":" was deleted!"}]
 execute unless score found_continue_function -ns-_global matches 1 run function -ns-:abort_session

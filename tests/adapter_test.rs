@@ -25,7 +25,7 @@ use crate::utils::{
     Mcfunction, LISTENER_NAME, TEST_LOG_FILE,
 };
 use assert2::assert;
-use debug_adapter_protocol::types::SourceBreakpoint;
+use debug_adapter_protocol::{events::OutputCategory, types::SourceBreakpoint};
 use mcfunction_debugger::{
     adapter::SELECTED_ENTITY_SCORES,
     generator::parser::command::resource_location::ResourceLocation,
@@ -2315,3 +2315,197 @@ async fn test_step_in_steps_into_next_executor_skipping_non_commands() -> io::Re
 }
 
 // TODO: test_step_in_to_same_position_as_step_over_would_have
+
+#[tokio::test]
+#[serial]
+async fn test_error_debug_invalid_function() -> io::Result<()> {
+    before_each_test().await;
+    let test_fn = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "test"),
+        lines: vec![
+            /* 1 */ "this is an invalid command".to_string(),
+            /* 2 */ logged_cart_command(enable_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
+        ],
+    };
+    let test_fn_path = test_fn.full_path();
+    create_datapack(vec![test_fn]);
+
+    let log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    adapter.launch(&test_fn_path).await;
+
+    let output = adapter.assert_output().await;
+    assert!(output.category == OutputCategory::Important);
+    assert!(
+        output.output
+            == "Error: Cannot debug adapter_test:test, because it contains an invalid command!"
+    );
+
+    adapter.assert_terminated().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_error_context_entity_killed() -> io::Result<()> {
+    before_each_test().await;
+    let test_fn = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "test"),
+        lines: vec![
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
+        ],
+    };
+    let test_fn_path = test_fn.full_path();
+    create_datapack(vec![test_fn]);
+
+    let log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter
+        .set_breakpoints_verified(&test_fn_path, &breaks)
+        .await;
+
+    adapter.launch(&test_fn_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let mut connection = connection();
+    connection
+        .execute_commands([Command::new(
+            "kill @e[type=area_effect_cloud,tag=mcfd_context]",
+        )])
+        .unwrap();
+
+    adapter.continue_().await;
+
+    let output = adapter.assert_output().await;
+    assert!(output.category == OutputCategory::Important);
+    assert!(output.output == "Error: Debugger context entity was killed!");
+
+    adapter.assert_terminated().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_error_selected_entity_killed() -> io::Result<()> {
+    before_each_test().await;
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
+        ],
+    };
+    let inner_path = inner.full_path();
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            /* 1 */ "kill @e[type=sheep,tag=test]".to_string(),
+            /* 2 */ "summon sheep ~ ~ ~ {Tags: [test], NoAI: true}".to_string(),
+            /* 3 */
+            format!(
+                "execute as @e[type=sheep,tag=test] run function {}",
+                inner.name
+            ),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_datapack(vec![outer, inner]);
+
+    let log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let mut connection = connection();
+    connection
+        .execute_commands([Command::new("kill @e[type=sheep,tag=test]")])
+        .unwrap();
+
+    adapter.continue_().await;
+
+    let output = adapter.assert_output().await;
+    assert!(output.category == OutputCategory::Important);
+    assert!(output.output == "Error: Selected entity was killed!");
+
+    adapter.assert_terminated().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_error_function_call_entity_killed() -> io::Result<()> {
+    before_each_test().await;
+    let inner = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "inner"),
+        lines: vec![
+            /* 1 */ logged_cart_command(enable_logging_command()),
+            /* 2 */ named_logged_cart_command(add_tag_command("@s", "tag1")),
+            /* 3 */ logged_cart_command(reset_logging_command()),
+        ],
+    };
+    let inner_path = inner.full_path();
+    let outer = Mcfunction {
+        name: ResourceLocation::new("adapter_test", "outer"),
+        lines: vec![
+            /* 1 */ format!("function {}", inner.name),
+            /* 2 */ logged_cart_command(enable_logging_command()),
+            /* 3 */ named_logged_cart_command(add_tag_command("@s", "tag2")),
+            /* 4 */ logged_cart_command(reset_logging_command()),
+        ],
+    };
+    let outer_path = outer.full_path();
+    create_datapack(vec![outer, inner]);
+
+    let log_observer = LogObserver::new(TEST_LOG_FILE);
+    let mut listener = TimeoutStream::new(log_observer.add_named_listener(LISTENER_NAME));
+    let mut adapter = start_adapter();
+    adapter.initalize().await;
+
+    let breaks = vec![SourceBreakpoint::builder().line(1).build()];
+    adapter.set_breakpoints_verified(&inner_path, &breaks).await;
+
+    adapter.launch(&outer_path).await;
+    adapter.assert_stopped_at_breakpoint().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+
+    let mut connection = connection();
+    connection
+        .execute_commands([Command::new(
+            "kill @e[type=area_effect_cloud,tag=mcfd_function_call]",
+        )])
+        .unwrap();
+
+    adapter.continue_().await;
+    assert!(listener.next().await.unwrap().output == added_tag_output("tag1"));
+
+    let output = adapter.assert_output().await;
+    assert!(output.category == OutputCategory::Important);
+    assert!(output.output == "Error: Debugger function call entity was killed!");
+
+    adapter.assert_terminated().await;
+    assert!(listener.try_next().unwrap_err() == TimeoutStreamError::Timeout);
+    Ok(())
+}

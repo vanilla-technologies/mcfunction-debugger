@@ -21,7 +21,7 @@ pub mod timeout;
 use crate::utils::timeout::TimeoutStream;
 use assert2::{assert, let_assert};
 use debug_adapter_protocol::{
-    events::{Event, StoppedEventReason},
+    events::{Event, OutputEventBody, StoppedEventReason},
     requests::{
         ContinueRequestArguments, DisconnectRequestArguments, InitializeRequestArguments,
         LaunchRequestArguments, NextRequestArguments, Request, ScopesRequestArguments,
@@ -109,6 +109,12 @@ where
         let event = self.output.next().await.unwrap();
         let_assert!(Content::Event(Event::Stopped(body)) = event.content);
         assert!(body.reason == StoppedEventReason::Breakpoint);
+    }
+
+    pub async fn assert_output(&mut self) -> OutputEventBody {
+        let event = self.output.next().await.unwrap();
+        let_assert!(Content::Event(Event::Output(body)) = event.content);
+        body
     }
 
     pub async fn assert_terminated(mut self) {
