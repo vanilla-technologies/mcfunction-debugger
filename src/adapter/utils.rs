@@ -17,14 +17,9 @@
 // If not, see <http://www.gnu.org/licenses/>.
 
 use crate::{
-    adapter::{MinecraftSession, LISTENER_NAME},
-    dap::error::PartialErrorResponse,
+    adapter::LISTENER_NAME,
     generator::{
-        config::{
-            adapter::{AdapterConfig, BreakpointPositionInLine, LocalBreakpointPosition},
-            Config,
-        },
-        generate_debug_datapack,
+        config::adapter::{BreakpointPositionInLine, LocalBreakpointPosition},
         parser::command::resource_location::ResourceLocation,
     },
 };
@@ -32,7 +27,6 @@ use debug_adapter_protocol::types::{Source, StackFrame};
 use futures::Stream;
 use minect::{command::SummonNamedEntityOutput, log::LogEvent};
 use std::{fmt::Display, path::Path, str::FromStr};
-use tokio::fs::remove_dir_all;
 use tokio_stream::StreamExt;
 
 pub fn parse_function_path(path: &Path) -> Result<(&Path, ResourceLocation), String> {
@@ -89,27 +83,6 @@ pub fn get_function_name(
         .unwrap() // Path is known to be UTF-8
         .replace(std::path::MAIN_SEPARATOR, "/");
     Ok(ResourceLocation::new(&namespace, &fn_path))
-}
-
-pub(super) async fn generate_datapack(
-    minecraft_session: &MinecraftSession,
-) -> Result<(), PartialErrorResponse> {
-    let config = Config {
-        namespace: &minecraft_session.namespace,
-        shadow: false,
-        adapter: Some(AdapterConfig {
-            adapter_listener_name: LISTENER_NAME,
-        }),
-    };
-    let _ = remove_dir_all(&minecraft_session.output_path).await;
-    generate_debug_datapack(
-        &minecraft_session.datapack,
-        &minecraft_session.output_path,
-        &config,
-    )
-    .await
-    .map_err(|e| PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e)))?;
-    Ok(())
 }
 
 pub(crate) fn events_between<'l>(

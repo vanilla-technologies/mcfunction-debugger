@@ -5,8 +5,13 @@ use futures::{
 use mcfunction_debugger::{
     adapter::utils::StoppedEvent,
     generator::{
-        config::{adapter::AdapterConfig, Config},
+        config::{
+            adapter::{AdapterConfig, BreakpointPositionInLine, LocalBreakpointPosition},
+            Config,
+        },
         generate_debug_datapack,
+        parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
+        DebugDatapackMetadata,
     },
 };
 use minect::{
@@ -509,14 +514,12 @@ fn running_test_cmd(test_name: &str) -> String {
 
 async fn get_breakpoint_commands(namespace: &str, name: &str) -> Vec<Command> {
     let mut commands = Vec::new();
+    commands.push(Command::new(format!(
+        "scoreboard players reset * {}_break",
+        NAMESPACE
+    )));
 
-    let mut fn_ids = HashMap::new();
-    let functions = read_to_string(get_datapack_dir(DEBUG_DATAPACK_NAME).join("functions.txt"))
-        .await
-        .unwrap();
-    for (fn_id, fn_name) in functions.lines().enumerate() {
-        fn_ids.insert(fn_name, fn_id);
-    }
+    let metadata = read_metadata(get_datapack_dir(DEBUG_DATAPACK_NAME).join("functions.txt")).await;
 
     let test_fn_dir = get_datapack_dir(TEST_DATAPACK_NAME)
         .join("data")
@@ -530,9 +533,8 @@ async fn get_breakpoint_commands(namespace: &str, name: &str) -> Vec<Command> {
             let contents = read_to_string(entry.path()).await.unwrap();
             for (line_index, line) in contents.lines().enumerate() {
                 if line.trim() == "# breakpoint" {
-                    let fn_name = format!(
-                        "{}:{}/{}",
-                        namespace,
+                    let path = format!(
+                        "{}/{}",
                         name,
                         entry
                             .path()
@@ -541,12 +543,15 @@ async fn get_breakpoint_commands(namespace: &str, name: &str) -> Vec<Command> {
                             .unwrap()
                             .display()
                     );
-                    // FIXME: Use id if score_holder has more than 40 characters
-                    let fn_score_holder = get_fn_score_holder(&fn_name, &fn_ids);
-                    let line_number = line_index + 2;
+                    let fn_name = ResourceLocation::new(namespace, &path);
+                    let position = LocalBreakpointPosition {
+                        line_number: line_index + 2,
+                        position_in_line: BreakpointPositionInLine::Breakpoint,
+                    };
+                    let score_holder = metadata.get_breakpoint_score_holder(&fn_name, &position);
                     commands.push(Command::new(format!(
-                        "scoreboard players set {}_{}_breakpoint {}_break 1",
-                        fn_score_holder, line_number, NAMESPACE
+                        "scoreboard players set {} {}_break 1",
+                        score_holder, NAMESPACE
                     )));
                 }
             }
@@ -555,18 +560,14 @@ async fn get_breakpoint_commands(namespace: &str, name: &str) -> Vec<Command> {
     commands
 }
 
-fn get_fn_score_holder(fn_name: &str, fn_ids: &HashMap<&str, usize>) -> String {
-    let fn_name_string = fn_name.to_string();
-    // Before Minecraft 1.18 score holder names can't be longer than 40 characters
-    if fn_name_string.len() <= 40 {
-        fn_name_string
-    } else if let Some(id) = fn_ids.get(fn_name) {
-        format!("fn_{}", id)
-    } else {
-        // If this is a missing function, it is ok to use the whole name, even if it is to long.
-        // In this case the -ns-_valid score can not be set, but it is not set for missing functions anyways.
-        fn_name_string
+async fn read_metadata(path: impl AsRef<Path>) -> DebugDatapackMetadata {
+    let functions = read_to_string(path).await.unwrap();
+    let mut fn_ids = HashMap::new();
+    for (fn_id, fn_name) in functions.lines().enumerate() {
+        let fn_name = ResourceLocationRef::try_from(fn_name).unwrap().to_owned();
+        fn_ids.insert(fn_name, fn_id);
     }
+    DebugDatapackMetadata::new(fn_ids)
 }
 
 async fn wait_for_test_output(

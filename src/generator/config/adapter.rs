@@ -28,7 +28,27 @@ pub struct LocalBreakpointPosition {
     pub line_number: usize,
     pub position_in_line: BreakpointPositionInLine,
 }
+impl FromStr for LocalBreakpointPosition {
+    type Err = ();
 
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        fn from_str_inner(s: &str) -> Option<LocalBreakpointPosition> {
+            let (line_number, position_in_line) = s.split_once('_')?;
+            let line_number = line_number.parse().ok()?;
+            let position_in_line = position_in_line.parse().ok()?;
+            Some(LocalBreakpointPosition {
+                line_number,
+                position_in_line,
+            })
+        }
+        from_str_inner(s).ok_or(())
+    }
+}
+impl Display for LocalBreakpointPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}_{}", self.line_number, self.position_in_line)
+    }
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BreakpointPositionInLine {
     Breakpoint,

@@ -22,7 +22,10 @@ mod partition;
 mod template_engine;
 
 use crate::generator::{
-    config::{adapter::BreakpointPositionInLine, Config},
+    config::{
+        adapter::{BreakpointPositionInLine, LocalBreakpointPosition},
+        Config,
+    },
     parser::{
         command::{
             argument::MinecraftEntityAnchor, resource_location::ResourceLocation, CommandParser,
@@ -49,18 +52,61 @@ use tokio::{
 };
 use walkdir::WalkDir;
 
+pub struct DebugDatapackMetadata {
+    fn_ids: HashMap<ResourceLocation, usize>,
+}
+impl DebugDatapackMetadata {
+    pub fn new(fn_ids: HashMap<ResourceLocation, usize>) -> DebugDatapackMetadata {
+        DebugDatapackMetadata { fn_ids }
+    }
+
+    fn get_fn_score_holder(&self, fn_name: &ResourceLocation) -> String {
+        self.get_score_holder(fn_name, fn_name.to_string(), |id| format!("fn_{}", id))
+    }
+
+    pub fn get_breakpoint_score_holder(
+        &self,
+        fn_name: &ResourceLocation,
+        position: &LocalBreakpointPosition,
+    ) -> String {
+        self.get_score_holder(fn_name, format!("{}_{}", fn_name, position), |id| {
+            format!("fn_{}_{}", id, position)
+        })
+    }
+
+    fn get_score_holder(
+        &self,
+        fn_name: &ResourceLocation,
+        result: String,
+        fallback: impl Fn(&usize) -> String,
+    ) -> String {
+        /// Before Minecraft 1.18 score holder names can't be longer than 40 characters
+        const MAX_SCORE_HOLDER_LEN: usize = 40;
+        if result.len() <= MAX_SCORE_HOLDER_LEN {
+            result
+        } else if let Some(id) = self.fn_ids.get(fn_name) {
+            fallback(id)
+        } else {
+            // If this is a missing function, it is ok to use the whole name, even if it is to long.
+            // In this case the -ns-_valid score can not be set, but it is not set for missing functions anyways.
+            result
+        }
+    }
+}
+
 /// Visible for testing only. This is a binary crate, it is not intended to be used as a library.
 pub async fn generate_debug_datapack<'l>(
     input_path: impl AsRef<Path>,
     output_path: impl AsRef<Path>,
     config: &Config<'l>,
-) -> io::Result<()> {
+) -> io::Result<DebugDatapackMetadata> {
     let functions = find_function_files(input_path).await?;
     let fn_ids = functions
         .keys()
         .enumerate()
-        .map(|(index, it)| (it, index))
+        .map(|(index, it)| (it.clone(), index))
         .collect::<HashMap<_, _>>();
+    let metadata = DebugDatapackMetadata { fn_ids };
 
     let fn_contents = parse_functions(&functions, config).await?;
 
@@ -76,11 +122,11 @@ pub async fn generate_debug_datapack<'l>(
             .as_ref()
             .map(|config| config.adapter_listener_name),
     );
-    expand_templates(&engine, &fn_ids, &fn_contents, &output_path, config).await?;
+    expand_templates(&engine, &metadata, &fn_contents, &output_path, config).await?;
 
     write_functions_txt(functions.keys(), &output_path).await?;
 
-    Ok(())
+    Ok(metadata)
 }
 
 async fn find_function_files(
@@ -163,14 +209,14 @@ async fn parse_functions<'l>(
 
 async fn expand_templates(
     engine: &TemplateEngine<'_>,
-    fn_ids: &HashMap<&ResourceLocation, usize>,
+    metadata: &DebugDatapackMetadata,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
     try_join!(
-        expand_global_templates(engine, fn_ids, fn_contents, &output_path),
-        expand_function_specific_templates(engine, fn_ids, fn_contents, &output_path, config),
+        expand_global_templates(engine, metadata, fn_contents, &output_path),
+        expand_function_specific_templates(engine, metadata, fn_contents, &output_path, config),
     )?;
     Ok(())
 }
@@ -185,7 +231,7 @@ macro_rules! expand_template {
 
 async fn expand_global_templates(
     engine: &TemplateEngine<'_>,
-    fn_ids: &HashMap<&ResourceLocation, usize>,
+    metadata: &DebugDatapackMetadata,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
@@ -229,11 +275,11 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/unfreeze_aec.mcfunction"),
         expand!("data/-ns-/functions/uninstall.mcfunction"),
         expand_scores_templates(&engine, fn_contents, &output_path),
-        expand_validate_all_functions_template(&engine, fn_ids, fn_contents, &output_path),
+        expand_validate_all_functions_template(&engine, metadata, fn_contents, &output_path),
         expand!("data/debug/functions/install.mcfunction"),
         expand!("data/debug/functions/resume.mcfunction"),
         expand!("data/debug/functions/show_scores.mcfunction"),
-        expand_show_skipped_template(&engine, fn_ids, fn_contents, &output_path),
+        expand_show_skipped_template(&engine, metadata, fn_contents, &output_path),
         expand!("data/debug/functions/stop.mcfunction"),
         expand!("data/debug/functions/uninstall.mcfunction"),
         expand!("data/minecraft/tags/functions/load.json"),
@@ -369,7 +415,7 @@ async fn expand_update_scores_template(
 
 async fn expand_validate_all_functions_template(
     engine: &TemplateEngine<'_>,
-    fn_ids: &HashMap<&ResourceLocation, usize>,
+    metadata: &DebugDatapackMetadata,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
@@ -379,7 +425,7 @@ async fn expand_validate_all_functions_template(
     let content = fn_contents
         .keys()
         .map(|name| {
-            let fn_score_holder = get_fn_score_holder(name, fn_ids);
+            let fn_score_holder = metadata.get_fn_score_holder(name);
             let engine = engine
                 .extend_orig_name(name)
                 .extend([("-fn_score_holder-", fn_score_holder.as_str())]);
@@ -394,7 +440,7 @@ async fn expand_validate_all_functions_template(
 
 async fn expand_show_skipped_template(
     engine: &TemplateEngine<'_>,
-    fn_ids: &HashMap<&ResourceLocation, usize>,
+    metadata: &DebugDatapackMetadata,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
 ) -> io::Result<()> {
@@ -415,7 +461,7 @@ async fn expand_show_skipped_template(
     let missing_functions = called_functions
         .iter()
         .map(|orig_name| {
-            let fn_score_holder = get_fn_score_holder(orig_name, fn_ids);
+            let fn_score_holder = metadata.get_fn_score_holder(orig_name);
             engine
                 .extend_orig_name(orig_name)
                 .extend([("-fn_score_holder-", fn_score_holder.as_str())])
@@ -430,7 +476,7 @@ async fn expand_show_skipped_template(
     let invalid_functions = called_functions
         .iter()
         .map(|orig_name| {
-            let fn_score_holder = get_fn_score_holder(orig_name, fn_ids);
+            let fn_score_holder = metadata.get_fn_score_holder(orig_name);
             engine
                 .extend_orig_name(orig_name)
                 .extend([("-fn_score_holder-", fn_score_holder.as_str())])
@@ -458,7 +504,7 @@ async fn expand_show_skipped_template(
 
 async fn expand_function_specific_templates(
     engine: &TemplateEngine<'_>,
-    fn_ids: &HashMap<&ResourceLocation, usize>,
+    metadata: &DebugDatapackMetadata,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
@@ -470,7 +516,7 @@ async fn expand_function_specific_templates(
             &engine,
             fn_name,
             lines,
-            fn_ids,
+            metadata,
             &call_tree,
             &output_path,
             config,
@@ -504,12 +550,12 @@ async fn expand_function_templates(
     engine: &TemplateEngine<'_>,
     fn_name: &ResourceLocation,
     lines: &Vec<(usize, String, Line)>,
-    fn_ids: &HashMap<&ResourceLocation, usize>,
+    metadata: &DebugDatapackMetadata,
     call_tree: &MultiMap<&ResourceLocation, (&ResourceLocation, &usize)>,
     output_path: impl AsRef<Path>,
     config: &Config<'_>,
 ) -> io::Result<()> {
-    let fn_score_holder = get_fn_score_holder(fn_name, fn_ids);
+    let fn_score_holder = metadata.get_fn_score_holder(fn_name);
     let engine = engine
         .extend_orig_name(fn_name)
         .extend([("-fn_score_holder-", fn_score_holder.as_str())]);
@@ -572,12 +618,17 @@ async fn expand_function_templates(
                         1 + line.len()
                     }
                 };
+                let position = LocalBreakpointPosition {
+                    line_number: partition.end.line_number,
+                    position_in_line: *position_in_line,
+                };
                 let next_partition = &partitions[partition_index + 1];
                 expand_breakpoint_template2(
                     &engine,
                     output_path,
-                    &fn_score_holder,
-                    &partition.end,
+                    &metadata,
+                    &fn_name,
+                    &position,
                     column,
                     next_partition,
                 )
@@ -591,7 +642,7 @@ async fn expand_function_templates(
                 selectors,
             } => {
                 let line_number = (partition.end.line_number).to_string();
-                let fn_score_holder = get_fn_score_holder(called_fn, fn_ids);
+                let fn_score_holder = metadata.get_fn_score_holder(called_fn);
                 let execute = &line[..*column_index];
                 let execute = exclude_internal_entites_from_selectors(execute, selectors);
                 let debug_anchor = anchor.map_or("".to_string(), |anchor| {
@@ -737,11 +788,14 @@ async fn expand_breakpoint_template(
 async fn expand_breakpoint_template2(
     engine: &TemplateEngine<'_>,
     output_path: &Path,
-    fn_score_holder: &str,
-    position: &Position,
+    metadata: &DebugDatapackMetadata,
+    fn_name: &ResourceLocation,
+    position: &LocalBreakpointPosition,
     column: usize,
     next_partition: &Partition<'_>,
 ) -> io::Result<String> {
+    let score_holder = metadata.get_breakpoint_score_holder(fn_name, position);
+
     let line_number = position.line_number.to_string();
     let position = position.to_string();
     let column_str = &format!(":{}", column);
@@ -759,8 +813,6 @@ async fn expand_breakpoint_template2(
     .await?;
 
     let next_positions = format!("{}-{}", next_partition.start, next_partition.end);
-    // FIXME: Use id if score_holder has more than 40 characters
-    let score_holder = format!("{}_{}", fn_score_holder, position);
     let engine = engine.extend([
         ("-next_positions-", next_positions.as_str()),
         ("-score_holder-", score_holder.as_str()),
@@ -768,23 +820,6 @@ async fn expand_breakpoint_template2(
     Ok(engine.expand(include_template!(
         "data/template/functions/breakpoint_configurable.mcfunction"
     )))
-}
-
-fn get_fn_score_holder(
-    fn_name: &ResourceLocation,
-    fn_ids: &HashMap<&ResourceLocation, usize>,
-) -> String {
-    let fn_name_string = fn_name.to_string();
-    // Before Minecraft 1.18 score holder names can't be longer than 40 characters
-    if fn_name_string.len() <= 40 {
-        fn_name_string
-    } else if let Some(id) = fn_ids.get(fn_name) {
-        format!("fn_{}", id)
-    } else {
-        // If this is a missing function, it is ok to use the whole name, even if it is to long.
-        // In this case the -ns-_valid score can not be set, but it is not set for missing functions anyways.
-        fn_name_string
-    }
 }
 
 async fn write_functions_txt(

@@ -20,19 +20,21 @@ pub mod utils;
 
 use crate::{
     adapter::utils::{
-        events_between, generate_datapack, parse_function_path, BreakpointPosition,
-        McfunctionStackFrame, StoppedData, StoppedEvent,
+        events_between, parse_function_path, BreakpointPosition, McfunctionStackFrame, StoppedData,
+        StoppedEvent,
     },
     dap::{
         api::{DebugAdapter, DebugAdapterContext},
         error::{PartialErrorResponse, RequestError},
     },
     generator::{
-        config::adapter::{BreakpointPositionInLine, LocalBreakpointPosition},
+        config::adapter::{AdapterConfig, BreakpointPositionInLine, LocalBreakpointPosition},
+        generate_debug_datapack,
         parser::{
             command::{resource_location::ResourceLocation, CommandParser},
             parse_line, Line,
         },
+        DebugDatapackMetadata,
     },
     installer::establish_connection,
 };
@@ -112,6 +114,7 @@ struct MinecraftSession {
     datapack: PathBuf,
     namespace: String,
     output_path: PathBuf,
+    metadata: DebugDatapackMetadata,
     scopes: Vec<ScopeReference>,
     step_target_depth: Option<i32>,
     stopped_data: Option<StoppedData>,
@@ -126,14 +129,30 @@ impl MinecraftSession {
         command.replace("-ns-", &self.namespace)
     }
 
+    pub fn setup_breakpoint_commands(
+        &self,
+        breakpoints: &MultiMap<ResourceLocation, LocalBreakpointPosition>,
+    ) -> Vec<Command> {
+        let mut commands = Vec::new();
+        commands.push(Command::new(
+            self.replace_ns("scoreboard players reset * -ns-_break"),
+        ));
+        for (function, breakpoints) in breakpoints.iter_all() {
+            for breakpoint in breakpoints {
+                commands.push(self.activate_breakpoint_command(function, &breakpoint));
+            }
+        }
+        commands
+    }
+
     pub(crate) fn activate_breakpoint_command(
         &self,
         fn_name: &ResourceLocation,
         position: &LocalBreakpointPosition,
     ) -> Command {
         Command::new(self.replace_ns(&format!(
-            "scoreboard players set {}_{}_{} -ns-_break 1",
-            fn_name, position.line_number, position.position_in_line
+            "scoreboard players set {} -ns-_break 1",
+            self.metadata.get_breakpoint_score_holder(fn_name, position)
         )))
     }
 
@@ -143,8 +162,8 @@ impl MinecraftSession {
         position: &LocalBreakpointPosition,
     ) -> Command {
         Command::new(self.replace_ns(&format!(
-            "scoreboard players reset {}_{}_{} -ns-_break",
-            fn_name, position.line_number, position.position_in_line
+            "scoreboard players reset {} -ns-_break",
+            self.metadata.get_breakpoint_score_holder(fn_name, position)
         )))
     }
 
@@ -411,9 +430,10 @@ impl McfunctionDebugAdapter {
         let step_target_depth = depth_offset.map(|depth_offset| current_depth + depth_offset);
         mc_session.step_target_depth = step_target_depth;
 
+        // Continue must be scheduled to ensure it runs before suspended schedules
         let commands = Vec::from_iter([
             mc_session.set_step_target_depth_command(step_target_depth),
-            Command::new(mc_session.replace_ns("function -ns-:prepare_resume")),
+            Command::new(mc_session.replace_ns("schedule function -ns-:prepare_resume 1t")),
             Command::new(mc_session.replace_ns(&format!(
                 "schedule function -ns-:{}/{}/continue_current_iteration_at_{}_{} 1t",
                 stopped_data.position.function.namespace(),
@@ -540,17 +560,32 @@ impl DebugAdapter for McfunctionDebugAdapter {
             .join("datapacks")
             .join(&debug_datapack_name);
 
+        let datapack = config.datapack.to_path_buf();
+
+        let generator_config = crate::generator::config::Config {
+            namespace: &namespace,
+            shadow: false,
+            adapter: Some(AdapterConfig {
+                adapter_listener_name: LISTENER_NAME,
+            }),
+        };
+        let _ = remove_dir_all(&output_path).await;
+        let metadata = generate_debug_datapack(&datapack, &output_path, &generator_config)
+            .await
+            .map_err(|e| {
+                PartialErrorResponse::new(format!("Failed to generate debug datapack: {}", e))
+            })?;
+
         let mut mc_session = MinecraftSession {
             connection,
-            datapack: config.datapack.to_path_buf(),
+            datapack,
             namespace,
             output_path,
+            metadata,
             scopes: Vec::new(),
             step_target_depth: None,
             stopped_data: None,
         };
-
-        generate_datapack(&mc_session).await?;
 
         let commands = vec![
             Command::new("reload"),
@@ -558,12 +593,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
         ];
         mc_session.inject_commands(commands)?;
         // After loading the datapack we must wait one tick for it to install itself
-        let mut commands = Vec::new();
-        for (function, breakpoints) in client_session.breakpoints.iter_all() {
-            for breakpoint in breakpoints {
-                commands.push(mc_session.activate_breakpoint_command(function, &breakpoint));
-            }
-        }
+        let mut commands = mc_session.setup_breakpoint_commands(&client_session.breakpoints);
         // By scheduling this function call we have a defined execution position
         commands.push(Command::new(format!(
             "schedule function debug:{}/{} 1t",
