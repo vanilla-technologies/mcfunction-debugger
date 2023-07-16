@@ -28,12 +28,13 @@ use crate::{
         error::{PartialErrorResponse, RequestError},
     },
     generator::{
-        config::adapter::{AdapterConfig, BreakpointPositionInLine, LocalBreakpointPosition},
+        config::GeneratorConfig,
         generate_debug_datapack,
         parser::{
             command::{resource_location::ResourceLocation, CommandParser},
             parse_line, Line,
         },
+        partition::{BreakpointPositionInLine, LocalBreakpointPosition},
         DebugDatapackMetadata,
     },
     installer::establish_connection,
@@ -562,12 +563,9 @@ impl DebugAdapter for McfunctionDebugAdapter {
 
         let datapack = config.datapack.to_path_buf();
 
-        let generator_config = crate::generator::config::Config {
+        let generator_config = GeneratorConfig {
             namespace: &namespace,
-            shadow: false,
-            adapter: Some(AdapterConfig {
-                adapter_listener_name: LISTENER_NAME,
-            }),
+            adapter_listener_name: LISTENER_NAME,
         };
         let _ = remove_dir_all(&output_path).await;
         let metadata = generate_debug_datapack(&datapack, &output_path, &generator_config)
@@ -882,7 +880,7 @@ impl DebugAdapter for McfunctionDebugAdapter {
     }
 }
 
-struct Config<'l> {
+struct AdapterConfig<'l> {
     datapack: &'l Path,
     datapack_name: &'l str,
     function: ResourceLocation,
@@ -890,7 +888,7 @@ struct Config<'l> {
     minecraft_log_file: &'l Path,
 }
 
-fn get_config(args: &LaunchRequestArguments) -> Result<Config, PartialErrorResponse> {
+fn get_config(args: &LaunchRequestArguments) -> Result<AdapterConfig, PartialErrorResponse> {
     let program = get_path(&args, "program")?;
 
     let (datapack, function) = parse_function_path(program)
@@ -909,7 +907,7 @@ fn get_config(args: &LaunchRequestArguments) -> Result<Config, PartialErrorRespo
 
     let minecraft_world_dir = get_path(&args, "minecraftWorldDir")?;
     let minecraft_log_file = get_path(&args, "minecraftLogFile")?;
-    Ok(Config {
+    Ok(AdapterConfig {
         datapack,
         datapack_name,
         function,
@@ -960,7 +958,7 @@ async fn verify_breakpoint(
     let lines = BufReader::new(file).lines();
     if let Some(result) = LinesStream::new(lines).skip(line_number - 1).next().await {
         let line = result?;
-        let line = parse_line(parser, &line, false);
+        let line = parse_line(parser, &line);
         return Ok(is_command(line));
     } else {
         Ok(false)
@@ -1000,5 +998,5 @@ fn get_move_breakpoint_commands(
 }
 
 fn is_command(line: Line) -> bool {
-    !matches!(line, Line::Empty | Line::Comment | Line::Breakpoint)
+    !matches!(line, Line::Empty | Line::Comment)
 }

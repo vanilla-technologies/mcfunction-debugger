@@ -23,7 +23,6 @@ scoreboard objectives remove -ns-_anchor
 scoreboard objectives remove -ns-_break
 scoreboard objectives remove -ns-_depth
 scoreboard objectives remove -ns-_global
-scoreboard objectives remove -ns-_scores
 scoreboard objectives remove -ns-_skipped
 scoreboard objectives remove -ns-_tmp
 scoreboard objectives remove -ns-_valid
@@ -32,6 +31,3 @@ scoreboard objectives remove -ns-_constant
 
 function -ns-:id/uninstall
 kill @e[tag=-ns-]
-
-# -if_not_adapter-
-tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Datapack '-datapack-' was uninstalled."}]

@@ -19,3 +19,5 @@
 function -ns-:uninstall
 scoreboard objectives remove -ns-_version
 datapack disable "file/-datapack-"
+
+tellraw @a [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" Datapack '-datapack-' was uninstalled."}]

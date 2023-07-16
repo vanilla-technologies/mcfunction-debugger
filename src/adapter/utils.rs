@@ -19,8 +19,8 @@
 use crate::{
     adapter::LISTENER_NAME,
     generator::{
-        config::adapter::{BreakpointPositionInLine, LocalBreakpointPosition},
         parser::command::resource_location::ResourceLocation,
+        partition::{BreakpointPositionInLine, LocalBreakpointPosition},
     },
 };
 use debug_adapter_protocol::types::{Source, StackFrame};

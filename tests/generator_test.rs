@@ -5,12 +5,10 @@ use futures::{
 use mcfunction_debugger::{
     adapter::utils::StoppedEvent,
     generator::{
-        config::{
-            adapter::{AdapterConfig, BreakpointPositionInLine, LocalBreakpointPosition},
-            Config,
-        },
+        config::GeneratorConfig,
         generate_debug_datapack,
         parser::command::resource_location::{ResourceLocation, ResourceLocationRef},
+        partition::{BreakpointPositionInLine, LocalBreakpointPosition},
         DebugDatapackMetadata,
     },
 };
@@ -374,12 +372,9 @@ const NAMESPACE: &str = "mcfd";
 async fn do_create_debug_datapack() -> io::Result<()> {
     let input_path = get_datapack_dir(TEST_DATAPACK_NAME);
     let output_path = get_datapack_dir(DEBUG_DATAPACK_NAME);
-    let config = Config {
+    let config = GeneratorConfig {
         namespace: NAMESPACE,
-        shadow: false,
-        adapter: Some(AdapterConfig {
-            adapter_listener_name: LISTENER_NAME,
-        }),
+        adapter_listener_name: LISTENER_NAME,
     };
     generate_debug_datapack(&input_path, &output_path, &config).await?;
     Ok(())

@@ -534,7 +534,7 @@ async fn test_current_breakpoint_removed_continue_followed_by_set_breakpoints() 
 
     adapter.continue_().await;
 
-    // This runs before minecraft executes debug:resume which originally caused the breakpoint of kind continue to be deleted
+    // This runs before minecraft executes the continue which originally caused the breakpoint of kind continue to be deleted
     breaks.push(SourceBreakpoint::builder().line(1).build());
     adapter.set_breakpoints_verified(&test_path, &breaks).await;
 

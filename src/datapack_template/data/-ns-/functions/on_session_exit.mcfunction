@@ -16,7 +16,5 @@
 # You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-scoreboard players reset * -ns-_scores
-
 # -minect_log-
 summon area_effect_cloud ~ ~ ~ {CustomName: '{"text":"exited"}'}

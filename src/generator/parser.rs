@@ -32,7 +32,6 @@ use std::{collections::BTreeSet, convert::TryFrom, usize};
 pub enum Line {
     Empty,
     Comment,
-    Breakpoint,
     FunctionCall {
         column_index: usize,
         name: ResourceLocation,
@@ -77,8 +76,8 @@ pub enum ScheduleOperation {
     REPLACE { time: MinecraftTime },
 }
 
-pub fn parse_line(parser: &CommandParser, line: &str, breakpoint_comments: bool) -> Line {
-    let (line, error) = parse_line_internal(parser, line, breakpoint_comments);
+pub fn parse_line(parser: &CommandParser, line: &str) -> Line {
+    let (line, error) = parse_line_internal(parser, line);
     if let Some(error) = error {
         debug!("Failed to parse command: {}", error);
     }
@@ -88,15 +87,10 @@ pub fn parse_line(parser: &CommandParser, line: &str, breakpoint_comments: bool)
 fn parse_line_internal<'l>(
     parser: &'l CommandParser,
     line: &'l str,
-    breakpoint_comments: bool,
 ) -> (Line, Option<CommandParserError<'l>>) {
     let line = line.trim();
     if line.starts_with('#') {
-        if breakpoint_comments && line == "# breakpoint" {
-            (Line::Breakpoint, None)
-        } else {
-            (Line::Comment, None)
-        }
+        (Line::Comment, None)
     } else if line.is_empty() {
         (Line::Empty, None)
     } else {

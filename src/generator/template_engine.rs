@@ -25,13 +25,13 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct TemplateEngine<'l> {
     replacements: BTreeMap<&'l str, &'l str>,
     replacements_owned: BTreeMap<&'l str, String>,
-    adapter_listener_name: Option<&'l str>,
+    adapter_listener_name: &'l str,
 }
 
 impl<'l> TemplateEngine<'l> {
     pub fn new(
         replacements: BTreeMap<&'l str, &'l str>,
-        adapter_listener_name: Option<&'l str>,
+        adapter_listener_name: &'l str,
     ) -> TemplateEngine<'l> {
         TemplateEngine {
             replacements,
@@ -82,19 +82,11 @@ impl<'l> TemplateEngine<'l> {
             match line.trim() {
                 "# -minect_log-" => {
                     if let Some(command) = lines.next() {
-                        if let Some(listener) = self.adapter_listener_name {
-                            let commands = named_logged_block_commands(listener, command.trim());
-                            result.push_str(&commands.join("\n"));
-                            if command.ends_with('\n') {
-                                result.push('\n');
-                            }
-                        }
-                    }
-                }
-                "# -if_not_adapter-" => {
-                    if let Some(command) = lines.next() {
-                        if self.adapter_listener_name.is_none() {
-                            result.push_str(command);
+                        let commands =
+                            named_logged_block_commands(self.adapter_listener_name, command.trim());
+                        result.push_str(&commands.join("\n"));
+                        if command.ends_with('\n') {
+                            result.push('\n');
                         }
                     }
                 }
@@ -109,9 +101,6 @@ impl<'l> TemplateEngine<'l> {
 
     pub fn expand_line(&self, (_line_number, line, command): &(usize, String, Line)) -> String {
         match command {
-            Line::Breakpoint => {
-                unreachable!()
-            }
             Line::FunctionCall { .. } => {
                 unreachable!()
             }

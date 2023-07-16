@@ -3,26 +3,13 @@ use crate::generator::parser::command::argument::MinecraftTimeUnit;
 use std::iter::FromIterator;
 
 #[test]
-fn test_breakpoint() {
-    // given:
-    let parser = CommandParser::default().unwrap();
-    let line = "# breakpoint";
-
-    // when:
-    let actual = parse_line_internal(&parser, line, true);
-
-    // then:
-    assert_eq!(actual, (Line::Breakpoint, None));
-}
-
-#[test]
 fn test_say() {
     // given:
     let parser = CommandParser::default().unwrap();
     let line = "say execute as @e run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -44,7 +31,7 @@ fn test_tellraw() {
     let line = r#"tellraw @a {"text":"Hello World!"}"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     // TODO support argument type: minecraft:component
@@ -64,7 +51,7 @@ fn test_scoreboard_objectives_add() {
     let line = "scoreboard objectives add test_score dummy";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -86,7 +73,7 @@ fn test_scoreboard_objectives_setdisplay() {
     let line = "scoreboard objectives setdisplay sidebar test_score";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -108,7 +95,7 @@ fn test_scoreboard_set_objectives() {
     let line = "scoreboard players set test test_score 5";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -130,7 +117,7 @@ fn test_scoreboard_reset_objectives() {
     let line = "scoreboard players reset * test";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -152,7 +139,7 @@ fn test_scoreboard_operation_selectors() {
     let line = "scoreboard players operation @s test = @e[tag=test] test";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -174,7 +161,7 @@ fn test_scoreboard_operation_names() {
     let line = "scoreboard players operation var1 test = var2 test";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -196,7 +183,7 @@ fn test_execute() {
     let line = "execute run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -223,7 +210,7 @@ fn test_execute_align() {
     let line = "execute align xyz run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -250,7 +237,7 @@ fn test_execute_anchored() {
     let line = "execute anchored eyes run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -277,7 +264,7 @@ fn test_execute_multiple_anchored() {
     let line = "execute anchored feet anchored eyes run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -304,7 +291,7 @@ fn test_multiple_execute_anchored() {
     let line = "execute anchored feet run execute anchored eyes run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -331,7 +318,7 @@ fn test_multiple_execute_some_anchored() {
     let line = "execute anchored eyes run execute as @s run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -358,7 +345,7 @@ fn test_execute_as() {
     let line = "execute as @e[type=area_effect_cloud] run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -385,7 +372,7 @@ fn test_execute_at() {
     let line = "execute at @e[type=area_effect_cloud] run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -412,7 +399,7 @@ fn test_execute_facing_pos() {
     let line = "execute facing 1 ~2 -3 run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -439,7 +426,7 @@ fn test_execute_facing_entity() {
     let line = "execute facing entity @e[type=area_effect_cloud] eyes run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -466,7 +453,7 @@ fn test_execute_in() {
     let line = "execute in the_nether run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -493,7 +480,7 @@ fn test_execute_in_qualified() {
     let line = "execute in minecraft:the_end run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -520,7 +507,7 @@ fn test_execute_positioned_absolute() {
     let line = "execute positioned -1 0 1 run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -547,7 +534,7 @@ fn test_execute_positioned_local() {
     let line = "execute positioned ^-1 ^.3 ^-4.5 run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -574,7 +561,7 @@ fn test_execute_positioned_relative() {
     let line = "execute positioned ~-1 ~.3 ~-4.5 run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -601,7 +588,7 @@ fn test_execute_positioned_as() {
     let line = "execute positioned as @e[type=area_effect_cloud] run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -628,7 +615,7 @@ fn test_execute_rotated_absolute() {
     let line = "execute rotated 1 -5 run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -655,7 +642,7 @@ fn test_execute_rotated_relative() {
     let line = "execute rotated ~ ~-.5 run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -682,7 +669,7 @@ fn test_execute_rotated_as() {
     let line = "execute rotated as @e[type=area_effect_cloud] run function test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -709,7 +696,7 @@ fn test_execute_if_block() {
     let line = r#"execute if block ^1 ^.25 ^-.75 chest[facing=east]{Items:[{id:"minecraft:apple",Slot:13b,Count:1b}]} run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -737,7 +724,7 @@ fn test_execute_if_block_tag() {
         r#"execute if block ^1 ^.25 ^-.75 #minecraft:stairs[facing=east] run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -765,7 +752,7 @@ fn test_execute_if_blocks() {
         r#"execute if blocks -0 ~-.3 ~5 ^1 ^.25 ^-.75 ~-1 ~.5 ~-.75 all run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -792,7 +779,7 @@ fn test_execute_if_data_block() {
     let line = r#"execute if data block 1 2 3 Items[{Slot:13b}] run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -819,7 +806,7 @@ fn test_execute_if_data_entity() {
     let line = r#"execute if data entity @p Inventory[0].tag.BlockEntityTag.Command run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -846,7 +833,7 @@ fn test_execute_if_data_storage() {
     let line = r#"execute if data storage test foo.bar[0][0].baz run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -873,7 +860,7 @@ fn test_execute_if_entity() {
     let line = r#"execute if entity @e[type=area_effect_cloud] run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -900,7 +887,7 @@ fn test_execute_if_predicate() {
     let line = r#"execute if predicate mcfd:test_pred run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -927,7 +914,7 @@ fn test_execute_if_score() {
     let line = r#"execute if score max test_global >= #min test_global run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -954,7 +941,7 @@ fn test_execute_if_score_matches() {
     let line = r#"execute if score * test_global matches 0.. run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -981,7 +968,7 @@ fn test_execute_store_block() {
     let line = r#"execute store success block 1 2 3 Items[0].Count byte 10 run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1008,7 +995,7 @@ fn test_execute_store_bossbar() {
     let line = r#"execute store result bossbar test value run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1035,7 +1022,7 @@ fn test_execute_store_entity() {
     let line = r#"execute store success entity @e[type=minecraft:chest_minecart,sort=nearest,limit=1] Items[{id:"minecraft:apple"}].Count byte 10 run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1062,7 +1049,7 @@ fn test_execute_store_score() {
     let line = r#"execute store success score @s test_global run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1089,7 +1076,7 @@ fn test_execute_store_storage() {
     let line = r#"execute store result storage :test my_result long -.5 run function test:func"#;
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1116,7 +1103,7 @@ fn test_kill_selector() {
     let line = "kill @s";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1138,7 +1125,7 @@ fn test_kill_self() {
     let line = "kill";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1161,7 +1148,7 @@ fn test_schedule() {
     let line = "schedule function test:func 1t";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1193,7 +1180,7 @@ fn test_schedule_append() {
     let line = "schedule function test:func 1t append";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1225,7 +1212,7 @@ fn test_schedule_clear() {
     let line = "schedule clear test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1252,7 +1239,7 @@ fn test_schedule_replace() {
     let line = "schedule function test:func 1t replace";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1284,7 +1271,7 @@ fn test_execute_schedule() {
     let line = "execute at @e[type=area_effect_cloud] run schedule function test:func 1t";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1316,7 +1303,7 @@ fn test_execute_schedule_clear() {
     let line = "execute at @e[type=area_effect_cloud] run schedule clear test:func";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1343,7 +1330,7 @@ fn test_team_join_selector() {
     let line = "team join Foo @s";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1365,7 +1352,7 @@ fn test_team_join_self() {
     let line = "team join Foo";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1388,7 +1375,7 @@ fn test_teleport_location_self() {
     let line = "teleport ~ ~5 ~";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1411,7 +1398,7 @@ fn test_teleport_location_selector() {
     let line = "teleport @s ~ ~5 ~";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1433,7 +1420,7 @@ fn test_tp_location_self() {
     let line = "tp ~ ~5 ~";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1456,7 +1443,7 @@ fn test_teleport_destination_self() {
     let line = "teleport @e[type=sheep,limit=1]";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(
@@ -1479,7 +1466,7 @@ fn test_teleport_destination_selector() {
     let line = "teleport @s @e[type=sheep,limit=1]";
 
     // when:
-    let actual = parse_line_internal(&parser, line, true);
+    let actual = parse_line_internal(&parser, line);
 
     // then:
     assert_eq!(

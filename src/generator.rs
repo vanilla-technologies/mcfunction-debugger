@@ -18,21 +18,20 @@
 
 pub mod config;
 pub mod parser;
-mod partition;
+pub mod partition;
 mod template_engine;
 
 use crate::generator::{
-    config::{
-        adapter::{BreakpointPositionInLine, LocalBreakpointPosition},
-        Config,
-    },
+    config::GeneratorConfig,
     parser::{
         command::{
             argument::MinecraftEntityAnchor, resource_location::ResourceLocation, CommandParser,
         },
         parse_line, Line,
     },
-    partition::{partition, Partition, Position, PositionInLine, Terminator},
+    partition::{
+        partition, BreakpointPositionInLine, LocalBreakpointPosition, Partition, Terminator,
+    },
     template_engine::{exclude_internal_entites_from_selectors, TemplateEngine},
 };
 use futures::{future::try_join_all, FutureExt};
@@ -42,7 +41,7 @@ use std::{
     ffi::OsStr,
     fs::read_to_string,
     io::{self},
-    iter::{repeat, FromIterator},
+    iter::FromIterator,
     path::{Path, PathBuf},
 };
 use tokio::{
@@ -98,7 +97,7 @@ impl DebugDatapackMetadata {
 pub async fn generate_debug_datapack<'l>(
     input_path: impl AsRef<Path>,
     output_path: impl AsRef<Path>,
-    config: &Config<'l>,
+    config: &GeneratorConfig<'l>,
 ) -> io::Result<DebugDatapackMetadata> {
     let functions = find_function_files(input_path).await?;
     let fn_ids = functions
@@ -108,7 +107,7 @@ pub async fn generate_debug_datapack<'l>(
         .collect::<HashMap<_, _>>();
     let metadata = DebugDatapackMetadata { fn_ids };
 
-    let fn_contents = parse_functions(&functions, config).await?;
+    let fn_contents = parse_functions(&functions).await?;
 
     let output_name = output_path
         .as_ref()
@@ -117,12 +116,9 @@ pub async fn generate_debug_datapack<'l>(
         .unwrap_or_default();
     let engine = TemplateEngine::new(
         BTreeMap::from_iter([("-ns-", config.namespace), ("-datapack-", output_name)]),
-        config
-            .adapter
-            .as_ref()
-            .map(|config| config.adapter_listener_name),
+        config.adapter_listener_name,
     );
-    expand_templates(&engine, &metadata, &fn_contents, &output_path, config).await?;
+    expand_templates(&engine, &metadata, &fn_contents, &output_path).await?;
 
     write_functions_txt(functions.keys(), &output_path).await?;
 
@@ -185,7 +181,6 @@ fn get_functions(
 
 async fn parse_functions<'l>(
     functions: &'l BTreeMap<ResourceLocation, PathBuf>,
-    config: &Config<'_>,
 ) -> Result<HashMap<&'l ResourceLocation, Vec<(usize, String, Line)>>, io::Error> {
     let parser =
         CommandParser::default().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -198,7 +193,7 @@ async fn parse_functions<'l>(
                 .enumerate()
                 .map(|(line_index, line)| {
                     let line = line.strip_suffix('\r').unwrap_or(line); // Remove trailing carriage return on Windows
-                    let command = parse_line(&parser, line, config.adapter.is_none());
+                    let command = parse_line(&parser, line);
                     (line_index + 1, line.to_string(), command)
                 })
                 .collect::<Vec<(usize, String, Line)>>();
@@ -212,11 +207,10 @@ async fn expand_templates(
     metadata: &DebugDatapackMetadata,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
-    config: &Config<'_>,
 ) -> io::Result<()> {
     try_join!(
         expand_global_templates(engine, metadata, fn_contents, &output_path),
-        expand_function_specific_templates(engine, metadata, fn_contents, &output_path, config),
+        expand_function_specific_templates(engine, metadata, fn_contents, &output_path),
     )?;
     Ok(())
 }
@@ -264,9 +258,6 @@ async fn expand_global_templates(
         expand!("data/-ns-/functions/on_session_exit.mcfunction"),
         expand!("data/-ns-/functions/prepare_resume.mcfunction"),
         expand!("data/-ns-/functions/reset_skipped.mcfunction"),
-        expand!("data/-ns-/functions/resume_immediately.mcfunction"),
-        expand_resume_self_template(&engine, fn_contents, &output_path),
-        expand!("data/-ns-/functions/resume_unchecked.mcfunction"),
         expand_schedule_template(&engine, fn_contents, &output_path),
         expand!("data/-ns-/functions/select_entity.mcfunction"),
         expand!("data/-ns-/functions/skipped_functions_warning.mcfunction"),
@@ -277,8 +268,6 @@ async fn expand_global_templates(
         expand_scores_templates(&engine, fn_contents, &output_path),
         expand_validate_all_functions_template(&engine, metadata, fn_contents, &output_path),
         expand!("data/debug/functions/install.mcfunction"),
-        expand!("data/debug/functions/resume.mcfunction"),
-        expand!("data/debug/functions/show_scores.mcfunction"),
         expand_show_skipped_template(&engine, metadata, fn_contents, &output_path),
         expand!("data/debug/functions/stop.mcfunction"),
         expand!("data/debug/functions/uninstall.mcfunction"),
@@ -288,48 +277,6 @@ async fn expand_global_templates(
     )?;
 
     Ok(())
-}
-
-async fn expand_resume_self_template(
-    engine: &TemplateEngine<'_>,
-    fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
-    output_path: impl AsRef<Path>,
-) -> io::Result<()> {
-    let breakpoints = fn_contents
-        .iter()
-        .flat_map(|(name, lines)| {
-            repeat(*name).zip(
-                lines
-                    .iter()
-                    .filter(|(_, _, command)| matches!(command, Line::Breakpoint))
-                    .map(|it| Position {
-                        line_number: it.0,
-                        position_in_line: PositionInLine::Breakpoint,
-                    }),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let resume_cases = breakpoints
-        .into_iter()
-        .map(|(name, position)| {
-            engine.expand(&format!(
-                "execute \
-              if entity @s[tag=-ns-+{orig_ns}+{orig_fn_tag}+{position}] \
-              run function -ns-:{orig_ns}/{orig_fn}/\
-              continue_current_iteration_at_{position}",
-                orig_ns = name.namespace(),
-                orig_fn = name.path(),
-                orig_fn_tag = name.path().replace("/", "+"),
-                position = position,
-            ))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let engine = engine.extend([("# -resume_cases-", resume_cases.as_str())]);
-    let path = output_path.as_ref();
-    expand_template!(engine, path, "data/-ns-/functions/resume_self.mcfunction").await
 }
 
 async fn expand_schedule_template(
@@ -365,10 +312,7 @@ async fn expand_scores_templates(
         .flat_map(|objectives| objectives)
         .collect::<BTreeSet<_>>();
 
-    try_join!(
-        expand_log_scores_template(&objectives, engine, &output_path),
-        expand_update_scores_template(&objectives, engine, &output_path),
-    )?;
+    expand_log_scores_template(&objectives, engine, &output_path).await?;
 
     Ok(())
 }
@@ -380,26 +324,6 @@ async fn expand_log_scores_template(
 ) -> Result<(), io::Error> {
     #[rustfmt::skip]
   macro_rules! PATH { () => { "data/-ns-/functions/log_scores.mcfunction" }; }
-
-    let content = objectives
-        .iter()
-        .map(|objective| {
-            let engine = engine.extend([("-objective-", objective.as_str())]);
-            engine.expand(include_template!(PATH!()))
-        })
-        .collect::<Vec<_>>()
-        .join("");
-    let path = output_path.as_ref().join(engine.expand(PATH!()));
-    write(&path, &content).await
-}
-
-async fn expand_update_scores_template(
-    objectives: &BTreeSet<&String>,
-    engine: &TemplateEngine<'_>,
-    output_path: impl AsRef<Path>,
-) -> Result<(), io::Error> {
-    #[rustfmt::skip]
-  macro_rules! PATH { () => { "data/-ns-/functions/update_scores.mcfunction" }; }
 
     let content = objectives
         .iter()
@@ -507,20 +431,11 @@ async fn expand_function_specific_templates(
     metadata: &DebugDatapackMetadata,
     fn_contents: &HashMap<&ResourceLocation, Vec<(usize, String, Line)>>,
     output_path: impl AsRef<Path>,
-    config: &Config<'_>,
 ) -> io::Result<()> {
     let call_tree = create_call_tree(&fn_contents);
 
     try_join_all(fn_contents.iter().map(|(fn_name, lines)| {
-        expand_function_templates(
-            &engine,
-            fn_name,
-            lines,
-            metadata,
-            &call_tree,
-            &output_path,
-            config,
-        )
+        expand_function_templates(&engine, fn_name, lines, metadata, &call_tree, &output_path)
     }))
     .await?;
 
@@ -553,7 +468,6 @@ async fn expand_function_templates(
     metadata: &DebugDatapackMetadata,
     call_tree: &MultiMap<&ResourceLocation, (&ResourceLocation, &usize)>,
     output_path: impl AsRef<Path>,
-    config: &Config<'_>,
 ) -> io::Result<()> {
     let fn_score_holder = metadata.get_fn_score_holder(fn_name);
     let engine = engine
@@ -564,7 +478,7 @@ async fn expand_function_templates(
     let fn_dir = output_path.join(engine.expand("data/-ns-/functions/-orig_ns-/-orig/fn-"));
     create_dir_all(&fn_dir).await?;
 
-    let partitions = partition(lines, config);
+    let partitions = partition(lines);
 
     let mut first = true;
     for (partition_index, partition) in partitions.iter().enumerate() {
@@ -607,9 +521,6 @@ async fn expand_function_templates(
             .join("\n");
 
         let terminator = match &partition.terminator {
-            Terminator::Breakpoint => {
-                expand_breakpoint_template(&engine, output_path, &partition.end, 0).await?
-            }
             Terminator::ConfigurableBreakpoint { position_in_line } => {
                 let column = match position_in_line {
                     BreakpointPositionInLine::Breakpoint => 1,
@@ -623,7 +534,7 @@ async fn expand_function_templates(
                     position_in_line: *position_in_line,
                 };
                 let next_partition = &partitions[partition_index + 1];
-                expand_breakpoint_template2(
+                expand_breakpoint_template(
                     &engine,
                     output_path,
                     &metadata,
@@ -702,12 +613,6 @@ async fn expand_function_templates(
         expand!("data/debug/functions/-orig_ns-/-orig/fn-.mcfunction"),
     )?;
 
-    if config.shadow {
-        create_parent_dir(output_path.join(engine.expand("data/-orig_ns-/functions/-orig/fn-")))
-            .await?;
-        expand!("data/-orig_ns-/functions/-orig/fn-.mcfunction").await?;
-    }
-
     if let Some(callers) = call_tree.get_vec(fn_name) {
         let mut return_cases = callers
             .iter()
@@ -738,7 +643,7 @@ async fn expand_function_templates(
     let commands = lines
         .iter()
         .map(|(_, line, parsed)| match parsed {
-            Line::Empty | Line::Comment | Line::Breakpoint => line.to_string(),
+            Line::Empty | Line::Comment => line.to_string(),
             _ => {
                 format!(
                     "execute if score 1 -ns-_constant matches 0 run {}",
@@ -759,33 +664,6 @@ async fn expand_function_templates(
 }
 
 async fn expand_breakpoint_template(
-    engine: &TemplateEngine<'_>,
-    output_path: &Path,
-    position: &Position,
-    column: usize,
-) -> io::Result<String> {
-    let line_number = position.line_number.to_string();
-    let position = position.to_string();
-    let column_str = &format!(":{}", column);
-    let optional_column = if column == 0 { "" } else { column_str };
-    let engine = engine.extend([
-        ("-line_number-", line_number.as_str()),
-        ("-position-", &position),
-        ("-optional_column-", optional_column),
-    ]);
-    expand_template!(
-        engine,
-        output_path,
-        "data/-ns-/functions/-orig_ns-/-orig/fn-/suspend_at_-position-.mcfunction"
-    )
-    .await?;
-
-    Ok(engine.expand(include_template!(
-        "data/template/functions/breakpoint.mcfunction"
-    )))
-}
-
-async fn expand_breakpoint_template2(
     engine: &TemplateEngine<'_>,
     output_path: &Path,
     metadata: &DebugDatapackMetadata,

@@ -16,7 +16,6 @@
 # You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 # If not, see <http://www.gnu.org/licenses/>.
 
-# -if_not_adapter-
 execute if score skipped_missing -ns-_global matches 0 if score skipped_invalid -ns-_global matches 0 run tellraw @s [{"text":""},{"text":"[Info]","color":"blue","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" No functions were skipped."}]
 
 execute if score skipped_missing -ns-_global matches 1.. run tellraw @s [{"text":""},{"text":"[Warning]","color":"gold","hoverEvent":{"action":"show_text","contents":"mcfunction-Debugger"}},{"text":" The following missing functions were skipped:"}]

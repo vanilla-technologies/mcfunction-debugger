@@ -16,12 +16,7 @@
 // You should have received a copy of the GNU General Public License along with McFunction-Debugger.
 // If not, see <http://www.gnu.org/licenses/>.
 
-pub mod adapter;
-
-use crate::generator::config::adapter::AdapterConfig;
-
-pub struct Config<'l> {
+pub struct GeneratorConfig<'l> {
     pub namespace: &'l str,
-    pub shadow: bool,
-    pub adapter: Option<AdapterConfig<'l>>,
+    pub adapter_listener_name: &'l str,
 }
